@@ -1,6 +1,17 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+rem 바탕화면 등으로 파일을 복사해 실행한 경우 프로젝트 폴더를 찾아간다
+if not exist "requirements.txt" (
+  if exist "%USERPROFILE%\server_requirement_validate\requirements.txt" (
+    cd /d "%USERPROFILE%\server_requirement_validate"
+  ) else (
+    echo 프로젝트 폴더를 찾지 못했습니다. run.bat 은 server_requirement_validate 폴더 안에서 실행하세요.
+    pause
+    exit /b 1
+  )
+)
+echo 프로젝트 폴더: %CD%
 title Server Requirement Validator
 
 echo [1/4] 최신 코드 받는 중...
