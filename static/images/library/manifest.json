@@ -884,19 +884,6 @@
   ]
  },
  {
-  "id": "53f0554742",
-  "source": "R570 IO 구성 참조.vsdx",
-  "file": "images/library/C6615_Rear_Full__19772542.png",
-  "name": "C6615 Rear (Full)",
-  "category": "server_rear",
-  "w_in": 17.5431,
-  "h_in": 3.4231,
-  "px": [
-   2631,
-   513
-  ]
- },
- {
   "id": "f23c11ab94",
   "source": "R570 IO 구성 참조.vsdx",
   "file": "images/library/17G_BOSS-N1_24712523.png",
