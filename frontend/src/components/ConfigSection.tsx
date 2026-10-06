@@ -11,6 +11,7 @@ interface Props {
   images: ImageStatus | null;
   renderedImages: { front: string | null; rear: string | null };
   onChange: (config: ServerConfig) => void;
+  onBackplaneChange: (id: string) => void;
   onSaveCalibration: (hotspots: Record<string, Rect>, rects: Rect[]) => Promise<void>;
   onRedetectBays: () => Promise<void>;
 }
@@ -65,6 +66,7 @@ export default function ConfigSection({
   images,
   renderedImages,
   onChange,
+  onBackplaneChange,
   onSaveCalibration,
   onRedetectBays,
 }: Props) {
@@ -124,7 +126,23 @@ export default function ConfigSection({
     patch({ memory: config.memory.map((row, rowIndex) => rowIndex === index ? { ...row, ...values } : row) });
   };
 
-  const currentFrontRects = frontRects.length ? frontRects : images?.bays.rects || [];
+  const currentFrontRects = frontRects;
+  const candidates = images?.bays.candidates || [];
+  const covers = (rect: Rect, other: Rect) => {
+    const cx = other.x + other.w / 2, cy = other.y + other.h / 2;
+    return cx > rect.x && cx < rect.x + rect.w && cy > rect.y && cy < rect.y + rect.h;
+  };
+  const freeCandidates = candidates.filter((candidate) => !currentFrontRects.some((rect) => covers(rect, candidate) || covers(candidate, rect)));
+  const sortRects = (rects: Rect[]) => [...rects].sort((a, b) => Math.abs(a.y - b.y) > Math.min(a.h, b.h) / 2 ? a.y - b.y : a.x - b.x);
+  const imageBayMismatch = candidates.length > 0 && candidates.length !== backplane.bays;
+  const matchingBackplane = imageBayMismatch
+    ? server.backplanes.find((item) => item.bays === candidates.length && item.ff === backplane.ff)
+    : undefined;
+  const useCandidates = (from: "start" | "end") => {
+    const ordered = sortRects(candidates);
+    setFrontRects(from === "start" ? ordered.slice(0, backplane.bays) : ordered.slice(-backplane.bays));
+    setCalibrationMessage("사용할 베이를 바꿨습니다. '좌표 저장'을 눌러야 반영됩니다.");
+  };
   const startDrag = (view: "front" | "rear", event: PointerEvent<HTMLDivElement>) => {
     if (mode !== "calib") return;
     const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".hs, .bay") : null;
@@ -225,9 +243,38 @@ export default function ConfigSection({
                   >
                     {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : <span className="tag">{slot?.label}</span>}
                     {mode === "calib" && <span className="grip" />}
+                    {mode === "calib" && view === "front" && (
+                      <span
+                        className="bay-x"
+                        role="button"
+                        aria-label={`Bay ${index} 빼기`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setFrontRects(currentFrontRects.filter((_, rectIndex) => rectIndex !== index));
+                        }}
+                      >✕</span>
+                    )}
                   </button>
                 );
               })}
+              {view === "front" && mode === "calib" && freeCandidates.map((area, index) => (
+                <button
+                  key={`cand-${index}`}
+                  type="button"
+                  className="bay cand"
+                  title="이미지에서 찾은 베이 — 클릭하면 사용할 베이로 추가"
+                  style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
+                  onClick={() => {
+                    if (currentFrontRects.length >= backplane.bays) {
+                      setCalibrationMessage(`백플레인은 ${backplane.bays}베이입니다. 먼저 사용 중인 베이의 ✕로 하나를 빼세요.`);
+                      return;
+                    }
+                    setFrontRects(sortRects([...currentFrontRects, area]));
+                    setCalibrationMessage("");
+                  }}
+                >+</button>
+              ))}
             </div>
           </div>
         ) : (
@@ -263,11 +310,22 @@ export default function ConfigSection({
           <span className="muted">전면 베이를 선택한 뒤 디스크를 배치하거나 슬롯 표에서 부품을 선택하세요.</span>
         </div>
         {mode === "calib" && <div className="row">
-          <span className="muted">슬롯·베이 영역을 드래그하거나 모서리 핸들로 크기를 맞추세요.</span>
+          <span className="muted">영역을 드래그해 옮기고 오른쪽 아래 핸들로 크기를 맞추세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
           <button className="btn ghost small" disabled={calibrationBusy} onClick={() => void redetect()}>베이 자동 감지 다시</button>
+          {imageBayMismatch && <>
+            <button className="btn ghost small" onClick={() => useCandidates("start")}>왼쪽부터 {backplane.bays}개 사용</button>
+            <button className="btn ghost small" onClick={() => useCandidates("end")}>오른쪽부터 {backplane.bays}개 사용</button>
+          </>}
           <button className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>좌표 저장</button>
           {calibrationMessage && <span className={calibrationMessage.includes("오류") ? "warn" : "muted"} role={calibrationMessage.includes("오류") ? "alert" : undefined}>{calibrationMessage}</span>}
         </div>}
+        {imageBayMismatch && (
+          <div className="hint">
+            전면 이미지에는 베이가 {candidates.length}개 보이는데 선택한 백플레인은 {backplane.bays}베이입니다.
+            {matchingBackplane && <> <button className="btn small" onClick={() => onBackplaneChange(matchingBackplane.id)}>백플레인을 {matchingBackplane.name}(으)로 변경</button></>}
+            {" "}<button className="btn ghost small" onClick={() => setMode("calib")}>사용할 베이 고르기</button>
+          </div>
+        )}
         {renderStage("front")}
         <div className={`diskbar ${backplane.bays === 0 ? "off" : ""}`}>
           <span className="selinfo">선택한 베이 {selectedBays.length}개{selectedBays.length ? ` (${[...selectedBays].sort((a, b) => a - b).join(", ")})` : ""}</span>

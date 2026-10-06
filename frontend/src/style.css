@@ -110,7 +110,7 @@ figure.stage .lnk{color:#9CC8F2}
 .bay.sel{border:3px solid var(--sel);background:rgba(255,194,26,.28)}
 .bay.boot .bn{background:#8A6100}
 .bay.s-incomp{border:2px solid #D46BFF} .bay.s-review{border:2px solid #FFB020}
-.grip{position:absolute;right:-5px;bottom:-5px;width:11px;height:11px;background:#fff;border:2px solid var(--accent);cursor:nwse-resize;display:none}
+.grip{position:absolute;right:1px;bottom:1px;width:12px;height:12px;z-index:2;background:#fff;border:2px solid var(--accent);cursor:nwse-resize;display:none}
 .mode-calib .hs,.mode-calib .bay{cursor:move;border-color:#FFE14D;background:rgba(255,225,77,.15)}
 .mode-calib .grip{display:block}
 .mode-clean .hs,.mode-clean .bay{border-color:transparent!important;background:transparent!important}
@@ -281,3 +281,8 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .libcard{border:1px solid var(--line);border-radius:6px;padding:6px;display:grid;gap:2px;font-size:12.5px}
 .libcard img{width:100%;height:70px;object-fit:contain;background:#F2F4F7;border-radius:3px}
 .libcard small{color:#8a93a0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.bay.cand{border:2px dashed rgba(255,225,77,.9);background:rgba(0,0,0,.25);color:#FFE14D;font-weight:700;font-size:16px;cursor:copy}
+.bay.cand:hover{background:rgba(255,225,77,.25)}
+.bay-x{position:absolute;right:1px;top:1px;width:16px;height:16px;line-height:16px;text-align:center;font-size:11px;background:#C0392B;color:#fff;border-radius:2px;cursor:pointer;z-index:2}
+.hint{background:#FFF8E1;border:1px solid #F0D98A;border-radius:6px;padding:8px 12px;margin:0 0 8px;font-size:13.5px}

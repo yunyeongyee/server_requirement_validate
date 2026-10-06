@@ -199,7 +199,7 @@ def _runs(mask) -> list[tuple[int, int]]:
     return out
 
 
-def detect_bays(path: Path, ff: str, count: int, ppi_x: float) -> tuple[list[dict], bool]:
+def detect_bays(path: Path, ff: str, count: int, ppi_x: float, fill: bool = True) -> tuple[list[dict], bool]:
     """전면 이미지에서 밝은 구분선 사이의 어두운 영역 중 드라이브 크기와 맞는 칸을 베이로 인식."""
     im = Image.open(path).convert("L")
     a = np.asarray(im).astype(int)
@@ -229,7 +229,7 @@ def detect_bays(path: Path, ff: str, count: int, ppi_x: float) -> tuple[list[dic
             break
     cells = best
     # 행 단위로 묶어서 부족한 베이는 같은 간격으로 오른쪽에 보충
-    if cells and len(cells) < count:
+    if fill and cells and len(cells) < count:
         cells.sort(key=lambda c: (c[1], c[0]))
         rows: list[list] = []
         for c in cells:
@@ -279,6 +279,23 @@ def bays(server, bp: dict, force=False) -> dict:
     return saved
 
 
+_CANDIDATES: dict[tuple[str, str], list[dict]] = {}
+
+
+def bay_candidates(server, bp: dict) -> list[dict]:
+    """전면 이미지에 실제로 보이는 베이 전부(보충 없이). 이미지가 백플레인보다 베이가 많을 때 어느 칸을 쓸지 고르는 데 쓴다."""
+    fi, _ = front_item(server, bp["id"])
+    if not fi or not bp["bays"]:
+        return []
+    key = (fi["id"], bp["ff"])
+    if key not in _CANDIDATES:
+        p = ROOT / "static" / fi["file"]
+        ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
+        rects, _ = detect_bays(p, bp["ff"], 64, ppi, fill=False)
+        _CANDIDATES[key] = sorted(rects, key=lambda r: (round(r["y"] / max(1, r["h"] / 2)), r["x"]))
+    return _CANDIDATES[key]
+
+
 def save_bays(server, bp_id: str, rects: list[dict]):
     bp = next(b for b in server["backplanes"] if b["id"] == bp_id)
     fi, _ = front_item(server, bp_id)
@@ -308,7 +325,7 @@ def status(server, comps: list[dict], bp_id: str) -> dict:
             drv[f"{d['id']}:{o}"] = {"item": _brief(it), "auto": auto}
     return {"front": {"item": _brief(fi), "auto": fa, "stencil": bp.get("stencil")},
             "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil")},
-            "bays": by, "components": comp_imgs, "drives": drv, "library_count": len(library())}
+            "bays": {**by, "candidates": bay_candidates(server, bp)}, "components": comp_imgs, "drives": drv, "library_count": len(library())}
 
 
 # =============================================================== 합성

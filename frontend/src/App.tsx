@@ -425,6 +425,7 @@ export default function App() {
             images={imageStatus}
             renderedImages={renderedImages}
             onChange={handleConfigChange}
+            onBackplaneChange={handleBackplaneChange}
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
           />

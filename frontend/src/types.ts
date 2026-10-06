@@ -211,7 +211,7 @@ export interface LibraryImage {
 export interface ImageStatus {
   front: { item: ImageRef | null; auto: boolean; stencil?: string };
   rear: { item: ImageRef | null; auto: boolean; stencil?: string };
-  bays: { rects: Array<{ x: number; y: number; w: number; h: number }> };
+  bays: { rects: Array<{ x: number; y: number; w: number; h: number }>; candidates?: Array<{ x: number; y: number; w: number; h: number }> };
   components: Record<string, { item: ImageRef | null; auto: boolean }>;
   drives: Record<string, { item: ImageRef | null; auto: boolean }>;
   library_count: number;
