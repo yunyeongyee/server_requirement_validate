@@ -186,6 +186,7 @@ def drive_item(drive: dict, orient: str) -> tuple[dict | None, bool]:
 
 
 # =============================================================== 베이 자동 감지
+BAY_ALGO = 2  # 베이 감지 방식 버전. 바꾸면 자동 감지 결과를 다시 계산한다.
 DRIVE_FACE = {"2.5": [(0.603, 2.853), (2.853, 0.603)], "3.5": [(4.103, 1.028)]}
 
 
@@ -199,14 +200,41 @@ def _runs(mask) -> list[tuple[int, int]]:
     return out
 
 
+def _repeated_cells(a: np.ndarray) -> list[list]:
+    """밝은 구분선으로 나뉜 칸 중 같은 크기(±8%)로 가장 많이 반복되는 묶음. 통풍구 구멍처럼 작은 칸은 제외."""
+    H, W = a.shape
+    best: list[tuple] = []
+    for light in (200, 215, 230, 185, 170):
+        band = a[int(H * 0.08):int(H * 0.92)]
+        colsep = (band > light).mean(axis=0) > 0.5
+        cells = []
+        for x0, x1 in _runs(~colsep):
+            rowsep = (a[:, x0:x1] > light).mean(axis=1) > 0.5
+            for y0, y1 in _runs(~rowsep):
+                w, h = x1 - x0, y1 - y0
+                if h > 0.25 * H and 0.012 * W < w < 0.3 * W:
+                    cells.append((x0, y0, x1, y1))
+        for c in cells:
+            w, h = c[2] - c[0], c[3] - c[1]
+            grp = [d for d in cells if abs((d[2] - d[0]) - w) / w < 0.08 and abs((d[3] - d[1]) - h) / h < 0.08]
+            area = lambda g: (g[0][2] - g[0][0]) * (g[0][3] - g[0][1]) if g else 0
+            if len(grp) > len(best) or (len(grp) == len(best) and area(grp) > area(best)):
+                best = grp
+    if len(best) < 2:
+        return []
+    return [[*c, float(a[c[1]:c[3], c[0]:c[2]].mean())] for c in sorted(set(best))]
+
+
 def detect_bays(path: Path, ff: str, count: int, ppi_x: float, fill: bool = True) -> tuple[list[dict], bool]:
     """전면 이미지에서 밝은 구분선 사이의 어두운 영역 중 드라이브 크기와 맞는 칸을 베이로 인식."""
     im = Image.open(path).convert("L")
     a = np.asarray(im).astype(int)
     H, W = a.shape
     sizes = [(w * ppi_x, h * ppi_x) for w, h in DRIVE_FACE[ff]]
-    best = []
-    for light in (215, 200, 230):
+    # 1) 크기 가정 없이: 같은 크기로 반복되는 칸 묶음 중 가장 많은 것 (E3.S 등 규격이 달라도 동작)
+    best = _repeated_cells(a)
+    # 2) 실패하면 2.5"/3.5" 드라이브 면 크기로 찾기
+    for light in (() if len(best) >= min(count, 4) else (215, 200, 230)):
         band = a[int(H * 0.08):int(H * 0.92)]
         colsep = (band > light).mean(axis=0) > 0.5
         cells = []
@@ -265,7 +293,8 @@ def bays(server, bp: dict, force=False) -> dict:
     m = _map()
     store = m["servers"].setdefault(server["id"], {}).setdefault("bays", {})
     saved = store.get(bp["id"])
-    if saved and saved.get("item") == fi["id"] and not force:
+    # 직접 보정한 좌표는 유지. 예전 감지 방식으로 자동 저장된 값만 다시 감지한다.
+    if saved and saved.get("item") == fi["id"] and not force and (saved.get("source") == "manual" or saved.get("algo") == BAY_ALGO):
         return saved
     p = ROOT / "static" / fi["file"]
     ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
@@ -273,7 +302,7 @@ def bays(server, bp: dict, force=False) -> dict:
     if not rects:  # 감지 실패 → 보정용 기본 배치
         n = bp["bays"]
         rects = [{"x": 5 + i * 85 / n, "y": 10, "w": 85 / n * 0.9, "h": 80} for i in range(n)]
-    saved = {"item": fi["id"], "rects": rects, "ok": ok, "source": "auto"}
+    saved = {"item": fi["id"], "rects": rects, "ok": ok, "source": "auto", "algo": BAY_ALGO}
     store[bp["id"]] = saved
     _save_map(m)
     return saved

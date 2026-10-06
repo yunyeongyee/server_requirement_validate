@@ -138,6 +138,23 @@ export default function ConfigSection({
   const matchingBackplane = imageBayMismatch
     ? server.backplanes.find((item) => item.bays === candidates.length && item.ff === backplane.ff)
     : undefined;
+  /** 첫 베이 크기를 전체에 적용하고, 첫·마지막 베이 사이를 같은 간격으로 채운다 (한 줄 기준) */
+  const distributeBays = () => {
+    const rects = currentFrontRects;
+    const n = backplane.bays;
+    if (!rects.length) return;
+    const first = rects[0];
+    const last = rects.length > 1 ? rects[rects.length - 1] : { ...first, x: Math.min(100 - first.w, first.x + first.w * 1.1 * (n - 1)) };
+    const step = n > 1 ? { x: (last.x - first.x) / (n - 1), y: (last.y - first.y) / (n - 1) } : { x: 0, y: 0 };
+    setFrontRects(Array.from({ length: n }, (_, index) => ({ x: first.x + step.x * index, y: first.y + step.y * index, w: first.w, h: first.h })));
+    setCalibrationMessage(`Bay 0 크기로 ${n}개를 같은 간격으로 배치했습니다. 확인 후 '좌표 저장'을 누르세요.`);
+  };
+  const copyFirstSize = () => {
+    const first = currentFrontRects[0];
+    if (!first) return;
+    setFrontRects(currentFrontRects.map((rect) => ({ ...rect, w: first.w, h: first.h, y: first.y })));
+    setCalibrationMessage("Bay 0 크기와 높이를 전체 베이에 적용했습니다.");
+  };
   const useCandidates = (from: "start" | "end") => {
     const ordered = sortRects(candidates);
     setFrontRects(from === "start" ? ordered.slice(0, backplane.bays) : ordered.slice(-backplane.bays));
@@ -310,8 +327,10 @@ export default function ConfigSection({
           <span className="muted">전면 베이를 선택한 뒤 디스크를 배치하거나 슬롯 표에서 부품을 선택하세요.</span>
         </div>
         {mode === "calib" && <div className="row">
-          <span className="muted">영역을 드래그해 옮기고 오른쪽 아래 핸들로 크기를 맞추세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
+          <span className="muted">빠른 방법: Bay 0의 크기·위치와 마지막 베이 위치만 맞춘 뒤 '처음·끝 사이 균등 배치'를 누르세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
           <button className="btn ghost small" disabled={calibrationBusy} onClick={() => void redetect()}>베이 자동 감지 다시</button>
+          <button className="btn ghost small" onClick={copyFirstSize} title="Bay 0의 너비·높이·세로 위치를 모든 베이에 복사">Bay 0 크기를 전체에 적용</button>
+          <button className="btn ghost small" onClick={distributeBays} title="Bay 0과 마지막 베이 위치만 맞추면 사이를 같은 간격으로 채움">처음·끝 사이 균등 배치</button>
           {imageBayMismatch && <>
             <button className="btn ghost small" onClick={() => useCandidates("start")}>왼쪽부터 {backplane.bays}개 사용</button>
             <button className="btn ghost small" onClick={() => useCandidates("end")}>오른쪽부터 {backplane.bays}개 사용</button>
