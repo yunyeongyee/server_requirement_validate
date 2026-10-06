@@ -17,6 +17,8 @@
 - `static/images/library/` — 이미지 라이브러리 + `manifest.json`
 
 ## 실행
+Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시작 → 브라우저 열기, 포트 8001)
+
 ```bash
 ./run.sh   # 프론트 빌드 → pip 설치 → http://localhost:8000
 ```
