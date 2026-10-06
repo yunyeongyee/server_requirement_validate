@@ -48,6 +48,7 @@ export default function ServerSection({
   const [managerOpen, setManagerOpen] = useState(false);
   const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
+  const [target, setTarget] = useState<"front" | "rear" | null>(null);
 
   useEffect(() => {
     if (apiReady !== true) return;
@@ -74,6 +75,13 @@ export default function ServerSection({
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = library.filter((item) => (tab === "all" || tabOf(item.category) === tab)
     && terms.every((term) => `${item.name} ${item.source}`.toLowerCase().includes(term)));
+
+  const pickTarget = (kind: "front" | "rear") => {
+    setTarget((current) => current === kind ? null : kind);
+    setTab(kind === "front" ? "server_front" : "server_rear");
+  };
+  const assignable = (item: LibraryImage) => !!target && item.category === (target === "front" ? "server_front" : "server_rear");
+  const usedAs = (id: string) => [images?.front.item?.id === id && "전면", images?.rear.item?.id === id && "후면"].filter(Boolean).join("·");
 
   const selectedBackplane = server.backplanes.find((item) => item.id === backplaneId) || server.backplanes[0];
   const serverSpec: Array<[string, string | number]> = [
@@ -195,18 +203,29 @@ export default function ServerSection({
                 <div className="bar"><i style={{ width: `${uploadPercent}%` }} /></div><span>{uploadMessage}</span>
               </div>
             )}
-            <div className="mapline">
+            <div className="assign">
               {(["front", "rear"] as const).map((kind) => {
                 const status = images?.[kind];
+                const label = kind === "front" ? `전면 · ${selectedBackplane?.name}` : "후면";
                 return (
-                  <span className="mapitem" key={kind}>
-                    <b>{kind === "front" ? `전면 (${selectedBackplane?.name})` : "후면"}</b>{" "}
-                    {status?.item ? <span className="tag">{status.auto ? "자동" : "직접 선택"}</span> : <span className="warn">이미지 없음 · 필요한 쉐이프: {status?.stencil || "-"}</span>}
-                    <select aria-label={`${kind === "front" ? "전면" : "후면"} 이미지 선택`} value={status?.item?.id || ""} onChange={(event) => void updateImage(kind, event.target.value)}>
-                      <option value="">자동(스텐실 기본값)</option>
-                      {library.filter((item) => item.category === (kind === "front" ? "server_front" : "server_rear")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </select>
-                  </span>
+                  <div
+                    key={kind}
+                    role="button"
+                    tabIndex={0}
+                    className={`assign-card ${target === kind ? "on" : ""}`}
+                    onClick={() => pickTarget(kind)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") pickTarget(kind); }}
+                  >
+                    <div className="row between"><b>{label}</b>{status?.item && <span className="tag">{status.auto ? "자동 연결" : "직접 선택"}</span>}</div>
+                    {status?.item
+                      ? <img src={status.item.url} alt={`${label} 이미지`} />
+                      : <div className="thumb-empty">이미지 없음 · 필요한 쉐이프: {status?.stencil || "-"}</div>}
+                    <div className="row between">
+                      <span className="small">{status?.item?.name || "미지정"}</span>
+                      {status?.item && !status.auto && <button type="button" className="btn ghost small" onClick={(event) => { event.stopPropagation(); void updateImage(kind, ""); }}>자동으로 되돌리기</button>}
+                    </div>
+                    <span className="assign-hint">{target === kind ? "아래 라이브러리에서 바꿀 이미지를 클릭하세요" : "클릭해서 바꾸기"}</span>
+                  </div>
                 );
               })}
             </div>
@@ -260,10 +279,18 @@ export default function ServerSection({
             </div>
             <div className="libgrid">
               {shown.map((item) => (
-                <div className="libcard" key={item.id} title={`${item.name}\n${item.source}`}>
+                <button
+                  type="button"
+                  key={item.id}
+                  title={`${item.name}\n${item.source}`}
+                  className={`libcard ${usedAs(item.id) ? "used" : ""} ${assignable(item) ? "pickable" : ""}`}
+                  disabled={!!target && !assignable(item)}
+                  onClick={() => { if (target && assignable(item)) void updateImage(target, item.id); }}
+                >
+                  {usedAs(item.id) && <em className="used-badge">{usedAs(item.id)} 사용 중</em>}
                   <img src={`/static/${item.file}`} alt="" loading="lazy" />
                   <span>{item.name}</span><small>{item.source}</small>
-                </div>
+                </button>
               ))}
               {!shown.length && <p className="muted">{library.length ? "조건에 맞는 이미지가 없습니다." : "먼저 VSSX/VSDX 또는 이미지 파일을 업로드하세요."}</p>}
             </div>

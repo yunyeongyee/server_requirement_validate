@@ -286,3 +286,16 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .bay.cand:hover{background:rgba(255,225,77,.25)}
 .bay-x{position:absolute;right:1px;top:1px;width:16px;height:16px;line-height:16px;text-align:center;font-size:11px;background:#C0392B;color:#fff;border-radius:2px;cursor:pointer;z-index:2}
 .hint{background:#FFF8E1;border:1px solid #F0D98A;border-radius:6px;padding:8px 12px;margin:0 0 8px;font-size:13.5px}
+
+.assign{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.assign-card{border:2px solid var(--line);border-radius:8px;padding:10px;display:grid;gap:6px;cursor:pointer;background:#fff}
+.assign-card:hover{border-color:#9DC3E6}
+.assign-card.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,100,200,.15)}
+.assign-card img{width:100%;aspect-ratio:5.5/1;object-fit:contain;background:#22272e;border-radius:4px}
+.assign-hint{font-size:12px;color:var(--accent)}
+.libcard{position:relative;text-align:left;font:inherit;background:#fff;cursor:default}
+.libcard.pickable{cursor:pointer}
+.libcard.pickable:hover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,100,200,.15)}
+.libcard:disabled{opacity:.35}
+.libcard.used{border:2px solid #1C7A43}
+.used-badge{position:absolute;top:4px;right:4px;font-style:normal;font-size:11px;background:#1C7A43;color:#fff;padding:1px 6px;border-radius:3px}
