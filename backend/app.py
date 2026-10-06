@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import ai_extract, doc_tables, extract, images, proposal, validate as V
+from . import ai_extract, doc_tables, extract, images, parts, proposal, validate as V
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -66,12 +66,27 @@ def _analyze_requirements(text: str, context: dict | None = None, ai_allowed: bo
     else:
         groups = rule_groups
         extraction_info = {"mode": "rules_fallback", "effort": None}
+    _suggest_models(groups, text)
     return {
         "requirements": extract.extract_requirements(text),
         "spec": extract.spec_summary(text),
         "groups": groups,
         "extraction": extraction_info,
     }
+
+
+def _suggest_models(groups: list[dict], text: str):
+    """요구사항 문서에서도 모델명(R760 등)을 찾아 그룹별 추천 모델로 붙인다. 그룹 안 → 문서 전체 순."""
+    servers_list = load_servers()["servers"]
+    doc_hint = parts.model_of(text)
+    for g in groups:
+        if g.get("suggested_server"):
+            continue
+        own = " ".join([g.get("name", "")] + [r.get("source", "") for r in g.get("requirements", [])])
+        hint = g.get("model_hint") or parts.model_of(own) or doc_hint
+        if hint:
+            g["model_hint"] = hint
+            g["suggested_server"] = proposal.suggest_server(hint, servers_list)
 
 
 @app.post("/api/upload")
@@ -96,6 +111,7 @@ async def upload(file: UploadFile = File(...)):
         servers_list = load_servers()["servers"]
         for g in doc["groups"]:
             g["suggested_server"] = proposal.suggest_server(g.get("model_hint"), servers_list)
+        _suggest_models(doc["groups"], text)
         return {"filename": file.filename, "chars": len(text), "text": text,
                 "requirements": [], "spec": [], "groups": doc["groups"], "doc_role": doc["doc_role"],
                 "common_items": doc["common_items"], "extraction": {"mode": "rules", "effort": None}}

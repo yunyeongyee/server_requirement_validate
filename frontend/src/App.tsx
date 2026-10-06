@@ -18,9 +18,13 @@ import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 
+export type ModelSource = "document" | "manual" | "default";
+
 interface ServerProfile {
   serverId: string;
   config: ServerConfig;
+  /** 모델을 어떻게 골랐는지: 문서에서 자동 / 사용자가 직접 / 문서에 없어 기본값 */
+  source: ModelSource;
 }
 
 const DEFAULT_GROUP_ID = "server-1";
@@ -125,7 +129,7 @@ export default function App() {
         setApiReady(true);
         setLoadError("");
         if (serverList.length) {
-          setProfiles({ [DEFAULT_GROUP_ID]: { serverId: serverList[0].id, config: defaultConfig(serverList[0]) } });
+          setProfiles({ [DEFAULT_GROUP_ID]: { serverId: serverList[0].id, config: defaultConfig(serverList[0]), source: "default" } });
         }
       })
       .catch((reason: unknown) => {
@@ -204,10 +208,23 @@ export default function App() {
     const nextProfiles: Record<string, ServerProfile> = {};
     normalized.forEach((group, index) => {
       const existing = profiles[group.id];
-      const serverId = group.suggested_server || existing?.serverId || (index === 0 ? server?.id : undefined) || defaultServer?.id;
-      const selectedServer = servers.find((item) => item.id === serverId);
-      if (selectedServer) {
-        nextProfiles[group.id] = existing || { serverId: selectedServer.id, config: defaultConfig(selectedServer) };
+      const suggested = servers.find((item) => item.id === group.suggested_server);
+      // 문서에서 찾은 모델이 있으면 그것을 우선. 사용자가 직접 고른 모델은 같은 그룹이면 유지.
+      if (existing?.source === "manual" && (!suggested || existing.serverId === suggested.id)) {
+        nextProfiles[group.id] = existing;
+        return;
+      }
+      if (suggested) {
+        nextProfiles[group.id] = existing?.serverId === suggested.id
+          ? { ...existing, source: "document" }
+          : { serverId: suggested.id, config: defaultConfig(suggested), source: "document" };
+        return;
+      }
+      const fallback = servers.find((item) => item.id === (existing?.serverId || (index === 0 ? server?.id : undefined))) || defaultServer;
+      if (fallback) {
+        nextProfiles[group.id] = existing?.serverId === fallback.id
+          ? { ...existing, source: "default" }
+          : { serverId: fallback.id, config: defaultConfig(fallback), source: "default" };
       }
     });
     setGroups(normalized);
@@ -267,7 +284,7 @@ export default function App() {
     setApplyingGroupId(groupId);
     try {
       const { config: nextConfig, notes } = await applyProposal(groupServer.id, group.proposed, groupProfile.config, base?.attrs || null);
-      setProfiles((current) => ({ ...current, [groupId]: { serverId: groupServer.id, config: nextConfig } }));
+      setProfiles((current) => ({ ...current, [groupId]: { ...groupProfile, serverId: groupServer.id, config: nextConfig } }));
       setProposalNotes((current) => ({ ...current, [groupId]: notes }));
       setRenderedImages({ front: null, rear: null });
     } catch (reason) {
@@ -284,7 +301,7 @@ export default function App() {
   const handleServerChange = (id: string) => {
     const nextServer = servers.find((item) => item.id === id);
     if (!nextServer) return;
-    setProfiles((current) => ({ ...current, [activeGroupId]: { serverId: id, config: defaultConfig(nextServer) } }));
+    setProfiles((current) => ({ ...current, [activeGroupId]: { serverId: id, config: defaultConfig(nextServer), source: "manual" } }));
     setResults((current) => {
       const next = { ...current };
       delete next[activeGroupId];
@@ -359,7 +376,7 @@ export default function App() {
       <div className="layout">
         <nav className="rail" aria-label="작업 단계">
           <a href="#s1"><b>1</b>요구사항</a>
-          <a href="#s2"><b>2</b>서버 모델 · 이미지</a>
+          <a href="#s2"><b>2</b>서버 모델</a>
           <a href="#s3"><b>3</b>서버 구성</a>
           <a href="#s4"><b>4</b>서버 사양</a>
           <a href="#s5"><b>5</b>호환성 검증</a>
@@ -388,6 +405,9 @@ export default function App() {
             servers={servers}
             components={components}
             server={server}
+            modelSource={profile?.source || "default"}
+            modelHint={groups.find((group) => group.id === activeGroupId)?.model_hint || null}
+            groupName={groups.length > 1 ? groups.find((group) => group.id === activeGroupId)?.name || "" : ""}
             apiReady={apiReady}
             backplaneId={config?.backplane || ""}
             images={imageStatus}
