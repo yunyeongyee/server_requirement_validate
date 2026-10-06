@@ -156,7 +156,7 @@ KEYS = {
     "fc_speed_gb":   ("FC Speed", "Gb"),
     "fc_ports":      ("FC Port", "Port"),
     "ocp_required":  ("OCP 3.0", ""),
-    "raid_level":    ("Boot RAID", ""),
+    "raid_level":    ("RAID", ""),
     "dual_psu":      ("Dual PSU", ""),
     "psu_watt":      ("PSU Capacity", "W"),
     "free_pcie":     ("Free PCIe Slot", "EA"),

@@ -49,11 +49,13 @@ function verdictFor(result: ValidationResult | undefined): string {
     ...result.slots.map((item) => item.status).filter((status): status is string => !!status && status !== "충족"),
     ...result.bays.map((item) => item.status).filter((status) => status !== "충족"),
   ];
-  if (!statuses.length) return "미검증";
+  const noRequirements = !result.requirements.length;
+  if (!statuses.length) return noRequirements ? "요구사항 없음" : "충족";
   if (statuses.includes("호환 불가")) return "구성 불가";
   if (statuses.includes("미충족")) return "미충족";
   if (statuses.includes("확인 필요")) return "확인 필요";
-  return "충족";
+  // 요구사항이 없는 견적 그룹은 구성 호환성만 본 것이므로 '충족'으로 표시하지 않는다
+  return noRequirements ? "구성 정상 · 요구사항 없음" : "충족";
 }
 
 function makeSummaries(
@@ -213,8 +215,8 @@ export default function App() {
     setProposalNotes({});
     setResults({});
     setActiveGroupId(normalized[0].id);
-    setImageStatus(null);
-    setRenderedImages({ front: null, rear: null });
+    // 서버·백플레인이 그대로면 이미지 effect 가 다시 돌지 않으므로 상태를 지우지 말고 다시 불러온다
+    setImageVersion((version) => version + 1);
   };
 
   const handleUpload = async (file: File) => {

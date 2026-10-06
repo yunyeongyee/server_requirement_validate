@@ -17,6 +17,28 @@ interface Props {
 
 const RAID_LEVELS = ["", "RAID0", "RAID1", "RAID5", "RAID6", "RAID10"];
 
+function driveGb(name: string): number {
+  const match = name.match(/(\d+(?:\.\d+)?)\s*(TB|GB)/i);
+  return match ? Number(match[1]) * (match[2].toUpperCase() === "TB" ? 1000 : 1) : 0;
+}
+
+/** RAID 수준별 사용 가능 용량(같은 용량 디스크 기준 추정). 구성 불가면 null */
+function usableGb(level: string, count: number, size: number): number | null {
+  if (!count) return 0;
+  switch (level) {
+    case "": case "RAID0": return count * size;
+    case "RAID1": return count === 2 ? size : null;
+    case "RAID5": return count >= 3 ? (count - 1) * size : null;
+    case "RAID6": return count >= 4 ? (count - 2) * size : null;
+    case "RAID10": return count >= 4 && count % 2 === 0 ? (count / 2) * size : null;
+    default: return null;
+  }
+}
+
+function formatGb(gb: number): string {
+  return gb >= 1000 ? `${(gb / 1000).toFixed(gb % 1000 ? 2 : 0)}TB` : `${gb}GB`;
+}
+
 interface Rect {
   x: number;
   y: number;
@@ -49,6 +71,7 @@ export default function ConfigSection({
   const [imageView, setImageView] = useState<"both" | "front" | "rear">("both");
   const [mode, setMode] = useState<"edit" | "clean" | "calib">("edit");
   const [selectedBays, setSelectedBays] = useState<number[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [frontRects, setFrontRects] = useState<Rect[]>([]);
   const [slotHotspots, setSlotHotspots] = useState<Record<string, Rect>>({});
   const [calibrationBusy, setCalibrationBusy] = useState(false);
@@ -184,7 +207,7 @@ export default function ConfigSection({
                 const status = view === "front" ? getBayResult(bayIndex)?.status : slot ? getSlotResult(slot.id)?.status : null;
                 const className = view === "front"
                   ? `bay ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
-                  : `hs ${status === "충족" ? "s-ok" : status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`;
+                  : `hs ${selectedSlot === slot?.id ? "sel" : ""} ${status === "충족" ? "s-ok" : status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`;
                 return (
                   <button
                     key={view === "front" ? `bay-${index}` : slot?.id || index}
@@ -197,7 +220,7 @@ export default function ConfigSection({
                     onClick={() => {
                       if (mode !== "edit") return;
                       if (view === "front") toggleBay(index);
-                      else if (slot) document.getElementById(`slot-${slot.id}`)?.focus();
+                      else if (slot) setSelectedSlot((current) => current === slot.id ? null : slot.id);
                     }}
                   >
                     {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : <span className="tag">{slot?.label}</span>}
@@ -270,7 +293,36 @@ export default function ConfigSection({
           <button className="btn ghost small" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체 선택</button>
           <button className="btn ghost small" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>디스크 전체 빼기</button>
         </div>
+        <StorageSummary server={server} config={config} bayCount={backplane.bays} />
         {renderStage("rear")}
+        {selectedSlot && (() => {
+          const slot = server.slots.find((item) => item.id === selectedSlot);
+          if (!slot) return null;
+          const slotResult = getSlotResult(slot.id);
+          const fits = components.filter((item) => slot.type === "ocp" ? item.form === "ocp" : item.form !== "ocp");
+          return (
+            <div className="slotpanel" role="region" aria-label={`${slot.label} 구성`}>
+              <div className="row between">
+                <b>{slot.label}</b>
+                <span className="muted">{slot.type === "ocp" ? `OCP 3.0 SFF x${slot.lanes}` : `PCIe Gen${slot.gen} x${slot.lanes} · ${slot.height}${slot.double_width_ok ? " · 더블 폭 가능" : ""}`} · CPU{slot.cpu}{slot.riser ? ` · ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}` : ""}</span>
+                <button className="ico" aria-label="슬롯 패널 닫기" onClick={() => setSelectedSlot(null)}>✕</button>
+              </div>
+              <div className="row">
+                <select aria-label={`${slot.label} 장착 부품`} value={config.slots[slot.id] || ""} onChange={(event) => {
+                  const slots = { ...config.slots };
+                  if (event.target.value) slots[slot.id] = event.target.value;
+                  else delete slots[slot.id];
+                  patch({ slots });
+                }}>
+                  <option value="">(비움)</option>
+                  {fits.map((component) => <option key={component.id} value={component.id}>{component.name}</option>)}
+                </select>
+                {slotResult?.status ? <StatusBadge status={slotResult.status} /> : <span className="muted">{slotResult && !slotResult.usable ? "사용 불가 (CPU 수 또는 Riser 미장착)" : "빈 슬롯"}</span>}
+              </div>
+              {!!slotResult?.issues.length && <ul className="issues">{slotResult.issues.map((issue, index) => <li key={index}><StatusBadge status={issue.status} /> {issue.msg}</li>)}</ul>}
+            </div>
+          );
+        })()}
         <details className="sub">
           <summary>슬롯 목록으로 구성</summary>
           <div className="scroll">
@@ -375,4 +427,33 @@ export default function ConfigSection({
 function StatusBadge({ status }: { status: string }) {
   const classes: Record<string, string> = { "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
   return <em className={`st st-${classes[status] || "review"}`}>{status}</em>;
+}
+
+function StorageSummary({ server, config, bayCount }: { server: Server; config: ServerConfig; bayCount: number }) {
+  const used = Object.keys(config.bays).length;
+  const roles = (["boot", "data"] as const).flatMap((role) => {
+    const drives = Object.values(config.bays).filter((bay) => bay.role === role);
+    if (!drives.length) return [];
+    const counts = new Map<string, number>();
+    drives.forEach(({ drive }) => counts.set(drive, (counts.get(drive) || 0) + 1));
+    const names = [...counts].map(([id, count]) => ({ name: server.drive_options.find((item) => item.id === id)?.name || id, count }));
+    const sizes = names.flatMap(({ name, count }) => Array<number>(count).fill(driveGb(name)));
+    // 한 RAID 묶음 안에서 용량이 다르면 가장 작은 디스크 기준으로 잡힌다
+    const smallest = Math.min(...sizes);
+    const level = config.raid[role];
+    return [{ role, names, raw: sizes.reduce((total, size) => total + size, 0), level,
+      usable: usableGb(level, drives.length, smallest), mixed: counts.size > 1, count: drives.length }];
+  });
+  return (
+    <div className="storage">
+      <span className="muted">전면 베이 {used}/{bayCount} 사용 · 빈 베이 {Math.max(0, bayCount - used)}개{config.boss ? " · BOSS-N1 M.2 부트(RAID1)" : ""}</span>
+      {roles.map((row) => (
+        <span key={row.role} className={`chip ${row.usable === null || row.mixed ? "chip-bad" : ""}`}>
+          <b>{row.role === "boot" ? "Boot" : "Data"}</b> {row.names.map(({ name, count }) => `${name} × ${count}`).join(" + ")} · {row.level || "No RAID"} · 원시 {formatGb(row.raw)}
+          {row.usable === null ? ` · ${row.level}에 디스크 ${row.count}개는 구성 불가` : ` · 사용 가능 약 ${formatGb(row.usable)}`}
+          {row.mixed && " · 서로 다른 디스크 혼용"}
+        </span>
+      ))}
+    </div>
+  );
 }

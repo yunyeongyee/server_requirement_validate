@@ -4,7 +4,7 @@
 호환성 '판정'은 하지 않는다 — 판정은 validate.py 가 한다. 여기서는 배치만 제안한다.
 """
 from __future__ import annotations
-import re
+import math, re
 
 
 def suggest_server(model_hint: str | None, servers: list[dict]) -> str | None:
@@ -95,14 +95,27 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
             notes.append(f"M.2 {d.get('size_gb', ''):g}GB × {d['qty']} → BOSS(M.2 부트)로 반영")
             continue
         opts = [o for o in server["drive_options"] if (not d.get("ff") or o["ff"] == d["ff"])]
-        if d.get("iface"):
-            opts = [o for o in opts if o["iface"] == d["iface"]] or opts
         if not opts:
             notes.append(f"'{d['desc']}' 에 맞는 디스크 옵션 없음"); continue
         def gb(o):
             m = re.search(r"(\d+(?:\.\d+)?)\s*(TB|GB)", o["name"])
             return float(m.group(1)) * (1000 if m and m.group(2) == "TB" else 1) if m else 0
-        opt = min(opts, key=lambda o: abs(gb(o) - (d.get("size_gb") or 0)))
+        def media(o):
+            return "SSD" if re.search(r"ssd|nvme", o["name"], re.I) else "HDD"
+        want = d.get("size_gb") or 0
+        # 용량 → 매체(SSD/HDD) → 인터페이스 순으로 가깝게. 인터페이스만 맞추다 용량이 크게 어긋나는 것을 막는다.
+        def score(o):
+            size = abs(math.log((gb(o) or 1) / want)) if want else 0
+            return (size
+                    + (1.0 if d.get("media") and media(o) != d["media"].upper() else 0)
+                    + (0.3 if d.get("iface") and o["iface"] != d["iface"] else 0))
+        opt = min(opts, key=score)
+        diff = [x for x, bad in (
+            (f"용량 {gb(opt):g}GB", want and abs(gb(opt) - want) / want > 0.05),
+            (f"인터페이스 {opt['iface']}", d.get("iface") and opt["iface"] != d["iface"]),
+        ) if bad]
+        if diff:
+            notes.append(f"'{d['desc']}' → 카탈로그에 같은 디스크가 없어 '{opt['name']}'로 대체 ({', '.join(diff)}) — 디스크 옵션 확인")
         role = "boot" if (len(drives) > 1 and i == 0 and d["qty"] == 2) else "data"
         for _ in range(d["qty"]):
             if bay >= bp["bays"]:

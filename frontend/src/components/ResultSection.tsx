@@ -30,7 +30,7 @@ export default function ResultSection({ server, result, error, loading, projectS
         <thead><tr><th>요구 서버</th><th>실제 모델</th><th>충족</th><th>미충족</th><th>확인 필요</th><th>결과</th></tr></thead>
         <tbody>{projectSummaries.map((summary) => (
           <tr key={summary.id} className={summary.id === activeGroupId ? "active-project-row" : ""}>
-            <td><button className="lnk" onClick={() => onSelectGroup(summary.id)}>{summary.name}</button></td><td>{summary.model}</td><td>{summary.matched}</td><td>{summary.failed}</td><td>{summary.review}</td><td>{summary.verdict === "미검증" ? <span className="muted">미검증</span> : <Badge status={summary.verdict === "충족" ? "충족" : summary.verdict === "구성 불가" ? "호환 불가" : summary.verdict} />}</td>
+            <td><button className="lnk" onClick={() => onSelectGroup(summary.id)}>{summary.name}</button></td><td>{summary.model}</td><td>{summary.matched}</td><td>{summary.failed}</td><td>{summary.review}</td><td>{summary.verdict === "미검증" || summary.verdict.includes("요구사항 없음") ? <span className="muted">{summary.verdict}</span> : <Badge status={summary.verdict === "충족" ? "충족" : summary.verdict === "구성 불가" ? "호환 불가" : summary.verdict} />}</td>
           </tr>
         ))}</tbody>
       </table>

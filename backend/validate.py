@@ -169,13 +169,15 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
                       if r["component"] is None and r["usable"] and r["slot"] != "OCP")
     free = max(0, usable_free - extra["occupied_extra"])
     psu_cnt = int(cfg.get("psu_count", 0)); psu_w = float(cfg.get("psu_watt", 0))
-    raids = {d.get("raid", "") for d in cfg.get("drives", []) if d.get("role") == "boot" and d.get("qty", 0) >= RAID_MIN.get(d.get("raid", ""), 1)}
+    def _raids(role):
+        return sorted({d.get("raid", "") for d in cfg.get("drives", [])
+                       if d.get("role") == role and d.get("raid") and d.get("qty", 0) >= RAID_MIN.get(d.get("raid", ""), 1)})
     return {
         "memory_gb": mem, "dimms": dimms,
         "cpu_sockets": int(cfg.get("cpu_count", 0)),
         "nics": nics, "fcs": fcs,
         "ocp_installed": any(c["form"] == "ocp" for c in eff),
-        "raid_boot": sorted(r for r in raids if r),
+        "raid_boot": _raids("boot"), "raid_data": _raids("data"),
         "psu_count": psu_cnt, "psu_watt": psu_w,
         "free_pcie": free,
         "gpu_count": sum(1 for c in eff if c["category"] == "GPU"),
@@ -219,8 +221,12 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
         elif k == "ocp_required":
             actual = "OCP NIC 장착" if s["ocp_installed"] else "OCP 미장착"; status = PASS if s["ocp_installed"] else FAIL
         elif k == "raid_level":
-            actual = ", ".join(s["raid_boot"]) or "Boot RAID 없음"
-            status = PASS if str(v).upper() in [x.upper() for x in s["raid_boot"]] else FAIL
+            # 문서에 Boot/OS 가 명시된 경우만 부트 RAID 로 보고, 아니면 Boot·Data 어느 쪽이든 충족으로 본다
+            boot_only = "boot" in str(r.get("note", "")).lower()
+            have = s["raid_boot"] if boot_only else s["raid_boot"] + s["raid_data"]
+            actual = (", ".join(f"Boot {x}" for x in s["raid_boot"]) + ("" if boot_only or not s["raid_data"] else
+                      (", " if s["raid_boot"] else "") + ", ".join(f"Data {x}" for x in s["raid_data"]))) or "RAID 구성 없음"
+            status = PASS if str(v).upper() in [x.upper() for x in have] else FAIL
         elif k == "dual_psu":
             actual = f"PSU {s['psu_watt']:g}W × {s['psu_count']}"
             if s["psu_count"] < 2: status = FAIL

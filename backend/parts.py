@@ -127,7 +127,9 @@ def parse_desc(desc: str) -> dict:
                    media="SFP" if "sfp" in L else "Cu" if re.search(r"\bcu\b|rj45|base-?t|i350", L) else None)
     if re.search(r"\b(psu|power\s*supply|전원\s*공급)\b|\d{3,4}\s*w\b.*(platinum|titanium|hp|hot|psu)", L):
         w = re.search(r"(\d{3,4})\s*w\b", L)
-        return out("psu", 0.9, watt=int(w.group(1)) if w else None)
+        # 'Dual, Hot-plug, Redundant PSU (1+1)' 처럼 한 줄 품목이 PSU 2개를 뜻하는 표현
+        per = 2 if re.search(r"\bdual\b|1\s*\+\s*1|이중", L) else None
+        return out("psu", 0.9, watt=int(w.group(1)) if w else None, **({"per_item": per} if per else {}))
     if re.search(r"\briser\b|라이저", L):
         lanes = re.search(r"x\s*(16|8|4)\b", L)
         slots = re.search(r"x\s*(\d)\s*riser|\bx(\d)\b(?!\d)", L)
