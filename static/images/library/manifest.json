@@ -1,0 +1,990 @@
+[
+ {
+  "id": "dc77541bdd",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_2.5_SF_Front_74325188.png",
+  "name": "R570 16D 2.5 SF Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "aca15ae84c",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_E3.S_Front-IO_Front_39183947.png",
+  "name": "R570 16D E3.S Front-IO Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "d2466e7d5f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_E3.S_Rear-IO_Front_60975079.png",
+  "name": "R570 16D E3.S Rear-IO Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "479be67943",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_0xPCI_C13_Rear_80036344.png",
+  "name": "R570 0xPCI C13 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "42d17425be",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_8xPCI_C13_Rear_36559213.png",
+  "name": "R570 8xPCI C13 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "6935f4c394",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_0xPCI_C19_Rear_19200334.png",
+  "name": "R570 0xPCI C19 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "9f045b9d4b",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_8xPCI_C19_Rear_93028251.png",
+  "name": "R570 8xPCI C19 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "c793f64593",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_Rx40_LOM_Riser_23588124.png",
+  "name": "2x10Gb BT Rx40 LOM Riser",
+  "category": "riser",
+  "w_in": 3.3531,
+  "h_in": 0.5753,
+  "px": [
+   503,
+   86
+  ]
+ },
+ {
+  "id": "db600d2396",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4x10Gb_SFP_NDC_75188820.png",
+  "name": "4x10Gb SFP+ NDC",
+  "category": "module",
+  "w_in": 3.1805,
+  "h_in": 0.5336,
+  "px": [
+   477,
+   80
+  ]
+ },
+ {
+  "id": "1ccbef57ec",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_2x1Gb_NDC_69003844.png",
+  "name": "2x10Gb BT 2x1Gb NDC",
+  "category": "module",
+  "w_in": 3.5611,
+  "h_in": 0.5714,
+  "px": [
+   534,
+   86
+  ]
+ },
+ {
+  "id": "eff6fd5577",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_SFP_2x1Gb_NDC_56836182.png",
+  "name": "2x10Gb SFP+ 2x1Gb NDC",
+  "category": "module",
+  "w_in": 3.5611,
+  "h_in": 0.5714,
+  "px": [
+   534,
+   86
+  ]
+ },
+ {
+  "id": "b0fa71904a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_SFP_NDC_98349638.png",
+  "name": "2x10Gb SFP+ NDC",
+  "category": "module",
+  "w_in": 3.1563,
+  "h_in": 0.4829,
+  "px": [
+   473,
+   72
+  ]
+ },
+ {
+  "id": "bfce109f16",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2xSFP_OCP3_58609685.png",
+  "name": "2xSFP OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4856,
+  "px": [
+   397,
+   73
+  ]
+ },
+ {
+  "id": "b416d2ad55",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4xSFP_OCP3_39605120.png",
+  "name": "4xSFP OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4318,
+  "px": [
+   397,
+   65
+  ]
+ },
+ {
+  "id": "bc80e21d0d",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_OCP3_94971240.png",
+  "name": "2x10Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4656,
+  "px": [
+   397,
+   70
+  ]
+ },
+ {
+  "id": "4a659abaf3",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4x1Gb_BT_OCP3_69570643.png",
+  "name": "4x1Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4656,
+  "px": [
+   397,
+   70
+  ]
+ },
+ {
+  "id": "517565e229",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_SSD_H__95901288.png",
+  "name": "14G 2.5 SATA SSD (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "15e7222482",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SAS_SSD_80889015.png",
+  "name": "14G 3.5 SAS SSD",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "d862e18b45",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_H__23543599.png",
+  "name": "14G 2.5 SAS (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "9c26dbf744",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_H__14123867.png",
+  "name": "14G 2.5 SATA (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "54d28f151f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_SSD_V__72897349.png",
+  "name": "14G 2.5 SATA SSD (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "50763618b4",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_SSD_V__90950724.png",
+  "name": "14G 2.5 SAS SSD (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "41af558c06",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_V__64163137.png",
+  "name": "14G 2.5 SAS (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "c43469930a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SATA_SSD_25607995.png",
+  "name": "14G 3.5 SATA SSD",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "c7b1d9abe9",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SATA_99681935.png",
+  "name": "14G 3.5 SATA",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "61f9e29a2c",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/Fibre_SFP__81602427.png",
+  "name": "Fibre SFP+",
+  "category": "other",
+  "w_in": 0.5607,
+  "h_in": 0.4125,
+  "px": [
+   84,
+   62
+  ]
+ },
+ {
+  "id": "c2030ca0f7",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_4x1Gb_BT_OCP3_97218807.png",
+  "name": "C66xx 4x1Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4656,
+  "px": [
+   410,
+   70
+  ]
+ },
+ {
+  "id": "582963d86a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x10Gb_BT_OCP3_55304084.png",
+  "name": "C66xx 2x10Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4924,
+  "px": [
+   410,
+   74
+  ]
+ },
+ {
+  "id": "cb3f866d2f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x10Gb_SFP_OCP3_8266084.png",
+  "name": "C66xx 2x10Gb SFP OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4856,
+  "px": [
+   410,
+   73
+  ]
+ },
+ {
+  "id": "7ce3b6758b",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x25Gb_SFP28_OCP3_62489961.png",
+  "name": "C66xx 2x25Gb SFP28 OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4856,
+  "px": [
+   410,
+   73
+  ]
+ },
+ {
+  "id": "f55e6c4308",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C6615_Rear_Full__16359476.png",
+  "name": "C6615 Rear (Full)",
+  "category": "server_rear",
+  "w_in": 17.5431,
+  "h_in": 3.4231,
+  "px": [
+   2631,
+   513
+  ]
+ },
+ {
+  "id": "8daa204597",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/17G_BOSS-N1_627983.png",
+  "name": "17G BOSS-N1",
+  "category": "module",
+  "w_in": 3.0031,
+  "h_in": 0.6031,
+  "px": [
+   450,
+   90
+  ]
+ },
+ {
+  "id": "36cdc80dc6",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/1U_17G_Bezel_39918637.png",
+  "name": "1U 17G Bezel",
+  "category": "bezel",
+  "w_in": 16.9731,
+  "h_in": 1.4931,
+  "px": [
+   2546,
+   224
+  ]
+ },
+ {
+  "id": "f95a2af22a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_Bezel_76791311.png",
+  "name": "2U 17G Bezel",
+  "category": "bezel",
+  "w_in": 16.9731,
+  "h_in": 3.2231,
+  "px": [
+   2546,
+   483
+  ]
+ },
+ {
+  "id": "67b4cb4ec9",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_E3.S_Filler_20155372.png",
+  "name": "2U 17G E3.S Filler",
+  "category": "blank",
+  "w_in": 2.8031,
+  "h_in": 2.8031,
+  "px": [
+   420,
+   420
+  ]
+ },
+ {
+  "id": "504b38031f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_2.5in_Filler_7589460.png",
+  "name": "2U 17G 2.5in Filler",
+  "category": "blank",
+  "w_in": 5.3981,
+  "h_in": 2.8031,
+  "px": [
+   810,
+   420
+  ]
+ },
+ {
+  "id": "0aa979c6ac",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_12D_3.5_Front_85971791.png",
+  "name": "R570 12D 3.5 Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "0e4836b0f5",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/1100W_C14_Inlet_PSU_27601827.png",
+  "name": "1100W C14 Inlet PSU",
+  "category": "psu",
+  "w_in": 3.4031,
+  "h_in": 1.5831,
+  "px": [
+   510,
+   237
+  ]
+ },
+ {
+  "id": "e9785f102a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_2.5_SF_Front_19979943.png",
+  "name": "R570 16D 2.5 SF Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "60508612db",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_E3.S_Front-IO_Front_82421649.png",
+  "name": "R570 16D E3.S Front-IO Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "e83a287db0",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_16D_E3.S_Rear-IO_Front_13776208.png",
+  "name": "R570 16D E3.S Rear-IO Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "520e5cb10a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_0xPCI_C13_Rear_4615248.png",
+  "name": "R570 0xPCI C13 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "9255f8f6a7",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_8xPCI_C13_Rear_60514408.png",
+  "name": "R570 8xPCI C13 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "f10a72c16a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_0xPCI_C19_Rear_33326803.png",
+  "name": "R570 0xPCI C19 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "92723c15fa",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_8xPCI_C19_Rear_12273972.png",
+  "name": "R570 8xPCI C19 Rear",
+  "category": "server_rear",
+  "w_in": 17.5031,
+  "h_in": 3.4231,
+  "px": [
+   2625,
+   513
+  ]
+ },
+ {
+  "id": "2c766e6a33",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_Rx40_LOM_Riser_41456253.png",
+  "name": "2x10Gb BT Rx40 LOM Riser",
+  "category": "riser",
+  "w_in": 3.3531,
+  "h_in": 0.5753,
+  "px": [
+   503,
+   86
+  ]
+ },
+ {
+  "id": "f17f24bd29",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4x10Gb_SFP_NDC_45454903.png",
+  "name": "4x10Gb SFP+ NDC",
+  "category": "module",
+  "w_in": 3.1805,
+  "h_in": 0.5336,
+  "px": [
+   477,
+   80
+  ]
+ },
+ {
+  "id": "013e43fe3d",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_2x1Gb_NDC_94702219.png",
+  "name": "2x10Gb BT 2x1Gb NDC",
+  "category": "module",
+  "w_in": 3.5611,
+  "h_in": 0.5714,
+  "px": [
+   534,
+   86
+  ]
+ },
+ {
+  "id": "5fd97c64ff",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_SFP_2x1Gb_NDC_29856375.png",
+  "name": "2x10Gb SFP+ 2x1Gb NDC",
+  "category": "module",
+  "w_in": 3.5611,
+  "h_in": 0.5714,
+  "px": [
+   534,
+   86
+  ]
+ },
+ {
+  "id": "2a192bf4fd",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_SFP_NDC_5840867.png",
+  "name": "2x10Gb SFP+ NDC",
+  "category": "module",
+  "w_in": 3.1563,
+  "h_in": 0.4829,
+  "px": [
+   473,
+   72
+  ]
+ },
+ {
+  "id": "f995725c29",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2xSFP_OCP3_34229786.png",
+  "name": "2xSFP OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4856,
+  "px": [
+   397,
+   73
+  ]
+ },
+ {
+  "id": "327ddb27a1",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4xSFP_OCP3_86044215.png",
+  "name": "4xSFP OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4318,
+  "px": [
+   397,
+   65
+  ]
+ },
+ {
+  "id": "69f851986f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2x10Gb_BT_OCP3_98491686.png",
+  "name": "2x10Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4656,
+  "px": [
+   397,
+   70
+  ]
+ },
+ {
+  "id": "cd9b52039a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/4x1Gb_BT_OCP3_55826289.png",
+  "name": "4x1Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.6448,
+  "h_in": 0.4656,
+  "px": [
+   397,
+   70
+  ]
+ },
+ {
+  "id": "1ddd9add24",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_SSD_H__13256120.png",
+  "name": "14G 2.5 SATA SSD (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "be0fd077c2",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SAS_SSD_48015654.png",
+  "name": "14G 3.5 SAS SSD",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "0c9d256597",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_H__48974846.png",
+  "name": "14G 2.5 SAS (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "845c11699e",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_H__18043204.png",
+  "name": "14G 2.5 SATA (H)",
+  "category": "drive",
+  "w_in": 2.8531,
+  "h_in": 0.6032,
+  "px": [
+   428,
+   90
+  ]
+ },
+ {
+  "id": "b3f914505f",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SATA_SSD_V__21798558.png",
+  "name": "14G 2.5 SATA SSD (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "25212210f9",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_SSD_V__27406262.png",
+  "name": "14G 2.5 SAS SSD (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "3c698ee6d8",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_2.5_SAS_V__9089290.png",
+  "name": "14G 2.5 SAS (V)",
+  "category": "drive",
+  "w_in": 0.6032,
+  "h_in": 2.8531,
+  "px": [
+   92,
+   430
+  ]
+ },
+ {
+  "id": "4dfeab90ea",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SATA_SSD_60881449.png",
+  "name": "14G 3.5 SATA SSD",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "383af6bfeb",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/14G_3.5_SATA_1332298.png",
+  "name": "14G 3.5 SATA",
+  "category": "drive",
+  "w_in": 4.1031,
+  "h_in": 1.0281,
+  "px": [
+   615,
+   154
+  ]
+ },
+ {
+  "id": "08bf6e36b7",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/Fibre_SFP__30807150.png",
+  "name": "Fibre SFP+",
+  "category": "other",
+  "w_in": 0.5607,
+  "h_in": 0.4125,
+  "px": [
+   84,
+   62
+  ]
+ },
+ {
+  "id": "02dc997bdf",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_4x1Gb_BT_OCP3_16910720.png",
+  "name": "C66xx 4x1Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4656,
+  "px": [
+   410,
+   70
+  ]
+ },
+ {
+  "id": "83e06e873a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x10Gb_BT_OCP3_41737057.png",
+  "name": "C66xx 2x10Gb BT OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4924,
+  "px": [
+   410,
+   74
+  ]
+ },
+ {
+  "id": "0a23334811",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x10Gb_SFP_OCP3_26947495.png",
+  "name": "C66xx 2x10Gb SFP OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4856,
+  "px": [
+   410,
+   73
+  ]
+ },
+ {
+  "id": "be81264d1e",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C66xx_2x25Gb_SFP28_OCP3_77863895.png",
+  "name": "C66xx 2x25Gb SFP28 OCP3",
+  "category": "ocp",
+  "w_in": 2.735,
+  "h_in": 0.4856,
+  "px": [
+   410,
+   73
+  ]
+ },
+ {
+  "id": "53f0554742",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/C6615_Rear_Full__19772542.png",
+  "name": "C6615 Rear (Full)",
+  "category": "server_rear",
+  "w_in": 17.5431,
+  "h_in": 3.4231,
+  "px": [
+   2631,
+   513
+  ]
+ },
+ {
+  "id": "f23c11ab94",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/17G_BOSS-N1_24712523.png",
+  "name": "17G BOSS-N1",
+  "category": "module",
+  "w_in": 3.0031,
+  "h_in": 0.6031,
+  "px": [
+   450,
+   90
+  ]
+ },
+ {
+  "id": "d96de5b10c",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/1U_17G_Bezel_46633736.png",
+  "name": "1U 17G Bezel",
+  "category": "bezel",
+  "w_in": 16.9731,
+  "h_in": 1.4931,
+  "px": [
+   2546,
+   224
+  ]
+ },
+ {
+  "id": "f7d523a093",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_Bezel_51416007.png",
+  "name": "2U 17G Bezel",
+  "category": "bezel",
+  "w_in": 16.9731,
+  "h_in": 3.2231,
+  "px": [
+   2546,
+   483
+  ]
+ },
+ {
+  "id": "07cc7f556a",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_E3.S_Filler_44625289.png",
+  "name": "2U 17G E3.S Filler",
+  "category": "blank",
+  "w_in": 2.8031,
+  "h_in": 2.8031,
+  "px": [
+   420,
+   420
+  ]
+ },
+ {
+  "id": "91ce403f7e",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/2U_17G_2.5in_Filler_50971929.png",
+  "name": "2U 17G 2.5in Filler",
+  "category": "blank",
+  "w_in": 5.3981,
+  "h_in": 2.8031,
+  "px": [
+   810,
+   420
+  ]
+ },
+ {
+  "id": "fe288a4514",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/R570_12D_3.5_Front_55074883.png",
+  "name": "R570 12D 3.5 Front",
+  "category": "server_front",
+  "w_in": 19.0031,
+  "h_in": 3.4231,
+  "px": [
+   2850,
+   513
+  ]
+ },
+ {
+  "id": "2c53b3c101",
+  "source": "R570 IO 구성 참조.vsdx",
+  "file": "images/library/1100W_C14_Inlet_PSU_14183247.png",
+  "name": "1100W C14 Inlet PSU",
+  "category": "psu",
+  "w_in": 3.4031,
+  "h_in": 1.5831,
+  "px": [
+   510,
+   237
+  ]
+ }
+]
