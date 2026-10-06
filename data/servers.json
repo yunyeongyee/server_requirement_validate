@@ -1,0 +1,537 @@
+{
+  "_note": "데모용 데이터. 슬롯/라이저/CPU 매핑은 반드시 Dell Technical Guide로 재확인. stencil: Dell PowerEdge Rack Servers 스텐실의 마스터 이름(자동 이미지 매칭에 사용). slots[].hotspot: 후면 스텐실 이미지 대비 %(좌표 보정 모드에서 수정). 전면 베이 좌표는 이미지에서 자동 감지되어 data/image_map.json에 저장.",
+  "servers": [
+    {
+      "id": "dell_r760",
+      "vendor": "Dell",
+      "family": "PowerEdge",
+      "model": "R760",
+      "form_factor": "2U Rack",
+      "cpu_sockets": 2,
+      "cpu_options": [
+        "Xeon Silver 4410Y",
+        "Xeon Gold 5418Y",
+        "Xeon Gold 6430",
+        "Xeon Gold 6442Y",
+        "Xeon Platinum 8462Y+"
+      ],
+      "memory": {
+        "dimm_slots": 32,
+        "max_gb": 8192,
+        "dimm_sizes_gb": [
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "slots_per_cpu": 16
+      },
+      "pcie_gen": "Gen5/Gen4",
+      "ocp": {
+        "supported": true,
+        "version": "3.0",
+        "lanes": 16,
+        "cpu": 1
+      },
+      "psu_options": [
+        800,
+        1100,
+        1400,
+        1800,
+        2400,
+        2800
+      ],
+      "psu_bays": 2,
+      "gpu": {
+        "supported": true,
+        "max_double_width": 2,
+        "max_single_width": 6,
+        "requires_gpu_riser": true
+      },
+      "drive_options": [
+        {
+          "id": "ssd960_sata",
+          "name": "960GB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
+          "id": "ssd1920_sas",
+          "name": "1.92TB SAS SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SAS",
+          "stencil": "14G 2.5 SAS SSD"
+        },
+        {
+          "id": "nvme3840",
+          "name": "3.84TB NVMe SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "NVMe",
+          "stencil": "14G 2.5 SAS SSD"
+        },
+        {
+          "id": "hdd2400_sas",
+          "name": "2.4TB 10K SAS HDD 2.5\"",
+          "ff": "2.5",
+          "iface": "SAS",
+          "stencil": "14G 2.5 SAS"
+        },
+        {
+          "id": "hdd12t_nlsas",
+          "name": "12TB 7.2K NL-SAS HDD 3.5\"",
+          "ff": "3.5",
+          "iface": "SAS",
+          "stencil": "14G 3.5 NLSAS"
+        },
+        {
+          "id": "hdd8t_sata",
+          "name": "8TB 7.2K SATA HDD 3.5\"",
+          "ff": "3.5",
+          "iface": "SATA",
+          "stencil": "14G 3.5 SATA"
+        }
+      ],
+      "risers": [
+        {
+          "id": "R1",
+          "name": "Riser 1 (Slot 1-2)",
+          "default": true
+        },
+        {
+          "id": "R2",
+          "name": "Riser 2 (Slot 3-6)",
+          "default": true
+        },
+        {
+          "id": "R3",
+          "name": "Riser 3 (Slot 7)",
+          "default": false
+        },
+        {
+          "id": "R4",
+          "name": "Riser 4 (Slot 8)",
+          "default": false
+        }
+      ],
+      "slots": [
+        {
+          "id": "S1",
+          "label": "Slot 1",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": true,
+          "cpu": 1,
+          "riser": "R1",
+          "hotspot": {
+            "x": 6.54,
+            "y": 5.0,
+            "w": 23.98,
+            "h": 23.93
+          }
+        },
+        {
+          "id": "S2",
+          "label": "Slot 2",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": "R1",
+          "hotspot": {
+            "x": 6.63,
+            "y": 27.0,
+            "w": 23.69,
+            "h": 21.52
+          }
+        },
+        {
+          "id": "S3",
+          "label": "Slot 3",
+          "type": "pcie",
+          "gen": 4,
+          "lanes": 8,
+          "height": "LP",
+          "length": "HL",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": "R2",
+          "hotspot": {
+            "x": 22.73,
+            "y": 52.07,
+            "w": 27.7,
+            "h": 23.44
+          }
+        },
+        {
+          "id": "S4",
+          "label": "Slot 4",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": true,
+          "cpu": 2,
+          "riser": "R2",
+          "hotspot": {
+            "x": 36.43,
+            "y": 5.0,
+            "w": 25.64,
+            "h": 23.93
+          }
+        },
+        {
+          "id": "S5",
+          "label": "Slot 5",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": false,
+          "cpu": 2,
+          "riser": "R2",
+          "hotspot": {
+            "x": 36.61,
+            "y": 28.44,
+            "w": 25.55,
+            "h": 21.04
+          }
+        },
+        {
+          "id": "S6",
+          "label": "Slot 6",
+          "type": "pcie",
+          "gen": 4,
+          "lanes": 8,
+          "height": "LP",
+          "length": "HL",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": "R2",
+          "hotspot": {
+            "x": 50.27,
+            "y": 52.56,
+            "w": 26.01,
+            "h": 22.48
+          }
+        },
+        {
+          "id": "S7",
+          "label": "Slot 7",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": true,
+          "cpu": 2,
+          "riser": "R3",
+          "hotspot": {
+            "x": 68.7,
+            "y": 9.24,
+            "w": 24.38,
+            "h": 20.95
+          }
+        },
+        {
+          "id": "S8",
+          "label": "Slot 8",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "FH",
+          "length": "FL",
+          "double_width_ok": false,
+          "cpu": 2,
+          "riser": "R4",
+          "hotspot": {
+            "x": 68.59,
+            "y": 27.0,
+            "w": 25.0,
+            "h": 22.0
+          }
+        },
+        {
+          "id": "OCP",
+          "label": "OCP 3.0",
+          "type": "ocp",
+          "gen": 4,
+          "lanes": 16,
+          "height": "SFF",
+          "length": "-",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": null,
+          "hotspot": {
+            "x": 38.47,
+            "y": 75.59,
+            "w": 20.48,
+            "h": 21.8
+          }
+        }
+      ],
+      "boss": {
+        "supported": true,
+        "name": "BOSS-N1 (M.2 NVMe 480GB × 2, RAID1)"
+      },
+      "backplanes": [
+        {
+          "id": "8x25",
+          "name": "8 × 2.5\" SAS/SATA",
+          "bays": 8,
+          "ff": "2.5",
+          "stencil": "R760 8D 2.5 Front"
+        },
+        {
+          "id": "16x25",
+          "name": "16 × 2.5\" SAS/SATA",
+          "bays": 16,
+          "ff": "2.5",
+          "stencil": "R760 16D 2.5 SF Front"
+        },
+        {
+          "id": "24x25",
+          "name": "24 × 2.5\" SAS/SATA/NVMe",
+          "bays": 24,
+          "ff": "2.5",
+          "stencil": "R760 24D 2.5 Front"
+        },
+        {
+          "id": "8x35",
+          "name": "8 × 3.5\" SAS/SATA",
+          "bays": 8,
+          "ff": "3.5",
+          "stencil": "R760 8D 3.5 Front"
+        },
+        {
+          "id": "12x35",
+          "name": "12 × 3.5\" SAS/SATA",
+          "bays": 12,
+          "ff": "3.5",
+          "stencil": "R760 12D 3.5 Front"
+        }
+      ],
+      "rear_stencil": "R760 8xPCI Rear"
+    },
+    {
+      "id": "dell_r660",
+      "vendor": "Dell",
+      "family": "PowerEdge",
+      "model": "R660",
+      "form_factor": "1U Rack",
+      "cpu_sockets": 2,
+      "cpu_options": [
+        "Xeon Silver 4410Y",
+        "Xeon Gold 5418Y",
+        "Xeon Gold 6430",
+        "Xeon Gold 6442Y",
+        "Xeon Platinum 8462Y+"
+      ],
+      "memory": {
+        "dimm_slots": 32,
+        "max_gb": 8192,
+        "dimm_sizes_gb": [
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "slots_per_cpu": 16
+      },
+      "pcie_gen": "Gen5/Gen4",
+      "ocp": {
+        "supported": true,
+        "version": "3.0",
+        "lanes": 16,
+        "cpu": 1
+      },
+      "psu_options": [
+        700,
+        800,
+        1100,
+        1400,
+        1800
+      ],
+      "psu_bays": 2,
+      "gpu": {
+        "supported": true,
+        "max_double_width": 0,
+        "max_single_width": 3,
+        "requires_gpu_riser": false
+      },
+      "drive_options": [
+        {
+          "id": "ssd960_sata",
+          "name": "960GB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
+          "id": "ssd1920_sas",
+          "name": "1.92TB SAS SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SAS",
+          "stencil": "14G 2.5 SAS SSD"
+        },
+        {
+          "id": "nvme3840",
+          "name": "3.84TB NVMe SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "NVMe",
+          "stencil": "14G 2.5 SAS SSD"
+        },
+        {
+          "id": "hdd2400_sas",
+          "name": "2.4TB 10K SAS HDD 2.5\"",
+          "ff": "2.5",
+          "iface": "SAS",
+          "stencil": "14G 2.5 SAS"
+        },
+        {
+          "id": "hdd12t_nlsas",
+          "name": "12TB 7.2K NL-SAS HDD 3.5\"",
+          "ff": "3.5",
+          "iface": "SAS",
+          "stencil": "14G 3.5 NLSAS"
+        },
+        {
+          "id": "hdd8t_sata",
+          "name": "8TB 7.2K SATA HDD 3.5\"",
+          "ff": "3.5",
+          "iface": "SATA",
+          "stencil": "14G 3.5 SATA"
+        }
+      ],
+      "risers": [
+        {
+          "id": "R1",
+          "name": "Riser 1 (Slot 1)",
+          "default": true
+        },
+        {
+          "id": "R2",
+          "name": "Riser 2 (Slot 2)",
+          "default": true
+        },
+        {
+          "id": "R3",
+          "name": "Riser 3 (Slot 3)",
+          "default": false
+        }
+      ],
+      "slots": [
+        {
+          "id": "S1",
+          "label": "Slot 1",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "LP",
+          "length": "HL",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": "R1",
+          "hotspot": {
+            "x": 28,
+            "y": 10,
+            "w": 16,
+            "h": 45
+          }
+        },
+        {
+          "id": "S2",
+          "label": "Slot 2",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "LP",
+          "length": "HL",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": "R2",
+          "hotspot": {
+            "x": 46,
+            "y": 5,
+            "w": 14,
+            "h": 50
+          }
+        },
+        {
+          "id": "S3",
+          "label": "Slot 3",
+          "type": "pcie",
+          "gen": 5,
+          "lanes": 16,
+          "height": "LP",
+          "length": "HL",
+          "double_width_ok": false,
+          "cpu": 2,
+          "riser": "R3",
+          "hotspot": {
+            "x": 66,
+            "y": 5,
+            "w": 14,
+            "h": 50
+          }
+        },
+        {
+          "id": "OCP",
+          "label": "OCP 3.0",
+          "type": "ocp",
+          "gen": 4,
+          "lanes": 16,
+          "height": "SFF",
+          "length": "-",
+          "double_width_ok": false,
+          "cpu": 1,
+          "riser": null,
+          "hotspot": {
+            "x": 38,
+            "y": 58,
+            "w": 17,
+            "h": 38
+          }
+        }
+      ],
+      "boss": {
+        "supported": true,
+        "name": "BOSS-N1 (M.2 NVMe 480GB × 2, RAID1)"
+      },
+      "backplanes": [
+        {
+          "id": "8x25",
+          "name": "8 × 2.5\" SAS/SATA",
+          "bays": 8,
+          "ff": "2.5",
+          "stencil": "R660 8D 2.5 SF Front"
+        },
+        {
+          "id": "10x25",
+          "name": "10 × 2.5\" SAS/SATA/NVMe",
+          "bays": 10,
+          "ff": "2.5",
+          "stencil": "R660 10D 2.5 Front"
+        },
+        {
+          "id": "0d",
+          "name": "드라이브 없음 (0D)",
+          "bays": 0,
+          "ff": "2.5",
+          "stencil": "R660 0D Front"
+        }
+      ],
+      "rear_stencil": "R660 3xPCI LP Rear"
+    }
+  ]
+}
