@@ -17,6 +17,7 @@ import ConfigSection from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
+import ServerBar from "./components/ServerBar";
 
 export type ModelSource = "document" | "manual" | "default";
 
@@ -28,6 +29,11 @@ interface ServerProfile {
 }
 
 const DEFAULT_GROUP_ID = "server-1";
+
+const STEPS: Array<[string, string]> = [
+  ["s1", "요구사항"], ["s2", "서버 모델"], ["s3", "디스크 · 슬롯"], ["s4", "서버 사양"], ["s5", "호환성 검증"], ["s6", "최종 결과표"],
+];
+const VERDICT_TONE: Record<string, string> = { "충족": "ok", "미충족": "fail", "구성 불가": "incomp", "확인 필요": "review" };
 
 function defaultConfig(server: Server): ServerConfig {
   return {
@@ -364,6 +370,7 @@ export default function App() {
           <p>고객 요구사항 문서 ↔ 실제 서버 구성 검증</p>
         </div>
         {headerText && <div className="verdict">{headerText}</div>}
+        <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={activeGroupId} onSelect={setActiveGroupId} />
       </header>
       {apiReady === false && (
         <div className="stale offline-banner" role="status">
@@ -373,14 +380,32 @@ export default function App() {
         </div>
       )}
       {apiReady === null && <div className="stale" role="status">백엔드 API에 연결하는 중입니다…</div>}
-      <div className="layout">
-        <nav className="rail" aria-label="작업 단계">
-          <a href="#s1"><b>1</b>요구사항</a>
-          <a href="#s2"><b>2</b>서버 모델</a>
-          <a href="#s3"><b>3</b>서버 구성</a>
-          <a href="#s4"><b>4</b>서버 사양</a>
-          <a href="#s5"><b>5</b>호환성 검증</a>
-          <a href="#s6"><b>6</b>최종 결과표</a>
+      <div className={`layout ${groups.length > 1 ? "has-bar" : ""}`}>
+        <nav className="rail" aria-label={groups.length > 1 ? "서버 및 작업 단계" : "작업 단계"}>
+          {groups.length > 1 ? (
+            <>
+              <div className="rail-head">서버 {groups.length}종 · {groups.reduce((total, group) => total + (group.quantity || 1), 0)}대</div>
+              {groups.map((group) => {
+                const summary = projectSummaries.find((item) => item.id === group.id);
+                const verdict = summary?.verdict || "미검증";
+                const tone = VERDICT_TONE[verdict] || "none";
+                const active = group.id === activeGroupId;
+                return (
+                  <div key={group.id} className={`rail-server ${active ? "on" : ""}`}>
+                    <button type="button" aria-current={active ? "true" : undefined} onClick={() => setActiveGroupId(group.id)}>
+                      <span className={`dot dot-${tone}`} aria-hidden="true" />
+                      <span className="rs-text">
+                        <b>{group.name}{group.quantity ? <small> ×{group.quantity}</small> : null}</b>
+                        <small>{summary?.model || "-"} · {verdict}</small>
+                      </span>
+                    </button>
+                    {active && <div className="rail-steps">{STEPS.slice(0, 5).map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}</div>}
+                  </div>
+                );
+              })}
+              <a className="rail-total" href="#s6"><b>6</b>전체 결과표</a>
+            </>
+          ) : STEPS.map(([id, label], index) => <a key={id} href={`#${id}`}><b>{index + 1}</b>{label}</a>)}
         </nav>
         <main>
           <RequirementSection
@@ -392,7 +417,6 @@ export default function App() {
             busy={uploadBusy}
             error={uploadError}
             onUpload={handleUpload}
-            onSelectGroup={setActiveGroupId}
             onChange={handleRequirementsChange}
             onReExtract={handleReExtract}
             servers={servers}

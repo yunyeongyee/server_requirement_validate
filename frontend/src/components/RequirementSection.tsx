@@ -35,7 +35,6 @@ interface Props {
   busy: boolean;
   error: string;
   onUpload: (file: File) => void;
-  onSelectGroup: (groupId: string) => void;
   onChange: (groupId: string, requirements: Requirement[]) => void;
   onReExtract: (text: string) => void;
   servers: Server[];
@@ -97,7 +96,6 @@ export default function RequirementSection({
   busy,
   error,
   onUpload,
-  onSelectGroup,
   onChange,
   onReExtract,
   servers,
@@ -224,15 +222,6 @@ export default function RequirementSection({
       {extractionInfo?.notice && <p className="warn" role="status">{extractionInfo.notice}</p>}
       {documentName && (
         <>
-          {groups.length > 1 && (
-            <nav className="server-tabs" aria-label="요구 서버 선택">
-              {groups.map((group) => (
-                <button type="button" key={group.id} className={group.id === activeGroup?.id ? "on" : ""} onClick={() => onSelectGroup(group.id)}>
-                  <span>{group.name}{group.quantity ? ` · ${group.quantity}대` : ""}</span><small>{group.requirements.length}개</small>
-                </button>
-              ))}
-            </nav>
-          )}
           {activeGroup?.doc_role === "quote" ? (
             <ProposalPanel
               group={activeGroup}

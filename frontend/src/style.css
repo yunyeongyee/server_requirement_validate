@@ -301,3 +301,40 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .used-badge{position:absolute;top:4px;right:4px;font-style:normal;font-size:11px;background:#1C7A43;color:#fff;padding:1px 6px;border-radius:3px}
 
 .upload-foot{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:6px}
+
+.top{flex-wrap:wrap}
+.serverbar{flex:1 0 100%;display:flex;gap:8px;overflow-x:auto;padding-top:4px;align-items:stretch}
+.sb-card{flex:0 0 auto;min-width:170px;text-align:left;font:inherit;color:#DDE5EE;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-bottom:3px solid transparent;border-radius:6px;padding:6px 10px;cursor:pointer;display:grid;gap:3px}
+.sb-card:hover{background:rgba(255,255,255,.12)}
+.sb-card.on{background:#fff;color:var(--ink,#1d2733);border-color:#fff;border-bottom-color:var(--accent)}
+.sb-name{font-weight:700;font-size:14px}
+.sb-name small{font-weight:500;opacity:.75}
+.sb-meta{display:flex;gap:8px;align-items:center;font-size:12px;justify-content:space-between}
+.sb-meta .st{font-size:11px}
+.st-none{background:rgba(128,128,128,.25);color:inherit;font-style:normal;padding:0 6px;border-radius:3px}
+.sb-total{align-self:center;margin-left:auto;font-size:12px;color:#9AA7B4;white-space:nowrap;padding-left:8px}
+@media print{.serverbar{display:none}}
+.layout.has-bar .panel{scroll-margin-top:180px}
+.panel{scroll-margin-top:100px}
+
+/* 서버가 여러 대: 데스크톱은 왼쪽 서버 목록, 좁은 화면은 헤더 아래 가로 바 */
+@media (min-width:901px){.layout.has-bar{grid-template-columns:250px 1fr}}
+.layout.has-bar .panel{scroll-margin-top:100px}
+@media (min-width:901px){.serverbar{display:none}}
+.rail-head{font-size:12px;color:var(--mute);padding:0 12px 6px;font-weight:600}
+.rail-server{margin-left:-2px;border-left:2px solid transparent}
+.rail-server.on{border-left-color:var(--accent);background:var(--panel);border-radius:0 6px 6px 0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.rail-server>button{all:unset;box-sizing:border-box;width:100%;display:flex;gap:9px;align-items:flex-start;padding:8px 12px;cursor:pointer}
+.rail-server>button:focus-visible{outline:2px solid var(--accent)}
+.rail-server:not(.on)>button:hover{background:rgba(0,0,0,.04)}
+.rs-text{display:grid;gap:1px;min-width:0}
+.rs-text b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rs-text b small{font-weight:500;color:var(--mute)}
+.rs-text>small{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;margin-top:6px;background:#B8C0CA}
+.dot-ok{background:var(--ok)} .dot-fail{background:var(--fail)} .dot-incomp{background:var(--incomp)} .dot-review{background:var(--review)}
+.rail-steps{display:flex;flex-direction:column;padding:0 0 8px 30px}
+.rail .rail-steps a{padding:4px 8px;font-size:13px;border-left:0;margin:0}
+.rail .rail-steps a:hover{color:var(--accent)}
+.rail .rail-total{margin-top:8px;border-top:1px solid var(--line);padding-top:10px}
+@media (max-width:900px){.top{position:static}}

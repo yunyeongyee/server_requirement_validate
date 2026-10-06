@@ -334,6 +334,11 @@ def analyze(filename: str, data: bytes) -> dict:
             evidence.append(f"본체 행: {base.desc} ({base.where})")
             conf = max(conf, 0.75)
         if not name:
+            # 시트 이름이 'DB서버'처럼 의미 있으면 본체 품명보다 우선 (Sheet1 같은 기본 이름은 제외)
+            sheet = re.match(r"시트 '(.+?)'", b.where)
+            if sheet and not re.fullmatch(r"(?i)(sheet|시트|worksheet)\s*\d*", sheet.group(1).strip()):
+                name, how = sheet.group(1).strip(), "시트 이름"
+        if not name:
             name = base.desc if base else None
             how = "본체 품명" if base else ""
         # 수량이 총량인지 1대 기준인지
