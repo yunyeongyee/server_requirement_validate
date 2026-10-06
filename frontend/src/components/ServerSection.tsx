@@ -19,12 +19,6 @@ interface Props {
   onImagesChange: () => void;
 }
 
-const LIB_TABS: Array<[string, string]> = [
-  ["all", "전체"], ["server_front", "전면"], ["server_rear", "후면"], ["drive", "디스크"],
-  ["ocp", "OCP·NIC"], ["psu", "PSU"], ["etc", "기타"],
-];
-const MAIN_CATEGORIES = new Set(["server_front", "server_rear", "drive", "ocp", "psu"]);
-
 export default function ServerSection({
   servers,
   components,
@@ -46,9 +40,8 @@ export default function ServerSection({
   const [busy, setBusy] = useState(false);
   const [imageError, setImageError] = useState("");
   const [managerOpen, setManagerOpen] = useState(false);
-  const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
-  const [target, setTarget] = useState<"front" | "rear" | null>(null);
+  const [target, setTarget] = useState<"front" | "rear">("front");
 
   useEffect(() => {
     if (apiReady !== true) return;
@@ -66,21 +59,12 @@ export default function ServerSection({
     </section>
   );
 
-  const tabOf = (category: string) => MAIN_CATEGORIES.has(category) ? category : "etc";
-  const counts = library.reduce<Record<string, number>>((acc, item) => {
-    acc.all = (acc.all || 0) + 1;
-    acc[tabOf(item.category)] = (acc[tabOf(item.category)] || 0) + 1;
-    return acc;
-  }, {});
+  const targetCategory = target === "front" ? "server_front" : "server_rear";
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = library.filter((item) => (tab === "all" || tabOf(item.category) === tab)
-    && terms.every((term) => `${item.name} ${item.source}`.toLowerCase().includes(term)));
+  const candidates = library.filter((item) => item.category === targetCategory);
+  const shown = candidates.filter((item) => terms.every((term) => `${item.name} ${item.source}`.toLowerCase().includes(term)));
 
-  const pickTarget = (kind: "front" | "rear") => {
-    setTarget((current) => current === kind ? null : kind);
-    setTab(kind === "front" ? "server_front" : "server_rear");
-  };
-  const assignable = (item: LibraryImage) => !!target && item.category === (target === "front" ? "server_front" : "server_rear");
+  const pickTarget = (kind: "front" | "rear") => setTarget(kind);
   const usedAs = (id: string) => [images?.front.item?.id === id && "전면", images?.rear.item?.id === id && "후면"].filter(Boolean).join("·");
 
   const selectedBackplane = server.backplanes.find((item) => item.id === backplaneId) || server.backplanes[0];
@@ -164,7 +148,7 @@ export default function ServerSection({
               {server.backplanes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
-          <button type="button" className="btn ghost small" onClick={() => setManagerOpen(true)}>⚙ 이미지 관리</button>
+          <button type="button" className="btn ghost small" onClick={() => setManagerOpen(true)}>이미지 변경</button>
         </div>
         <div className="thumbs">
           {(["front", "rear"] as const).map((kind) => {
@@ -186,23 +170,11 @@ export default function ServerSection({
 
       {managerOpen && (
         <div className="modal-back" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setManagerOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="이미지 관리">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="서버 이미지 선택">
             <div className="row between">
-              <h3>이미지 관리 · {server.vendor} {server.model}</h3>
+              <h3>서버 이미지 선택 · {server.vendor} {server.model}</h3>
               <button className="ico" aria-label="닫기" onClick={() => setManagerOpen(false)}>✕</button>
             </div>
-            <div className="row">
-              <label className="btn">
-                <input type="file" accept=".vssx,.vsdx,.vstx,.png,.jpg,.jpeg,.webp,.bmp,.gif" multiple hidden disabled={busy} onChange={handleUpload} />
-                VSSX / VSDX / 이미지 업로드
-              </label>
-              <span className="muted">Dell 스텐실을 올리면 서버·디스크 이미지를 추출해 이름으로 자동 연결합니다.</span>
-            </div>
-            {!!uploadMessage && (
-              <div className={`job ${!busy && uploadPercent === 100 ? "fin" : ""}`}>
-                <div className="bar"><i style={{ width: `${uploadPercent}%` }} /></div><span>{uploadMessage}</span>
-              </div>
-            )}
             <div className="assign">
               {(["front", "rear"] as const).map((kind) => {
                 const status = images?.[kind];
@@ -224,13 +196,48 @@ export default function ServerSection({
                       <span className="small">{status?.item?.name || "미지정"}</span>
                       {status?.item && !status.auto && <button type="button" className="btn ghost small" onClick={(event) => { event.stopPropagation(); void updateImage(kind, ""); }}>자동으로 되돌리기</button>}
                     </div>
-                    <span className="assign-hint">{target === kind ? "아래 라이브러리에서 바꿀 이미지를 클릭하세요" : "클릭해서 바꾸기"}</span>
+                    <span className="assign-hint">{target === kind ? "아래 후보에서 클릭하면 바뀝니다" : "클릭해서 바꾸기"}</span>
                   </div>
                 );
               })}
             </div>
+            <div className="row between">
+              <h4>{target === "front" ? "전면" : "후면"} 이미지 후보 <span className="muted small">{shown.length}개</span></h4>
+              <input type="search" placeholder="이름 검색 (예: 16D, 3.5, 8xPCI)" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="이미지 검색" />
+            </div>
+            <div className="libgrid">
+              {shown.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  title={`${item.name}\n${item.source}`}
+                  className={`libcard pickable ${usedAs(item.id) ? "used" : ""}`}
+                  onClick={() => void updateImage(target, item.id)}
+                >
+                  {usedAs(item.id) && <em className="used-badge">{usedAs(item.id)} 사용 중</em>}
+                  <img src={`/static/${item.file}`} alt="" loading="lazy" />
+                  <span>{item.name}</span><small>{item.source}</small>
+                </button>
+              ))}
+              {!shown.length && <p className="muted">{candidates.length ? "검색 조건에 맞는 이미지가 없습니다." : `${target === "front" ? "전면" : "후면"} 이미지가 아직 없습니다. 아래에서 스텐실을 올려주세요.`}</p>}
+            </div>
+            <div className="upload-foot">
+              <span className="muted small">찾는 서버 이미지가 없나요?</span>
+            <div className="row">
+              <label className="btn">
+                <input type="file" accept=".vssx,.vsdx,.vstx,.png,.jpg,.jpeg,.webp,.bmp,.gif" multiple hidden disabled={busy} onChange={handleUpload} />
+                VSSX / VSDX / 이미지 업로드
+              </label>
+              <span className="muted">Dell 스텐실을 올리면 서버·디스크 이미지를 추출해 이름으로 자동 연결합니다.</span>
+            </div>
+            {!!uploadMessage && (
+              <div className={`job ${!busy && uploadPercent === 100 ? "fin" : ""}`}>
+                <div className="bar"><i style={{ width: `${uploadPercent}%` }} /></div><span>{uploadMessage}</span>
+              </div>
+            )}
+            </div>
             <details className="sub">
-              <summary>부품 · 디스크 이미지 연결</summary>
+              <summary>고급: OCP 카드 · 디스크 이미지 연결 (전면/후면 합성에 쓰임)</summary>
               <div className="scroll">
                 <table className="grid">
                   <thead><tr><th>부품</th><th>사용 이미지</th><th>연결</th></tr></thead>
@@ -266,34 +273,7 @@ export default function ServerSection({
                 </table>
               </div>
             </details>
-            <h4>이미지 라이브러리 <span className="muted small">{shown.length}/{library.length}</span></h4>
-            <div className="row">
-              <div className="seg">
-                {LIB_TABS.map(([key, label]) => (
-                  <button type="button" key={key} className={tab === key ? "on" : ""} onClick={() => setTab(key)}>
-                    {label} {counts[key] || 0}
-                  </button>
-                ))}
-              </div>
-              <input type="search" placeholder="이름·출처 검색 (예: R760, OCP, 3.5)" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="라이브러리 검색" />
-            </div>
-            <div className="libgrid">
-              {shown.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  title={`${item.name}\n${item.source}`}
-                  className={`libcard ${usedAs(item.id) ? "used" : ""} ${assignable(item) ? "pickable" : ""}`}
-                  disabled={!!target && !assignable(item)}
-                  onClick={() => { if (target && assignable(item)) void updateImage(target, item.id); }}
-                >
-                  {usedAs(item.id) && <em className="used-badge">{usedAs(item.id)} 사용 중</em>}
-                  <img src={`/static/${item.file}`} alt="" loading="lazy" />
-                  <span>{item.name}</span><small>{item.source}</small>
-                </button>
-              ))}
-              {!shown.length && <p className="muted">{library.length ? "조건에 맞는 이미지가 없습니다." : "먼저 VSSX/VSDX 또는 이미지 파일을 업로드하세요."}</p>}
-            </div>
+
             {imageError && <p className="warn" role="alert">{imageError}</p>}
           </div>
         </div>

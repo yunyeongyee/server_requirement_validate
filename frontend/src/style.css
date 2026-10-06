@@ -299,3 +299,5 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .libcard:disabled{opacity:.35}
 .libcard.used{border:2px solid #1C7A43}
 .used-badge{position:absolute;top:4px;right:4px;font-style:normal;font-size:11px;background:#1C7A43;color:#fff;padding:1px 6px;border-radius:3px}
+
+.upload-foot{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:6px}
