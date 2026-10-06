@@ -1,0 +1,11 @@
+[A사 가상화 서버 도입 요구사항]
+1. CPU 2소켓 구성
+2. Memory는 512GB 이상 구성
+3. 25GbE NIC 4Port 이상 제공
+4. FC HBA 32Gb 2Port 이상
+5. OCP 3.0 NIC 지원
+6. Boot Disk RAID1 구성
+7. 전원은 이중화 구성
+8. 향후 PCIe Slot 2개 이상 확보
+9. 충분한 확장성 확보
+10. 안정적인 운영이 가능한 고성능 서버 제공

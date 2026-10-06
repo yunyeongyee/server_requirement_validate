@@ -1,0 +1,9 @@
+{
+ "project": "A사",
+ "hardware": {
+  "memory": "Memory 512GB 이상",
+  "nic": "25GbE NIC 4Port 이상",
+  "fc": "FC HBA 32Gb 2Port 이상",
+  "psu": "전원 이중화"
+ }
+}
