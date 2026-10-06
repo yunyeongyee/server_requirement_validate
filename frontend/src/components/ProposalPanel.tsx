@@ -22,11 +22,14 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
   const list = (items: Array<{ desc: string; qty: number }>) => items.map((item) => `${item.desc} × ${item.qty}`).join(" / ");
 
   return (
-    <div className={`proposal ${lowConfidence ? "low" : ""}`}>
+    <details className={`proposal ${lowConfidence ? "low" : ""}`} open={!!notes?.length}>
+      <summary className="pp-sum">
       <div className="pp-head">
-        <h3>제안 구성 <span className="muted">· 견적서 기준 대당 구성{group.quantity ? ` × ${group.quantity}대` : ""}</span></h3>
+        <h3>견적 구성 <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 오른쪽 구성에 자동 적용됨</span></h3>
         <span className="docstat">판단 신뢰도 {pct(group.confidence)}</span>
       </div>
+      {!!notes?.length && <span className="pp-warn">⚠ 바뀐 항목 {notes.length}개</span>}
+      </summary>
       <dl className="pp-grid">
         {line("본체", group.base_desc || group.model_hint)}
         {line("CPU", p.cpu.count ? `${p.cpu.model || "-"} × ${p.cpu.count}` : null)}
@@ -48,8 +51,8 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
         </ul>
       </details>
       <div className="row">
-        <button className="btn small" disabled={busy || !server} onClick={onApply}>
-          {busy ? "적용 중…" : `구성에 적용 (${server ? server.model : "모델 선택 필요"})`}
+        <button className="btn ghost small" disabled={busy || !server} onClick={onApply}>
+          {busy ? "적용 중…" : `견적대로 다시 적용 (${server ? server.model : "모델 선택 필요"})`}
         </button>
         {group.model_hint && !suggested && (
           <span className="muted small">견적 모델 '{group.model_hint}' 은 서버 카탈로그에 없습니다 — 선택한 모델로 가장 가까운 부품을 배치합니다.</span>
@@ -59,6 +62,6 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
       {!!notes?.length && (
         <ul className="pp-notes">{notes.map((text, index) => <li key={index}>{text}</li>)}</ul>
       )}
-    </div>
+    </details>
   );
 }

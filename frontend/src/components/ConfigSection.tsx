@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PointerEvent } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import type { Component, ImageStatus, Server, ServerConfig, ValidationResult } from "../types";
 
 interface Props {
@@ -14,6 +14,17 @@ interface Props {
   onBackplaneChange: (id: string) => void;
   onSaveCalibration: (hotspots: Record<string, Rect>, rects: Rect[]) => Promise<void>;
   onRedetectBays: () => Promise<void>;
+  /** 카드 머리에 들어갈 모델 줄 (모델 · 출처 · 변경) */
+  modelLine: ReactNode;
+  /** 요구사항 행의 '추가/수정' 버튼이 보낸 요청. n 이 바뀔 때마다 처리 */
+  focus: FocusRequest | null;
+  onOpenImages: () => void;
+}
+
+export interface FocusRequest {
+  kind: "slot" | "spec" | "bays";
+  part?: "fc" | "nic" | "gpu";
+  n: number;
 }
 
 const RAID_LEVELS = ["", "RAID0", "RAID1", "RAID5", "RAID6", "RAID10"];
@@ -69,11 +80,19 @@ export default function ConfigSection({
   onBackplaneChange,
   onSaveCalibration,
   onRedetectBays,
+  modelLine,
+  focus,
+  onOpenImages,
 }: Props) {
   const [imageView, setImageView] = useState<"both" | "front" | "rear">("both");
   const [mode, setMode] = useState<"edit" | "clean" | "calib">("edit");
   const [selectedBays, setSelectedBays] = useState<number[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [showSlotList, setShowSlotList] = useState(false);
+  const [specOpen, setSpecOpen] = useState(false);
+  const specRef = useRef<HTMLDetailsElement>(null);
+  const slotPanelRef = useRef<HTMLDivElement>(null);
   const [frontRects, setFrontRects] = useState<Rect[]>([]);
   const [slotHotspots, setSlotHotspots] = useState<Record<string, Rect>>({});
   const [calibrationBusy, setCalibrationBusy] = useState(false);
@@ -91,25 +110,30 @@ export default function ConfigSection({
     setSlotHotspots(next);
   }, [server]);
 
+  useEffect(() => {
+    if (!focus || !server) return;
+    if (focus.kind === "spec") {
+      setSpecOpen(true);
+      window.setTimeout(() => specRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+    } else if (focus.kind === "slot") {
+      const free = server.slots.find((slot) => slot.type !== "ocp" && !config?.slots[slot.id]
+        && (result?.slots.find((item) => item.slot === slot.id)?.usable ?? true));
+      if (free) {
+        setSelectedSlot(free.id);
+        window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.n]);
+
   if (!server || !config) return (
-    <>
-      <section id="s3" className="panel">
-        <h2><span className="n">3</span>서버 구성</h2>
-        <p className="muted">{apiReady === false
-          ? "API 연결 후 CPU, 메모리, 디스크, 슬롯 및 전원 구성을 편집할 수 있습니다."
-          : "서버 구성을 불러오는 중입니다."}</p>
-      </section>
-      <section id="s4" className="panel">
-        <h2><span className="n">4</span>서버 사양</h2>
-        <p className="muted">{apiReady === false
-          ? "서버 카탈로그 연결 후 선택한 모델의 최종 사양을 표시합니다."
-          : "서버 사양을 불러오는 중입니다."}</p>
-      </section>
-    </>
+    <section id="s3" className="card cfg">
+      <div className="cardhead">{modelLine}</div>
+      <p className="muted pad">{apiReady === false ? "API 연결 후 서버 구성을 편집할 수 있습니다." : "서버 구성을 불러오는 중입니다."}</p>
+    </section>
   );
 
   const backplane = server.backplanes.find((item) => item.id === config.backplane) || server.backplanes[0];
-  const currentDrives = Object.values(config.bays);
   const memoryTotal = config.memory.reduce((total, row) => total + row.size_gb * row.qty, 0);
   const memoryCount = config.memory.reduce((total, row) => total + row.qty, 0);
   const getSlotResult = (slotId: string) => result?.slots.find((item) => item.slot === slotId);
@@ -307,25 +331,29 @@ export default function ConfigSection({
 
   return (
     <>
-      <section id="s3" className="panel">
-        <h2><span className="n">3</span>전면 디스크 · 후면 슬롯</h2>
-        <div className="row between">
-          <div className="seg">
-            {(["both", "front", "rear"] as const).map((view) => (
-              <button type="button" key={view} className={imageView === view ? "on" : ""} onClick={() => setImageView(view)}>
-                {view === "both" ? "전면 + 후면" : view === "front" ? "전면" : "후면"}
-              </button>
-            ))}
+      <section id="s3" className="card cfg">
+        <div className="cardhead">
+          {modelLine}
+          <div className="tools">
+            {mode !== "edit" && <span className="tag">{mode === "calib" ? "좌표 보정 중" : "제안서 보기"} <button type="button" className="lnk" onClick={() => setMode("edit")}>끝내기</button></span>}
+            <button type="button" className="lnk" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>⋯ 도구</button>
+            {toolsOpen && (
+              <div className="menu" role="menu" onClick={() => setToolsOpen(false)}>
+                <button role="menuitem" onClick={onOpenImages}>서버 이미지 변경</button>
+                <button role="menuitem" onClick={() => setMode("calib")}>좌표 보정</button>
+                <button role="menuitem" onClick={() => setMode(mode === "clean" ? "edit" : "clean")}>{mode === "clean" ? "편집 화면으로" : "제안서 보기 (표시 없이)"}</button>
+                <button role="menuitem" onClick={() => setShowSlotList(!showSlotList)}>{showSlotList ? "슬롯 목록 숨기기" : "슬롯 목록으로 보기"}</button>
+                <hr />
+                {(["both", "front", "rear"] as const).map((view) => (
+                  <button role="menuitemradio" aria-checked={imageView === view} key={view} onClick={() => setImageView(view)}>
+                    {imageView === view ? "✓ " : ""}{view === "both" ? "전면 + 후면" : view === "front" ? "전면만" : "후면만"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="seg">
-            {(["edit", "clean", "calib"] as const).map((item) => (
-              <button type="button" key={item} className={mode === item ? "on" : ""} onClick={() => setMode(item)}>
-                {item === "edit" ? "편집" : item === "clean" ? "제안서 보기" : "좌표 보정"}
-              </button>
-            ))}
-          </div>
-          <span className="muted">전면 베이를 선택한 뒤 디스크를 배치하거나 슬롯 표에서 부품을 선택하세요.</span>
         </div>
+        <div className="cardbody">
         {mode === "calib" && <div className="row">
           <span className="muted">빠른 방법: Bay 0의 크기·위치와 마지막 베이 위치만 맞춘 뒤 '처음·끝 사이 균등 배치'를 누르세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
           <button className="btn ghost small" disabled={calibrationBusy} onClick={() => void redetect()}>베이 자동 감지 다시</button>
@@ -346,7 +374,8 @@ export default function ConfigSection({
           </div>
         )}
         {renderStage("front")}
-        <div className={`diskbar ${backplane.bays === 0 ? "off" : ""}`}>
+        {selectedBays.length > 0 ? (
+        <div className="diskbar">
           <span className="selinfo">선택한 베이 {selectedBays.length}개{selectedBays.length ? ` (${[...selectedBays].sort((a, b) => a - b).join(", ")})` : ""}</span>
           <select id="addDrive" aria-label="디스크 모델" defaultValue={server.drive_options.find((drive) => drive.ff === backplane.ff)?.id || ""}>
             {server.drive_options.filter((drive) => drive.ff === backplane.ff).map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
@@ -370,7 +399,12 @@ export default function ConfigSection({
           <button className="btn ghost small" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체 선택</button>
           <button className="btn ghost small" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>디스크 전체 빼기</button>
         </div>
-        <StorageSummary server={server} config={config} bayCount={backplane.bays} />
+        ) : (
+          <div className="storage-row">
+            <StorageSummary server={server} config={config} bayCount={backplane.bays} />
+            {backplane.bays > 0 && <span className="muted small">베이를 눌러 선택하거나 <button type="button" className="lnk" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체 선택</button></span>}
+          </div>
+        )}
         {renderStage("rear")}
         {selectedSlot && (() => {
           const slot = server.slots.find((item) => item.id === selectedSlot);
@@ -378,7 +412,7 @@ export default function ConfigSection({
           const slotResult = getSlotResult(slot.id);
           const fits = components.filter((item) => slot.type === "ocp" ? item.form === "ocp" : item.form !== "ocp");
           return (
-            <div className="slotpanel" role="region" aria-label={`${slot.label} 구성`}>
+            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label={`${slot.label} 구성`}>
               <div className="row between">
                 <b>{slot.label}</b>
                 <span className="muted">{slot.type === "ocp" ? `OCP 3.0 SFF x${slot.lanes}` : `PCIe Gen${slot.gen} x${slot.lanes} · ${slot.height}${slot.double_width_ok ? " · 더블 폭 가능" : ""}`} · CPU{slot.cpu}{slot.riser ? ` · ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}` : ""}</span>
@@ -400,8 +434,8 @@ export default function ConfigSection({
             </div>
           );
         })()}
-        <details className="sub">
-          <summary>슬롯 목록으로 구성</summary>
+        {showSlotList && <details className="sub" open>
+          <summary>슬롯 목록</summary>
           <div className="scroll">
             <table className="grid">
               <thead><tr><th>슬롯</th><th>사양</th><th>CPU</th><th>Riser</th><th>장착 부품</th><th>상태</th></tr></thead>
@@ -429,16 +463,10 @@ export default function ConfigSection({
               })}</tbody>
             </table>
           </div>
-        </details>
-        <details className="sub">
-          <summary>디스크 · 슬롯 구성 요약</summary>
-          <p className="muted">전면 {currentDrives.length}/{backplane.bays} 베이 · {currentDrives.map(({ drive, role }) => `${role === "boot" ? "Boot" : "Data"}: ${server.drive_options.find((item) => item.id === drive)?.name || drive}`).join(" · ") || "장착된 디스크 없음"}</p>
-          <p className="muted">PCIe NIC / FC HBA / GPU는 실제 사진 대신 호환성 표에서 확인합니다.</p>
-        </details>
-      </section>
+        </details>}
 
-      <section id="s4" className="panel">
-        <h2><span className="n">4</span>서버 사양</h2>
+        <details className="fold" id="s4" ref={specRef} open={specOpen} onToggle={(event) => setSpecOpen(event.currentTarget.open)}>
+          <summary><b>CPU · 메모리 · 디스크 RAID · PSU · Riser</b> <span className="muted">— {config.cpu_model} × {config.cpu_count} · {memoryTotal}GB · {config.psu_watt}W × {config.psu_count}</span></summary>
         <div className="form">
           <fieldset><legend>CPU</legend>
             <select value={config.cpu_model} onChange={(event) => patch({ cpu_model: event.target.value })}>
@@ -495,6 +523,23 @@ export default function ConfigSection({
               </label>
             ))}
           </fieldset>
+        </div>
+        </details>
+        {(() => {
+          if (!result) return null;
+          const problems = [
+            ...result.general.filter((item) => item.status !== "충족").map((item) => ({ where: "구성", what: "", status: item.status, msg: item.msg })),
+            ...result.slots.filter((item) => item.component && item.status && item.status !== "충족").map((item) => ({ where: item.label, what: item.component || "", status: item.status || "", msg: item.issues.map((issue) => issue.msg).join(" / ") })),
+            ...result.bays.filter((item) => item.status !== "충족").map((item) => ({ where: `Bay ${item.bay}`, what: item.drive, status: item.status, msg: item.issues.map((issue) => issue.msg).join(" / ") })),
+          ];
+          return (
+            <details className="fold" id="s5">
+              <summary><b>호환성</b> <span className="muted">— {problems.length ? `확인할 항목 ${problems.length}건` : "문제 없음"} · 예상 소비전력 {Math.round(result.summary.power_est_w)}W · 빈 PCIe {result.summary.free_pcie}개</span></summary>
+              {problems.length ? <ul className="issues">{problems.map((item, index) => <li key={index}><StatusBadge status={item.status} /> <b>{item.where}</b>{item.what ? ` · ${item.what}` : ""} — {item.msg}</li>)}</ul>
+                : <p className="muted small">장착한 부품과 디스크가 모두 호환됩니다.</p>}
+            </details>
+          );
+        })()}
         </div>
       </section>
     </>

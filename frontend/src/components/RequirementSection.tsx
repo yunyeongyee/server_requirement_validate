@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import type { ReactNode } from "react";
-import type { ExtractionInfo, Requirement, RequirementGroup, Server } from "../types";
+import type { ExtractionInfo, Requirement, RequirementGroup, Server, ValidationResult } from "../types";
+import type { FocusRequest } from "./ConfigSection";
 import ProposalPanel from "./ProposalPanel";
 
 const KEY_DEFS: Record<string, [string, string]> = {
@@ -12,7 +13,7 @@ const KEY_DEFS: Record<string, [string, string]> = {
   fc_speed_gb: ["FC Speed", "Gb"],
   fc_ports: ["FC Port", "Port"],
   ocp_required: ["OCP 3.0", ""],
-  raid_level: ["Boot RAID", ""],
+  raid_level: ["RAID", ""],
   dual_psu: ["Dual PSU", ""],
   psu_watt: ["PSU Capacity", "W"],
   free_pcie: ["Free PCIe Slot", "EA"],
@@ -42,6 +43,21 @@ interface Props {
   proposalNotes: Record<string, string[]>;
   applyingGroupId: string | null;
   onApplyProposal: (groupId: string) => void;
+  result: ValidationResult | null;
+  onFocus: (request: Omit<FocusRequest, "n">) => void;
+  /** 헤더의 '원문' / '다른 문서' 버튼이 바꾸는 값 */
+  showDocumentSignal: number;
+  pickFileSignal: number;
+}
+
+const STATUS_CLASS: Record<string, string> = { "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
+/** 미충족 요구사항을 고칠 곳: 슬롯 부품 또는 사양 */
+function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> } | null {
+  if (key.startsWith("fc_")) return { label: "FC HBA 추가", request: { kind: "slot", part: "fc" } };
+  if (key.startsWith("nic_") || key === "ocp_required") return { label: "NIC 추가", request: { kind: "slot", part: "nic" } };
+  if (key === "gpu_count") return { label: "GPU 추가", request: { kind: "slot", part: "gpu" } };
+  if (["memory_gb", "cpu_sockets", "dual_psu", "psu_watt", "raid_level"].includes(key)) return { label: "사양 수정", request: { kind: "spec" } };
+  return null;
 }
 
 function formatRequirement(requirement: Requirement): string {
@@ -103,6 +119,10 @@ export default function RequirementSection({
   proposalNotes,
   applyingGroupId,
   onApplyProposal,
+  result,
+  onFocus,
+  showDocumentSignal,
+  pickFileSignal,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
@@ -111,6 +131,13 @@ export default function RequirementSection({
   const [editedDocumentText, setEditedDocumentText] = useState(documentText);
   const [showDocument, setShowDocument] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (showDocumentSignal) { setEditedDocumentText(documentText); setShowDocument(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDocumentSignal]);
+  useEffect(() => {
+    if (pickFileSignal) fileInput.current?.click();
+  }, [pickFileSignal]);
   const activeGroup = groups.find((group) => group.id === activeGroupId) || groups[0];
   const requirements = activeGroup?.requirements || [];
   const spec = activeGroup?.spec || [];
@@ -178,174 +205,122 @@ export default function RequirementSection({
     setEditingKey(item.key);
   };
 
-  const automatic = requirements.filter((item) => item.status !== "review");
-  const review = requirements.filter((item) => item.status === "review");
   const sourceHighlights = [
     ...requirements.map((item) => item.source),
     ...spec.flatMap((group) => group.items.map((item) => item.source)),
   ];
 
-  return (
-    <section id="s1" className="panel">
-      <h2><span className="n">1</span>요구사항</h2>
-      {!documentName && (
-        <label
-          className={`drop ${dragging ? "over" : ""}`}
-          onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={handleDrop}
-        >
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".pdf,.docx,.xlsx,.xlsm,.txt,.csv,.json"
-            onChange={chooseFile}
-            disabled={busy}
-          />
-          <strong>{busy ? "요구사항 분석 중…" : "요구사항 문서를 끌어다 놓거나 클릭"}</strong>
-          <span>PDF · DOCX · XLSX · TXT · CSV · JSON</span>
-        </label>
-      )}
+  const renderEdit = (item: Requirement) => (
+    <form className="reqedit" onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
+      <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)} aria-label="항목">
+        {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
+      </select>
+      <select name="op" defaultValue={item.op} aria-label="조건">
+        {[">=", "=", "<="].map((operator) => <option key={operator} value={operator}>{operator}</option>)}
+      </select>
+      <input name="value" aria-label="값" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} placeholder="값" />
+      <label className="chk"><input type="checkbox" name="review" defaultChecked={item.status === "review"} /> 확인 필요</label>
+      <button className="btn small" type="submit">저장</button>
+      <button className="btn ghost small" type="button" onClick={() => {
+        if (item._new) removeRequirement(item.id);
+        setEditingId(null);
+        setEditingKey("");
+      }}>취소</button>
+    </form>
+  );
+  const rows = requirements.map((item) => {
+    const checked = result?.requirements.find((row) => (row as { id?: string }).id === item.id);
+    const status = item.status === "review" || item._new ? "확인 필요" : checked?.status || "확인 필요";
+    return { item, status, actual: checked?.actual || "-", note: item.status === "review" ? item.note || "" : checked?.note || "" };
+  });
+  const count = (status: string) => rows.filter((row) => row.status === status).length;
+  const specCount = spec.reduce((total, group) => total + group.items.length, 0);
+
+  if (!documentName) return (
+    <section id="s1" className="card start">
+      <label
+        className={`drop ${dragging ? "over" : ""}`}
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+      >
+        <input ref={fileInput} type="file" accept=".pdf,.docx,.xlsx,.xlsm,.txt,.csv,.json" onChange={chooseFile} disabled={busy} />
+        <strong>{busy ? "문서 분석 중…" : "요구사항 문서나 견적서를 끌어다 놓거나 클릭"}</strong>
+        <span>PDF · DOCX · XLSX · TXT · CSV · JSON — 서버 구분, 모델 선택, 견적 구성 적용까지 자동으로 합니다</span>
+      </label>
       {error && <p className="warn" role="alert">{error}</p>}
-      {documentName && (
-        <div className="docbar">
-          <span className="docname">{documentName}</span>
-          <span className="docstat">{groups.length}개 서버</span>
-          <span className="docstat">{groups.reduce((count, group) => count + group.requirements.length, 0)}개 요구사항</span>
-          <span className="docstat review-stat">{groups.reduce((count, group) => count + group.requirements.filter((item) => item.status === "review").length, 0)}개 확인 필요</span>
-          {extractionInfo?.mode === "ai" && <span className="docstat">AI 분석 · {extractionInfo.effort || "low"}</span>}
-          <button className="btn ghost small" onClick={() => { setEditedDocumentText(documentText); setShowDocument(true); }}>원문 보기</button>
-          <button className="btn ghost small" onClick={() => fileInput.current?.click()}>다른 문서</button>
-          <input ref={fileInput} type="file" accept=".pdf,.docx,.xlsx,.xlsm,.txt,.csv,.json" hidden onChange={chooseFile} />
+    </section>
+  );
+
+  return (
+    <section id="s1" className="card reqcard">
+      <input ref={fileInput} type="file" accept=".pdf,.docx,.xlsx,.xlsm,.txt,.csv,.json" hidden onChange={chooseFile} />
+      <div className="cardhead">
+        <h2>요구사항 <span className="muted">· {activeGroup?.name || "서버"}{activeGroup?.quantity ? ` ×${activeGroup.quantity}` : ""}</span></h2>
+        <div className="counts">
+          {count("충족") > 0 && <span className="pill p-ok">충족 {count("충족")}</span>}
+          {count("확인 필요") > 0 && <span className="pill p-review">확인 {count("확인 필요")}</span>}
+          {count("미충족") + count("호환 불가") > 0 && <span className="pill p-fail">미충족 {count("미충족") + count("호환 불가")}</span>}
         </div>
+      </div>
+      {error && <p className="warn pad" role="alert">{error}</p>}
+      {extractionInfo?.notice && <p className="warn pad" role="status">{extractionInfo.notice}</p>}
+      {activeGroup?.doc_role === "quote" && (
+        <ProposalPanel
+          group={activeGroup}
+          server={activeServer}
+          servers={servers}
+          notes={proposalNotes[activeGroup.id]}
+          busy={applyingGroupId === activeGroup.id}
+          onApply={() => onApplyProposal(activeGroup.id)}
+        />
       )}
-      {extractionInfo?.notice && <p className="warn" role="status">{extractionInfo.notice}</p>}
-      {documentName && (
-        <>
-          {activeGroup?.doc_role === "quote" ? (
-            <ProposalPanel
-              group={activeGroup}
-              server={activeServer}
-              servers={servers}
-              notes={proposalNotes[activeGroup.id]}
-              busy={applyingGroupId === activeGroup.id}
-              onApply={() => onApplyProposal(activeGroup.id)}
-            />
-          ) : !!activeGroup?.evidence?.length && (
-            <p className={`muted small group-evidence ${(activeGroup.confidence ?? 1) < 0.75 ? "low" : ""}`}>
-              서버 구분 근거: {activeGroup.evidence.join(" · ")}{activeGroup.notes?.length ? ` · ⚠ ${activeGroup.notes.join(" · ")}` : ""}
-            </p>
-          )}
-          <div className="document-spec">
-            <div className="reqhead">
-              <h3>핵심 요구 사양 <span className="muted">· {activeGroup?.name || "서버"}</span></h3>
-            </div>
-            <div className="core-specs">
-              {spec.flatMap((group) => group.items.map((item, index) => {
-                const exact = requirements.filter((requirement) => requirement.source === item.source);
-                const status = exact.some((requirement) => requirement.status === "review") ? "review" : exact.length ? "matched" : "";
-                return { id: `${group.category}-${index}`, category: group.category, item, status };
-              })).slice(0, 8).map(({ id, category, item, status }) => (
-                <div className="core-spec" key={id}>
-                  <span className="core-label">{category}</span>
-                  <strong>{specKindLabel(item) && <span className="spec-kind">{specKindLabel(item)}</span>} {item.value}</strong>
-                  <span className={`core-status ${status}`} aria-label={status === "review" ? "확인 필요" : status ? "추출 완료" : ""}>{status === "review" ? "⚠" : status ? "✓" : ""}</span>
-                  {item.source && <details className="source-detail"><summary>원문</summary><p>{item.source}</p></details>}
-                </div>
-              ))}
-              {!spec.length && <p className="muted spec-empty">핵심 사양을 찾지 못했습니다. 요구사항 목록 또는 원문을 확인해 주세요.</p>}
-            </div>
-            {spec.reduce((count, group) => count + group.items.length, 0) > 8 && (
-              <details className="sub">
-                <summary>원문에서 추출한 세부 품목 {spec.reduce((count, group) => count + group.items.length, 0)}개 보기</summary>
-                <div className="specgrid">
-                  {spec.flatMap((group) => group.items.map((item, index) => (
-                    <div className="specitem" key={`${group.category}-${index}`}>
-                      <span className="specitem-label">{group.category}</span>
-                      <strong>{specKindLabel(item) && <span className="spec-kind">{specKindLabel(item)}</span>} {item.value}</strong>
-                      {item.source && <details className="source-detail"><summary>원문</summary><p>{item.source}</p></details>}
-                    </div>
-                  )))}
-                </div>
-              </details>
-            )}
-          </div>
-        </>
-      )}
-      <div>
-        <div className="reqhead">
-          <h3>요구사항 <span className="docstat">{automatic.length} 자동</span>{review.length > 0 && <span className="docstat review-stat">{review.length} 확인 필요</span>}</h3>
-          <button className="btn ghost small" onClick={addRequirement}>+ 요구사항 추가</button>
-        </div>
-        <details className="requirement-details">
-          <summary>검증 조건 {requirements.length}개 보기</summary>
-          <ul className="reqs">
-          {automatic.length ? automatic.map((item) => (
-            <li className={`req ${editingId === item.id ? "editing" : ""}`} key={item.id}>
-              {editingId === item.id ? (
-                <form onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
-                  <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)}>
-                    {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
-                  </select>
-                  <select name="op" defaultValue={item.op}>
-                    {[">=", "=", "<="].map((operator) => <option key={operator} value={operator}>{operator}</option>)}
-                  </select>
-                  <input name="value" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} placeholder="값" />
-                  <label className="chk"><input type="checkbox" name="review" defaultChecked={item.status === "review"} /> 확인 필요</label>
-                  <button className="btn small" type="submit">저장</button>
-                  <button className="btn ghost small" type="button" onClick={() => {
-                    if (item._new) removeRequirement(item.id);
-                    setEditingId(null);
-                    setEditingKey("");
-                  }}>취소</button>
-                </form>
-              ) : (
+      <ul className="reqrows">
+        {rows.map(({ item, status, actual, note }) => {
+          const tone = STATUS_CLASS[status] || "review";
+          const fix = status !== "충족" ? fixFor(item.key) : null;
+          const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
+          return (
+            <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
+              {editingId === item.id ? renderEdit(item) : (
                 <>
-                  <span className="rtext">{formatRequirement(item)}</span>
-                  {item.status === "review" && item.note && <span className="rnote">{item.note}</span>}
-                  {(item.sources?.length || item.source) && <details className="source-detail req-source"><summary>근거 보기</summary>{(item.sources?.length ? item.sources : [item.source]).map((source, index) => <p key={`${item.id}-source-${index}`}>{source}</p>)}{item.note && <p className="rnote">{item.note}</p>}</details>}
-                  <span className="ract">
+                  <span className="rq">{formatRequirement(item)}</span>
+                  <span className="ra">실제: <b>{actual}</b>{note ? ` · ${note}` : ""}</span>
+                  <span className="rs">
+                    <span className={`pill p-${tone}`}>{status}</span>
+                    {fix && <button type="button" className="fix" onClick={() => onFocus(fix.request)}>{fix.label}</button>}
+                  </span>
+                  <span className="rtools">
                     <button className="ico" aria-label="편집" onClick={() => beginEdit(item)}>✎</button>
                     <button className="ico" aria-label="삭제" onClick={() => removeRequirement(item.id)}>✕</button>
                   </span>
+                  {!!sources.length && <span className="rsrc" role="tooltip"><small>원문</small>{sources.map((source, index) => <span key={index}>“{source}”</span>)}</span>}
                 </>
               )}
             </li>
-          )) : <li className="empty muted">{documentName ? "자동으로 인식된 요구사항이 없습니다. 직접 추가할 수 있습니다." : "문서를 올리면 요구사항이 여기에 정리됩니다."}</li>}
-          </ul>
-        </details>
-        {!!review.length && (
-          <div>
-            <h3 className="rv">확인 필요 <span className="muted">자동 판정이 어려운 항목</span></h3>
-            <ul className="reqs">{review.map((item) => (
-              <li className={`req isreview ${editingId === item.id ? "editing" : ""}`} key={item.id}>
-                {editingId === item.id ? (
-                  <form onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
-                    <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)}>
-                      {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
-                    </select>
-                    <select name="op" defaultValue={item.op}><option>&gt;=</option><option>=</option><option>&lt;=</option></select>
-                    <input name="value" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} />
-                    <label className="chk"><input type="checkbox" name="review" defaultChecked /> 확인 필요</label>
-                    <button className="btn small" type="submit">저장</button>
-                    <button className="btn ghost small" type="button" onClick={() => { setEditingId(null); setEditingKey(""); }}>취소</button>
-                  </form>
-                ) : (
-                  <>
-                    <span className="rtext">{formatRequirement(item)}</span>
-                    {item.note && <span className="rnote">{item.note}</span>}
-                    {(item.sources?.length || item.source) && <details className="source-detail req-source"><summary>근거 보기</summary>{(item.sources?.length ? item.sources : [item.source]).map((source, index) => <p key={`${item.id}-source-${index}`}>{source}</p>)}{item.note && <p className="rnote">{item.note}</p>}</details>}
-                    <span className="ract">
-                      <button className="ico" aria-label="편집" onClick={() => beginEdit(item)}>✎</button>
-                      <button className="ico" aria-label="삭제" onClick={() => removeRequirement(item.id)}>✕</button>
-                    </span>
-                  </>
-                )}
-              </li>
-            ))}</ul>
+          );
+        })}
+        {!rows.length && <li className="reqempty muted">{activeGroup?.doc_role === "quote" ? "견적서에는 검증할 요구사항이 없습니다. 위 견적 구성이 오른쪽에 적용되어 있습니다. 고객 요구사항이 있으면 추가하세요." : "자동으로 인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요."}</li>}
+      </ul>
+      <button className="addreq" onClick={addRequirement}>+ 요구사항 추가</button>
+      {specCount > 0 && (
+        <details className="fold pad">
+          <summary>문서에서 추출한 사양 {specCount}개</summary>
+          <div className="specgrid">
+            {spec.flatMap((group) => group.items.map((item, index) => (
+              <div className="specitem" key={`${group.category}-${index}`} title={item.source}>
+                <span className="specitem-label">{group.category}</span>
+                <strong>{specKindLabel(item) && <span className="spec-kind">{specKindLabel(item)}</span>} {item.value}</strong>
+              </div>
+            )))}
           </div>
-        )}
-      </div>
+        </details>
+      )}
+      {!!activeGroup?.evidence?.length && activeGroup.doc_role !== "quote" && (
+        <p className={`muted small pad group-evidence ${(activeGroup.confidence ?? 1) < 0.75 ? "low" : ""}`}>
+          서버 구분 근거: {activeGroup.evidence.join(" · ")}{activeGroup.notes?.length ? ` · ⚠ ${activeGroup.notes.join(" · ")}` : ""}
+        </p>
+      )}
       {showDocument && (
         <dialog open className="document-dialog">
           <div className="dlghead">

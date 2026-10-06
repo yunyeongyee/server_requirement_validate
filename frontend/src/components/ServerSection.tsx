@@ -9,7 +9,6 @@ interface Props {
   server: Server | null;
   modelSource: "document" | "manual" | "default";
   modelHint: string | null;
-  groupName: string;
   apiReady: boolean | null;
   backplaneId: string;
   images: ImageStatus | null;
@@ -17,6 +16,8 @@ interface Props {
   onServerChange: (id: string) => void;
   onBackplaneChange: (id: string) => void;
   onImagesChange: () => void;
+  /** 바뀔 때마다 이미지 선택 창을 연다 (도구 메뉴에서 호출) */
+  openImagesSignal?: number;
 }
 
 export default function ServerSection({
@@ -25,7 +26,6 @@ export default function ServerSection({
   server,
   modelSource,
   modelHint,
-  groupName,
   apiReady,
   backplaneId,
   images,
@@ -33,6 +33,7 @@ export default function ServerSection({
   onServerChange,
   onBackplaneChange,
   onImagesChange,
+  openImagesSignal = 0,
 }: Props) {
   const [library, setLibrary] = useState<LibraryImage[]>([]);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -40,8 +41,13 @@ export default function ServerSection({
   const [busy, setBusy] = useState(false);
   const [imageError, setImageError] = useState("");
   const [managerOpen, setManagerOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<"front" | "rear">("front");
+
+  useEffect(() => {
+    if (openImagesSignal) setManagerOpen(true);
+  }, [openImagesSignal]);
 
   useEffect(() => {
     if (apiReady !== true) return;
@@ -50,14 +56,7 @@ export default function ServerSection({
       .catch((reason: unknown) => setImageError(reason instanceof Error ? reason.message : String(reason)));
   }, [apiReady, images?.library_count]);
 
-  if (!server) return (
-    <section id="s2" className="panel">
-      <h2><span className="n">2</span>서버 모델 · 실제 이미지</h2>
-      <p className="muted">{apiReady === false
-        ? "API 연결 후 서버 모델, 이미지 라이브러리와 실제 이미지를 불러옵니다."
-        : "서버 목록을 불러오는 중입니다."}</p>
-    </section>
-  );
+  if (!server) return <span className="muted">{apiReady === false ? "API 연결 후 서버 모델을 불러옵니다." : "서버 목록을 불러오는 중…"}</span>;
 
   const targetCategory = target === "front" ? "server_front" : "server_rear";
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -132,42 +131,33 @@ export default function ServerSection({
       : <span className="tag tag-warn">{modelHint ? `문서의 ${modelHint}는 카탈로그에 없음 — 모델을 확인하세요` : "문서에 모델 없음 — 기본값"}</span>;
 
   return (
-    <section id="s2" className="panel">
-      <h2><span className="n">2</span>서버 모델{groupName && <span className="muted small"> · {groupName}</span>}</h2>
-      {error && <p className="warn" role="alert">{error}</p>}
-      <div className="modelbar">
-        <div className="modelpick">
-          <label>모델{" "}
+    <div className="modelline">
+      <b className="modelname">{server.vendor} {server.model}</b>
+      {sourceTag}
+      <button type="button" className="lnk" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}>변경</button>
+      {error && <span className="warn small" role="alert">{error}</span>}
+      {pickerOpen && (
+        <div className="modelpop" role="dialog" aria-label="모델 · 백플레인 변경">
+          <label>모델
             <select value={server.id} onChange={(event) => onServerChange(event.target.value)}>
               {servers.map((item) => <option key={item.id} value={item.id}>{item.vendor} {item.family} {item.model}</option>)}
             </select>
           </label>
-          {sourceTag}
-          <label>백플레인(전면){" "}
+          <label>백플레인(전면)
             <select value={selectedBackplane?.id || ""} onChange={(event) => onBackplaneChange(event.target.value)}>
               {server.backplanes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
-          <button type="button" className="btn ghost small" onClick={() => setManagerOpen(true)}>이미지 변경</button>
+          <details className="specbox">
+            <summary>서버 사양 보기</summary>
+            <dl className="specs">{serverSpec.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+          </details>
+          <div className="row between">
+            <button type="button" className="btn ghost small" onClick={() => { setManagerOpen(true); setPickerOpen(false); }}>서버 이미지 변경</button>
+            <button type="button" className="btn small" onClick={() => setPickerOpen(false)}>닫기</button>
+          </div>
         </div>
-        <div className="thumbs">
-          {(["front", "rear"] as const).map((kind) => {
-            const status = images?.[kind];
-            return (
-              <figure key={kind} className="thumb">
-                {status?.item ? <img src={status.item.url} alt={`${server.model} ${kind === "front" ? "전면" : "후면"}`} /> : <div className="thumb-empty">이미지 없음</div>}
-                <figcaption>{kind === "front" ? "전면" : "후면"} · {status?.item?.name || "미지정"}</figcaption>
-              </figure>
-            );
-          })}
-        </div>
-      </div>
-      <details className="specbox">
-        <summary>서버 사양 보기</summary>
-        <dl className="specs">{serverSpec.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      </details>
-      {imageError && !managerOpen && <p className="warn" role="alert">{imageError}</p>}
-
+      )}
       {managerOpen && (
         <div className="modal-back" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setManagerOpen(false); }}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="서버 이미지 선택">
@@ -278,6 +268,6 @@ export default function ServerSection({
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }

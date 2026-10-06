@@ -14,6 +14,7 @@ import {
 } from "./api";
 import type { Component, ExtractionInfo, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import ConfigSection from "./components/ConfigSection";
+import type { FocusRequest } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
@@ -30,10 +31,6 @@ interface ServerProfile {
 
 const DEFAULT_GROUP_ID = "server-1";
 
-const STEPS: Array<[string, string]> = [
-  ["s1", "요구사항"], ["s2", "서버 모델"], ["s3", "디스크 · 슬롯"], ["s4", "서버 사양"], ["s5", "호환성 검증"], ["s6", "최종 결과표"],
-];
-const VERDICT_TONE: Record<string, string> = { "충족": "ok", "미충족": "fail", "구성 불가": "incomp", "확인 필요": "review" };
 
 function defaultConfig(server: Server): ServerConfig {
   return {
@@ -115,6 +112,11 @@ export default function App() {
   const [apiRetry, setApiRetry] = useState(0);
   const [proposalNotes, setProposalNotes] = useState<Record<string, string[]>>({});
   const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
+  const [view, setView] = useState<"server" | "all">("server");
+  const [focus, setFocus] = useState<FocusRequest | null>(null);
+  const [documentSignal, setDocumentSignal] = useState(0);
+  const [pickFileSignal, setPickFileSignal] = useState(0);
+  const [imagesSignal, setImagesSignal] = useState(0);
 
   const profile = profiles[activeGroupId];
   const server = useMemo(
@@ -240,6 +242,34 @@ export default function App() {
     setActiveGroupId(normalized[0].id);
     // 서버·백플레인이 그대로면 이미지 effect 가 다시 돌지 않으므로 상태를 지우지 말고 다시 불러온다
     setImageVersion((version) => version + 1);
+    setView("server");
+    return { normalized, nextProfiles };
+  };
+
+  /** 견적서 그룹은 업로드 직후 제안 구성을 자동으로 적용한다 */
+  const autoApply = async (nextGroups: RequirementGroup[], nextProfiles: Record<string, ServerProfile>) => {
+    const quoteGroups = nextGroups.filter((group) => group.proposed && nextProfiles[group.id]);
+    if (!quoteGroups.length) return;
+    const applied = await Promise.all(quoteGroups.map(async (group) => {
+      const groupProfile = nextProfiles[group.id];
+      const base = group.items?.find((item) => item.category === "base");
+      try {
+        const { config: nextConfig, notes } = await applyProposal(groupProfile.serverId, group.proposed!, groupProfile.config, base?.attrs || null);
+        return [group.id, groupProfile, nextConfig, notes] as const;
+      } catch {
+        return null;
+      }
+    }));
+    setProfiles((current) => {
+      const next = { ...current };
+      applied.forEach((entry) => { if (entry) next[entry[0]] = { ...entry[1], config: entry[2] }; });
+      return next;
+    });
+    setProposalNotes((current) => {
+      const next = { ...current };
+      applied.forEach((entry) => { if (entry) next[entry[0]] = entry[3]; });
+      return next;
+    });
   };
 
   const handleUpload = async (file: File) => {
@@ -251,12 +281,13 @@ export default function App() {
       setDocumentName(response.filename);
       setDocumentText(response.text);
       setExtractionInfo(response.extraction || { mode: "rules" });
-      installGroups(response.groups?.length ? response.groups : [{
+      const installed = installGroups(response.groups?.length ? response.groups : [{
         id: DEFAULT_GROUP_ID,
         name: "서버 1",
         requirements: response.requirements || [],
         spec: response.spec || [],
       }]);
+      await autoApply(installed.normalized, installed.nextProfiles);
     } catch (reason) {
       setUploadError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -357,10 +388,6 @@ export default function App() {
     setImageVersion((version) => version + 1);
   };
 
-  const allRequirementCount = groups.reduce((count, group) => count + group.requirements.length, 0);
-  const headerText = documentName
-    ? `${groups.length}개 서버 · 요구사항 ${allRequirementCount}개`
-    : "";
 
   return (
     <>
@@ -369,8 +396,16 @@ export default function App() {
           <h1>Server Requirement Validator</h1>
           <p>고객 요구사항 문서 ↔ 실제 서버 구성 검증</p>
         </div>
-        {headerText && <div className="verdict">{headerText}</div>}
-        <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={activeGroupId} onSelect={setActiveGroupId} />
+        {documentName && (
+          <div className="docline">
+            <b>{documentName}</b>
+            <span>서버 {groups.length}종 · {groups.reduce((total, group) => total + (group.quantity || 1), 0)}대</span>
+            {groups.some((group) => group.doc_role === "quote") && <span className="muted-on-dark">견적 구성 자동 적용</span>}
+            <button type="button" className="ghost-on-dark" onClick={() => setDocumentSignal((n) => n + 1)}>원문</button>
+            <button type="button" className="ghost-on-dark" onClick={() => setPickFileSignal((n) => n + 1)}>다른 문서</button>
+          </div>
+        )}
+        {documentName && <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={activeGroupId} view={view} onSelect={(id) => { setActiveGroupId(id); setView("server"); }} onShowAll={() => setView("all")} />}
       </header>
       {apiReady === false && (
         <div className="stale offline-banner" role="status">
@@ -380,35 +415,13 @@ export default function App() {
         </div>
       )}
       {apiReady === null && <div className="stale" role="status">백엔드 API에 연결하는 중입니다…</div>}
-      <div className={`layout ${groups.length > 1 ? "has-bar" : ""}`}>
-        <nav className="rail" aria-label={groups.length > 1 ? "서버 및 작업 단계" : "작업 단계"}>
-          {groups.length > 1 ? (
-            <>
-              <div className="rail-head">서버 {groups.length}종 · {groups.reduce((total, group) => total + (group.quantity || 1), 0)}대</div>
-              {groups.map((group) => {
-                const summary = projectSummaries.find((item) => item.id === group.id);
-                const verdict = summary?.verdict || "미검증";
-                const tone = VERDICT_TONE[verdict] || "none";
-                const active = group.id === activeGroupId;
-                return (
-                  <div key={group.id} className={`rail-server ${active ? "on" : ""}`}>
-                    <button type="button" aria-current={active ? "true" : undefined} onClick={() => setActiveGroupId(group.id)}>
-                      <span className={`dot dot-${tone}`} aria-hidden="true" />
-                      <span className="rs-text">
-                        <b>{group.name}{group.quantity ? <small> ×{group.quantity}</small> : null}</b>
-                        <small>{summary?.model || "-"} · {verdict}</small>
-                      </span>
-                    </button>
-                    {active && <div className="rail-steps">{STEPS.slice(0, 5).map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}</div>}
-                  </div>
-                );
-              })}
-              <a className="rail-total" href="#s6"><b>6</b>전체 결과표</a>
-            </>
-          ) : STEPS.map(([id, label], index) => <a key={id} href={`#${id}`}><b>{index + 1}</b>{label}</a>)}
-        </nav>
-        <main>
-          <RequirementSection
+      <div className="layout">
+        <main className={documentName && view === "server" ? "work" : ""}>
+          {view === "server" && <RequirementSection
+            result={validation}
+            onFocus={(request) => setFocus({ ...request, n: Date.now() })}
+            showDocumentSignal={documentSignal}
+            pickFileSignal={pickFileSignal}
             groups={groups}
             activeGroupId={activeGroupId}
             documentName={documentName}
@@ -424,14 +437,15 @@ export default function App() {
             proposalNotes={proposalNotes}
             applyingGroupId={applyingGroupId}
             onApplyProposal={(groupId) => void handleApplyProposal(groupId)}
-          />
-          <ServerSection
+          />}
+          {documentName && view === "server" && <ConfigSection
+            key={`${documentName}:${activeGroupId}`}
+            modelLine={<ServerSection
             servers={servers}
             components={components}
             server={server}
             modelSource={profile?.source || "default"}
             modelHint={groups.find((group) => group.id === activeGroupId)?.model_hint || null}
-            groupName={groups.length > 1 ? groups.find((group) => group.id === activeGroupId)?.name || "" : ""}
             apiReady={apiReady}
             backplaneId={config?.backplane || ""}
             images={imageStatus}
@@ -439,8 +453,10 @@ export default function App() {
             onServerChange={handleServerChange}
             onBackplaneChange={handleBackplaneChange}
             onImagesChange={reloadImages}
-          />
-          <ConfigSection
+            openImagesSignal={imagesSignal}
+          />}
+            focus={focus}
+            onOpenImages={() => setImagesSignal((n) => n + 1)}
             server={server}
             apiReady={apiReady}
             components={components}
@@ -452,16 +468,16 @@ export default function App() {
             onBackplaneChange={handleBackplaneChange}
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
-          />
-          <ResultSection
+          />}
+          {documentName && view === "all" && <ResultSection
             server={server}
             result={validation}
             error={validationError}
             loading={validationBusy}
             projectSummaries={projectSummaries}
             activeGroupId={activeGroupId}
-            onSelectGroup={setActiveGroupId}
-          />
+            onSelectGroup={(id) => { setActiveGroupId(id); setView("server"); }}
+          />}
         </main>
       </div>
     </>

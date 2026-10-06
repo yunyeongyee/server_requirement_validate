@@ -40,13 +40,9 @@ export default function ResultSection({ server, result, error, loading, projectS
   if (!result) {
     return (
       <>
-        <section id="s5" className="panel">
-          <h2><span className="n">5</span>호환성 검증</h2>
-          {error ? <p className="warn" role="alert">{error}</p> : <p className="muted">{loading ? "구성을 검증하고 있습니다…" : "검증 결과가 없습니다."}</p>}
-        </section>
         <section id="s6" className="panel">
-          <h2><span className="n">6</span>프로젝트 결과</h2>
-          <p className="muted">요구 서버별 실제 모델 선택 및 검증 결과</p>
+          <h2>전체 결과</h2>
+          <p className="muted">{error || (loading ? "구성을 검증하고 있습니다…" : "서버별 모델과 검증 결과입니다. 서버 이름을 누르면 해당 서버 작업 화면으로 돌아갑니다.")}</p>
           {projectTable}
         </section>
       </>
@@ -108,34 +104,9 @@ export default function ResultSection({ server, result, error, loading, projectS
 
   return (
     <>
-      <section id="s5" className="panel">
-        <h2><span className="n">5</span>호환성 검증</h2>
-        {error && <p className="warn" role="alert">{error}</p>}
-        {result.general.map((item, index) => <p className="gen" key={`${item.msg}-${index}`}><Badge status={item.status} /> {item.msg}</p>)}
-        <p className="muted">
-          예상 최대 소비전력(추정) {Math.round(result.summary.power_est_w)}W · 메모리 {result.summary.memory_gb}GB · 사용 가능한 빈 PCIe {result.summary.free_pcie}개
-        </p>
-        <div className="scroll">
-          <table className="grid">
-            <thead><tr><th>위치</th><th>부품</th><th>결과</th><th>상세</th></tr></thead>
-            <tbody>
-              {used.length ? used.map((item, index) => (
-                <tr key={`${item.label}-${index}`}>
-                  <td>{item.label}</td>
-                  <td>{item.component}</td>
-                  <td><Badge status={item.status} /></td>
-                  <td>{item.issues.map((issue, issueIndex) => (
-                    <span key={`${issue.msg}-${issueIndex}`}>{issue.status !== item.status && <><Badge status={issue.status} /> </>}{issue.msg}<br /></span>
-                  ))}</td>
-                </tr>
-              )) : <tr><td colSpan={4} className="muted">장착된 부품이 없습니다. 3단계에서 디스크를 장착하거나 슬롯을 선택하세요.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
       <section id="s6" className="panel">
-        <h2><span className="n">6</span>프로젝트 결과</h2>
-        <p className="muted">요구 서버별 실제 모델 선택 및 검증 결과</p>
+        <h2>전체 결과</h2>
+        <p className="muted">서버별 모델과 검증 결과입니다. 서버 이름을 누르면 해당 서버 작업 화면으로 돌아갑니다.</p>
         {projectTable}
         <h3 className="active-result-title">{projectSummaries.find((summary) => summary.id === activeGroupId)?.name || "선택 서버"} · 상세 결과</h3>
         <div className="verdict" hidden={!rows.length} style={{ display: "inline-block", background: `var(--${verdictColor})`, color: "#fff", marginBottom: 12 }}>{verdict}</div>
