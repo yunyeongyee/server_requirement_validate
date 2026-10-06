@@ -15,8 +15,14 @@ echo 프로젝트 폴더: %CD%
 title Server Requirement Validator
 
 echo [1/4] 최신 코드 받는 중...
-git pull
-if errorlevel 1 echo    (git pull 실패 - 지금 있는 코드로 계속합니다)
+rem 좌표 보정·이미지 선택으로 바뀐 data 파일이 있어도 받도록 --autostash 사용
+git pull --autostash
+if errorlevel 1 (
+  echo.
+  echo    [주의] 최신 코드를 받지 못했습니다. 예전 코드로 실행됩니다. 위 메시지를 복사해서 보내주세요.
+  echo.
+)
+for /f "delims=" %%c in ('git log -1 --format^="%%h %%s"') do echo    현재 코드: %%c
 
 echo [2/4] 파이썬 패키지 확인 중...
 python -m pip install -q -r requirements.txt
@@ -31,6 +37,8 @@ if errorlevel 1 (popd & goto :fail)
 popd
 
 set PORT=8001
+rem 예전에 띄운 서버가 같은 포트를 잡고 있으면 끈다
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%PORT% .*LISTENING"') do taskkill /PID %%p /F >nul 2>&1
 echo [4/4] 서버 시작: http://localhost:%PORT%
 echo    이 창을 닫으면 서버가 꺼집니다.
 start "" http://localhost:%PORT%
