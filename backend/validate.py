@@ -251,7 +251,14 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             have = s["raid_boot"] if boot_only else s["raid_boot"] + s["raid_data"]
             actual = (", ".join(f"Boot {x}" for x in s["raid_boot"]) + ("" if boot_only or not s["raid_data"] else
                       (", " if s["raid_boot"] else "") + ", ".join(f"Data {x}" for x in s["raid_data"]))) or "RAID 구성 없음"
-            status = PASS if str(v).upper() in [x.upper() for x in have] else FAIL
+            want = str(v).upper()
+            if want in [x.upper() for x in have]:
+                status = PASS
+            elif any(_raid_covers(x, want) for x in have):
+                # 요구보다 상위 수준(예: RAID5 요구에 RAID6·RAID10)도 충족
+                status = PASS; note = f"{want} 요구 → 상위 수준으로 충족"
+            else:
+                status = FAIL
         elif k == "dual_psu":
             actual = f"PSU {s['psu_watt']:g}W × {s['psu_count']}"
             if s["psu_count"] < 2: status = FAIL
@@ -293,6 +300,15 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             note = "검증 규칙 없음"
         out.append(_row(r, actual, status, note))
     return out
+
+
+# 견딜 수 있는 디스크 장애 수. 요구 수준 이상이면 충족 (RAID0 요구는 어떤 RAID든 충족)
+RAID_TOLERANCE = {"RAID0": 0, "RAID1": 1, "RAID5": 1, "RAID10": 1, "RAID6": 2}
+
+
+def _raid_covers(have: str, want: str) -> bool:
+    h, w = RAID_TOLERANCE.get(have.upper()), RAID_TOLERANCE.get(want.upper())
+    return h is not None and w is not None and h >= w and not (w > 0 and h == 0)
 
 
 def _gb_text(gb: float) -> str:

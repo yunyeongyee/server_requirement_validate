@@ -98,6 +98,16 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(status["disk_count"], "미충족")   # 2개뿐
 
 
+class RaidTests(unittest.TestCase):
+    def test_higher_raid_satisfies(self):
+        from .validate import _raid_covers
+        self.assertTrue(_raid_covers("RAID6", "RAID5"))
+        self.assertTrue(_raid_covers("RAID10", "RAID5"))
+        self.assertTrue(_raid_covers("RAID5", "RAID1"))
+        self.assertFalse(_raid_covers("RAID5", "RAID6"))
+        self.assertFalse(_raid_covers("RAID0", "RAID1"))
+
+
 class PasteTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)

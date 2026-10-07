@@ -24,7 +24,7 @@ interface Props {
   onUseAutoFront: () => Promise<void>;
   /** 카드 맨 위에 넣을 견적 붙여넣기·요약 */
   quotePanel?: ReactNode;
-  /** 견적과 다른 곳 (그림에서 직접 바꾼 곳) */
+  /** 견적 대비 변경 (그림에서 직접 바꾼 곳) */
   diff?: ConfigDiff | null;
 }
 
@@ -465,7 +465,7 @@ export default function ConfigSection({
                       aria-label={`Bay ${index}${bay ? ` · ${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : " · 비어 있음"}`}
                       aria-pressed={mode === "edit" ? selectedBays.includes(index) : undefined}
                       data-calib-key={String(index)}
-                      data-tip={mode === "edit" ? `Bay ${index} · ${bay ? `${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : "비어 있음"}${diff?.bays.has(index) ? " · 견적과 다름" : ""}${issue ? ` — ${issue}` : ""}` : undefined}
+                      data-tip={mode === "edit" ? `Bay ${index} · ${bay ? `${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : "비어 있음"}${diff?.bays.has(index) ? " · 견적 대비 변경" : ""}${issue ? ` — ${issue}` : ""}` : undefined}
                       style={{ left: `${area.x - padL}%`, top: `${area.y}%`, width: `${width}%`, height: `${area.h}%` }}
                       onPointerDown={(event) => {
                         if (mode !== "edit" || event.button !== 0) return;
@@ -514,7 +514,7 @@ export default function ConfigSection({
                     aria-label={`${slot.label} · ${off ? "사용 불가" : part}`}
                     aria-pressed={mode === "edit" ? selectedSlot === slot.id : undefined}
                     data-calib-key={rearLayout ? undefined : slot.id}
-                    data-tip={mode === "edit" ? `${tip}${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? " · 견적과 다름" : ""}` : undefined}
+                    data-tip={mode === "edit" ? `${tip}${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? " · 견적 대비 변경" : ""}` : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
                     onClick={() => {
                       if (mode !== "edit") return;
@@ -717,7 +717,7 @@ export default function ConfigSection({
               <span><i className="l-sel" />선택</span>
               <span><i className="l-warn" />확인 필요</span>
               <span><i className="l-off" />사용할 수 없는 칸</span>
-              {diff && <span><i className="l-diff" />견적과 다름</span>}
+              {diff && <span><i className="l-diff" />견적 대비 변경</span>}
             </span>
           </div>
         )}

@@ -492,7 +492,7 @@ export default function App() {
     if (!nextServer) return;
     const nextProfile: ServerProfile = { serverId: id, config: defaultConfig(nextServer), source: "manual" };
     setProfiles((current) => ({ ...current, [group.id]: nextProfile }));
-    // 견적이 있으면 새 모델에 견적을 다시 적용 (견적과 다름 기준도 새 모델 기준으로)
+    // 견적이 있으면 새 모델에 견적을 다시 적용 (견적 대비 변경 기준도 새 모델 기준으로)
     if (group.quote) void applyQuote(group.id, group.quote, nextProfile);
     setResults((current) => {
       const next = { ...current };

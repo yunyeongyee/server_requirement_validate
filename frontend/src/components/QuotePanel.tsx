@@ -53,10 +53,10 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
         <span className="muted small">{quote.base_desc || quote.model_hint || "본체 미표기"} · 품목 {count("part")} · 부속품 {count("skip")}
           {replaced ? <> · <span className="q-warn">대체 {replaced}</span></> : null}
           {warn ? <> · <span className="q-warn">확인 필요 {warn}</span></> : null}
-          {diffCount ? <> · <span className="q-diff">견적과 다른 곳 {diffCount}</span></> : null}
+          {diffCount ? <> · <span className="q-diff">견적 대비 변경 {diffCount}</span></> : null}
         </span>
         <span className="quotehead-act">
-          {diffCount > 0 && <button type="button" className="lnk" disabled={applying} onClick={onReapply}>견적대로 되돌리기</button>}
+          {diffCount > 0 && <button type="button" className="lnk" disabled={applying} onClick={onReapply}>견적대로 복원</button>}
           <button type="button" className="lnk" onClick={() => { setText(quote.text || ""); setEditing(true); }}>다시 붙여넣기</button>
           <button type="button" className="lnk" onClick={() => { if (window.confirm("견적을 지울까요? 그림의 구성은 그대로 둡니다.")) onClear(); }}>지우기</button>
         </span>

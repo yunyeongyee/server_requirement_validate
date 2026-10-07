@@ -577,7 +577,7 @@ figure.stage{position:relative}
 .quotefold .proposal{margin:8px 0}
 .quotefold .plines{margin:8px 0 0}
 .quotebox .splitbar{margin:0}
-/* 그림에서 직접 바꿔 견적과 다른 곳: 보라 점선 */
+/* 그림에서 직접 바꿔 견적 대비 변경: 보라 점선 */
 .bay.diff .bx{border:1px dashed #B48CFF}
 .hs.diff{border:1px dashed #B48CFF}
 .bay.diff::before,.hs.diff::before{content:"";position:absolute;left:2px;top:2px;width:7px;height:7px;border-radius:50%;background:#B48CFF;pointer-events:none}
