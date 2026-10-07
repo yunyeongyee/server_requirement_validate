@@ -509,11 +509,20 @@ figure.stage{position:relative}
 .actbar .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
 .actbar .btn.danger{background:#fff;color:var(--fail);border-color:#E3A29C}
 .actbar .btn.danger:hover:not(:disabled){background:#FDECEC}
-.actbar .keys{margin-left:auto;display:inline-flex;gap:4px;align-items:center}
-.actbar .keys kbd{font:600 11px/1 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:2px 4px;background:#fff;color:var(--ink)}
-.actbar .ico{font-size:18px;line-height:1;padding:2px 6px}
 .actbar .issues{margin:0;padding-left:18px;font-size:12.5px}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:12px;color:var(--mute)}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 .legend .l-sel{background:var(--sel)} .legend .l-warn{background:#FFB020;border-radius:50%} .legend .l-off{background:#11161C}
 .ico:disabled{opacity:.35;cursor:default;background:none}
+
+/* 저장: 작업 화면 맨 아래에 붙는 막대 */
+.savebar{grid-column:1/-1;position:sticky;bottom:0;z-index:12;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 16px;box-shadow:0 -4px 16px rgba(0,0,0,.08);font-size:14px}
+.savebar.dirty{border-color:var(--accent)}
+.savebar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#E8A317;margin-right:4px;vertical-align:1px}
+.savebar .btn{min-width:110px;justify-content:center}
+.card.saved{padding:14px 18px}
+.card.saved h3{margin:0 0 8px;font-size:15px}
+.card.saved ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.saved-row{all:unset;box-sizing:border-box;display:flex;gap:12px;align-items:center;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer}
+.saved-row:hover,.saved-row:focus-visible{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.saved-row b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

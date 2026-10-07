@@ -144,12 +144,39 @@ HTTP_HINTS = {
     401: "OpenAI API 키가 올바르지 않습니다 (.env 의 OPENAI_API_KEY 확인)",
     403: "이 API 키로는 해당 모델을 쓸 수 없습니다 (권한·조직 설정 확인)",
     404: "모델을 찾을 수 없습니다 (.env 의 SRV_AI_MODEL 확인)",
-    429: "OpenAI 사용량 한도를 넘었거나 결제 설정이 필요합니다",
+    429: "OpenAI 사용 한도에 걸렸습니다 (HTTP 429)",
+}
+# OpenAI 오류 응답 본문의 error.code → 원인별 안내. 429는 '크레딧 없음'과 '요청 과다' 두 가지라 본문으로 구분해야 한다
+ERROR_CODE_HINTS = {
+    "insufficient_quota": "OpenAI API 크레딧이 없습니다 — platform.openai.com → Settings → Billing 에서 결제 수단 등록·충전이 필요합니다 (ChatGPT 구독과 API 요금은 별개)",
+    "billing_hard_limit_reached": "OpenAI 월 사용 한도(Usage limit)에 도달했습니다 — platform.openai.com → Settings → Limits 에서 한도를 올리세요",
+    "rate_limit_exceeded": "요청이 너무 잦아 OpenAI가 잠시 막았습니다 — 1분쯤 뒤 다시 시도하세요",
+    "model_not_found": "모델을 찾을 수 없거나 이 계정에서 쓸 수 없습니다 (.env 의 SRV_AI_MODEL 확인)",
+    "invalid_api_key": "OpenAI API 키가 올바르지 않습니다 (.env 의 OPENAI_API_KEY 확인)",
 }
 
 
+def http_error_message(error: "urllib.error.HTTPError") -> str:
+    """HTTP 오류 → 화면에 보여줄 원인. 본문의 error.code 를 우선 보고, 원문 메시지는 서버 로그에 남긴다."""
+    code = kind = message = ""
+    try:
+        body = json.loads((error.read() or b"{}").decode("utf-8", "replace"))
+        detail = body.get("error") or {}
+        code, kind, message = str(detail.get("code") or ""), str(detail.get("type") or ""), str(detail.get("message") or "")
+    except Exception:  # 본문이 없거나 JSON이 아니면 상태 코드만으로
+        pass
+    if message:
+        logger.warning("OpenAI HTTP %s %s/%s: %s", error.code, code, kind, message[:300])
+    hint = ERROR_CODE_HINTS.get(code) or ERROR_CODE_HINTS.get(kind)
+    if hint:
+        return hint
+    base = HTTP_HINTS.get(error.code, f"OpenAI API 오류 (HTTP {error.code})")
+    return f"{base} — {message[:160]}" if message else base
+
+
 def check_connection() -> dict:
-    """키·모델이 유효한지 모델 조회 API로 확인 (토큰을 쓰지 않음)."""
+    """키·모델 확인(모델 조회) 후, 아주 짧은 실제 요청으로 크레딧·한도까지 확인한다.
+    모델 조회는 크레딧이 없어도 성공하므로 그것만으로는 '연결됨'인데 분석은 실패하는 일이 생긴다."""
     st = settings()
     if not st["api_key"]:
         return {"ok": False, "message": "API 키가 없습니다. .env 파일에 OPENAI_API_KEY 를 넣으세요."}
@@ -157,9 +184,17 @@ def check_connection() -> dict:
     try:
         with urllib.request.urlopen(req, timeout=min(st["timeout"], 20)) as resp:
             json.loads(resp.read().decode("utf-8"))
+        ping = urllib.request.Request(
+            f"{st['base_url']}/responses",
+            data=json.dumps({"model": st["model"], "input": "ping", "max_output_tokens": 16}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {st['api_key']}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(ping, timeout=min(st["timeout"], 30)) as resp:
+            resp.read()
         return {"ok": True, "message": f"연결됨 · 모델 {st['model']}"}
     except urllib.error.HTTPError as error:
-        return {"ok": False, "message": HTTP_HINTS.get(error.code, f"OpenAI API 오류 (HTTP {error.code})")}
+        return {"ok": False, "message": http_error_message(error)}
     except (urllib.error.URLError, TimeoutError) as error:
         return {"ok": False, "message": f"OpenAI 서버에 연결하지 못했습니다 ({getattr(error, 'reason', error)})"}
 
@@ -354,7 +389,7 @@ def _request_openai(
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         err = AIExtractionError(f"OpenAI API returned HTTP {error.code}")
-        err.user_message = HTTP_HINTS.get(error.code, f"OpenAI API 오류 (HTTP {error.code})")
+        err.user_message = http_error_message(error)
         raise err from error
     except TimeoutError as error:
         err = AIExtractionError("OpenAI API request timed out")

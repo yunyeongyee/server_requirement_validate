@@ -63,6 +63,64 @@ async def ai_check():
     return {**ai_extract.status(), **(await asyncio.to_thread(ai_extract.check_connection))}
 
 
+PROJECTS = DATA / "projects"
+
+
+class ProjectIn(BaseModel):
+    name: str
+    state: dict
+
+
+def _project_id(name: str) -> str:
+    """같은 문서 이름이면 같은 파일에 덮어쓴다."""
+    import hashlib
+    return hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:12]
+
+
+@app.get("/api/projects")
+def list_projects():
+    """저장한 작업 목록 (최근 저장 순). 내용은 이 PC의 data/projects 에만 있다."""
+    rows = []
+    for path in PROJECTS.glob("*.json") if PROJECTS.exists() else []:
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        rows.append({"id": path.stem, "name": d.get("name", path.stem), "saved_at": d.get("saved_at", ""),
+                     "servers": len((d.get("state") or {}).get("groups") or [])})
+    return sorted(rows, key=lambda row: row["saved_at"], reverse=True)
+
+
+@app.get("/api/projects/{pid}")
+def get_project(pid: str):
+    path = PROJECTS / f"{pid}.json"
+    if not pid.isalnum() or not path.exists():
+        raise HTTPException(404, "저장한 작업을 찾을 수 없습니다")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.post("/api/projects")
+def save_project(body: ProjectIn):
+    from datetime import datetime
+    if not body.name.strip():
+        raise HTTPException(400, "작업 이름이 없습니다")
+    pid = _project_id(body.name)
+    saved_at = datetime.now().isoformat(timespec="seconds")
+    PROJECTS.mkdir(parents=True, exist_ok=True)
+    tmp = PROJECTS / f"{pid}.json.tmp"
+    tmp.write_text(json.dumps({"id": pid, "name": body.name, "saved_at": saved_at, "state": body.state}, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(PROJECTS / f"{pid}.json")  # 저장 중 꺼져도 이전 파일이 깨지지 않게
+    return {"id": pid, "saved_at": saved_at}
+
+
+@app.delete("/api/projects/{pid}")
+def delete_project(pid: str):
+    path = PROJECTS / f"{pid}.json"
+    if pid.isalnum() and path.exists():
+        path.unlink()
+    return {"ok": True}
+
+
 @app.get("/api/servers")
 def servers():
     return load_servers()

@@ -11,9 +11,6 @@ interface Props {
   images: ImageStatus | null;
   renderedImages: RenderedImages;
   onChange: (config: ServerConfig) => void;
-  /** 되돌릴/다시 할 기록이 있을 때만 */
-  onUndo?: () => void;
-  onRedo?: () => void;
   onBackplaneChange: (id: string) => void;
   onSaveCalibration: (hotspots: Record<string, Rect>, rects: Rect[]) => Promise<void>;
   onRedetectBays: () => Promise<void>;
@@ -103,8 +100,6 @@ export default function ConfigSection({
   images,
   renderedImages,
   onChange,
-  onUndo,
-  onRedo,
   onBackplaneChange,
   onSaveCalibration,
   onRedetectBays,
@@ -156,13 +151,6 @@ export default function ConfigSection({
   };
   // 모델·백플레인이 바뀌면 이전 선택은 의미가 없다
   useEffect(() => { clearSelection(); }, [server?.id, config?.backplane]);
-  /** 키보드: Esc 해제 · Delete 빼기 · Ctrl+Z/Ctrl+Y. 최신 구성을 보도록 매 렌더마다 갈아 끼운다 */
-  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => keyHandler.current(event);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
   useEffect(() => {
     const stop = () => { bayDrag.current = null; };
     window.addEventListener("pointerup", stop);
@@ -413,31 +401,6 @@ export default function ConfigSection({
   });
 
   const selectedPsu = selectedSlot ? psuIndex(selectedSlot) : -1;
-  /** Delete: 고른 디스크 빼기 / 슬롯 비우기 / 그 PSU부터 빼기 */
-  const removeSelected = () => {
-    if (selectedBays.length) removeBays();
-    else if (selectedSlot && selectedPsu >= 0) { if (selectedPsu < config.psu_count) patch({ psu_count: selectedPsu }); }
-    else if (selectedSlot && config.slots[selectedSlot]) {
-      const slots = { ...config.slots };
-      delete slots[selectedSlot];
-      patch({ slots });
-    }
-  };
-  keyHandler.current = (event: KeyboardEvent) => {
-    if (mode !== "edit") return;
-    const target = event.target as HTMLElement | null;
-    if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
-    if (document.querySelector(".modal-back, .document-dialog[open]")) return;
-    const mod = event.ctrlKey || event.metaKey;
-    const key = event.key.toLowerCase();
-    if (mod && key === "z" && !event.shiftKey) { if (onUndo) { event.preventDefault(); onUndo(); } return; }
-    if (mod && (key === "y" || (key === "z" && event.shiftKey))) { if (onRedo) { event.preventDefault(); onRedo(); } return; }
-    if (event.key === "Escape" && (selectedBays.length || selectedSlot)) { event.preventDefault(); clearSelection(); return; }
-    if ((event.key === "Delete" || event.key === "Backspace") && (selectedBays.length || selectedSlot)) {
-      event.preventDefault();
-      removeSelected();
-    }
-  };
 
   const renderStage = (view: "front" | "rear") => {
     const info = images?.[view];
@@ -735,7 +698,6 @@ export default function ConfigSection({
                 {backplane.bays > 0 && emptyAll.length > 0 && <button type="button" className="lnk" onClick={() => { setSelectedSlot(null); setSelectedBays(emptyAll); }}>빈 베이 모두 선택 ({emptyAll.length})</button>}
                 {backplane.bays > 0 && <button type="button" className="lnk" onClick={() => { setSelectedSlot(null); setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index)); }}>전체 선택</button>}
                 <button type="button" className="lnk" aria-expanded={panel === "raid"} onClick={() => panel === "raid" ? setPanel(null) : openPanel("raid")}>RAID · BOSS 설정</button>
-                <KeyHints onUndo={onUndo} onRedo={onRedo} selecting={selectedBays.length > 0} />
               </div>
             </div>
           );
@@ -789,7 +751,6 @@ export default function ConfigSection({
                 </div>
                 <div className="ar sub">
                   <span>같은 용량으로 장착합니다 (바꾸면 모두 바뀜) · 예상 최대 소비전력 {result ? `${Math.round(result.summary.power_est_w)}W` : "-"}</span>
-                  <KeyHints onUndo={onUndo} onRedo={onRedo} selecting />
                 </div>
                 {filled && psuImage && !psuImage.exact && <p className="warn small" style={{ margin: 0 }}>{config.psu_watt}W PSU 그림이 라이브러리에 없어 {psuImage.item?.name || "다른 PSU"} 그림에 용량을 표시했습니다.</p>}
                 {psuWarn && <ul className="issues">{result?.general.filter((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg)).map((item, i) => <li key={i}><StatusBadge status={item.status} /> {item.msg}</li>)}</ul>}
@@ -826,13 +787,12 @@ export default function ConfigSection({
                 <div className="ar sub">
                   <span>{slot.type === "ocp" ? `OCP 3.0 SFF x${slot.lanes}` : `PCIe Gen${slot.gen} x${slot.lanes} · ${slot.height}${slot.double_width_ok ? " · 더블 폭 가능" : ""}`} · CPU{slot.cpu}
                     {slotResult && !slotResult.usable ? ` · 지금은 사용 불가 (${slot.cpu > config.cpu_count ? `CPU ${slot.cpu}개 필요` : "Riser 필요"})` : ""}</span>
-                  <KeyHints onUndo={onUndo} onRedo={onRedo} selecting />
                 </div>
                 {!!slotResult?.issues.length && <ul className="issues">{slotResult.issues.map((issue, index) => <li key={index}><StatusBadge status={issue.status} /> {issue.msg}</li>)}</ul>}
               </>;
             })() : <>
               <div className="ar"><span className="muted">후면의 슬롯이나 PSU를 클릭하면 여기에서 바꿉니다</span></div>
-              <div className="ar sub"><KeyHints onUndo={onUndo} onRedo={onRedo} selecting={false} /></div>
+              <div className="ar sub" />
             </>}
           </div>
         )}
@@ -898,16 +858,6 @@ function formatList(items: number[]): string {
     i = j;
   }
   return parts.join(", ");
-}
-
-function KeyHints({ onUndo, onRedo, selecting }: { onUndo?: () => void; onRedo?: () => void; selecting: boolean }) {
-  return (
-    <span className="keys">
-      {selecting && <><kbd>Esc</kbd> 해제 <kbd>Del</kbd> 빼기</>}
-      <button type="button" className="ico" disabled={!onUndo} onClick={onUndo} aria-label="되돌리기 (Ctrl+Z)" title="되돌리기 (Ctrl+Z)">↶</button>
-      <button type="button" className="ico" disabled={!onRedo} onClick={onRedo} aria-label="다시 하기 (Ctrl+Y)" title="다시 하기 (Ctrl+Y)">↷</button>
-    </span>
-  );
 }
 
 function StatusBadge({ status }: { status: string }) {

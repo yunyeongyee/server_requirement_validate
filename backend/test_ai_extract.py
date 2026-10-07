@@ -252,6 +252,13 @@ class SettingsTests(unittest.TestCase):
                 _, info = ai_extract.extract_groups("메모리 512GB 이상", None, rules)
             self.assertEqual(info["mode"], "rules_fallback")
             self.assertIn(words, info["notice"])
+        # 429는 본문의 error.code 로 '크레딧 없음'과 '요청 과다'를 구분한다
+        for body, words in ((b'{"error":{"code":"insufficient_quota","type":"insufficient_quota","message":"You exceeded your current quota"}}', "Billing"),
+                            (b'{"error":{"code":"rate_limit_exceeded","type":"requests","message":"Rate limit reached"}}', "잠시")):
+            boom = urllib.error.HTTPError("u", 429, "x", {}, io.BytesIO(body))
+            with patch.dict("os.environ", env, clear=False), patch("urllib.request.urlopen", side_effect=boom):
+                _, info = ai_extract.extract_groups("메모리 512GB 이상", None, rules)
+            self.assertIn(words, info["notice"])
 
 
 class EnvFileTests(unittest.TestCase):
@@ -285,3 +292,22 @@ class ToggleTests(unittest.TestCase):
             self.assertFalse(net.called)
             client.post("/api/upload", files={"file": ("req.txt", body, "text/plain")}, data={"ai": "true"})
             self.assertTrue(net.called)
+
+
+class ProjectSaveTests(unittest.TestCase):
+    """저장하기: 같은 이름은 덮어쓰고, 목록·불러오기가 된다 (임시 폴더에)."""
+    def test_save_list_load(self):
+        import tempfile
+        from pathlib import Path
+        from fastapi.testclient import TestClient
+        from . import app as app_module
+        with tempfile.TemporaryDirectory() as d, patch.object(app_module, "PROJECTS", Path(d)):
+            client = TestClient(app_module.app)
+            first = client.post("/api/projects", json={"name": "견적.xlsx", "state": {"groups": [{"id": "g1"}]}}).json()
+            again = client.post("/api/projects", json={"name": "견적.xlsx", "state": {"groups": [{"id": "g1"}, {"id": "g2"}]}}).json()
+            self.assertEqual(first["id"], again["id"])
+            rows = client.get("/api/projects").json()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["servers"], 2)
+            self.assertEqual(client.get(f"/api/projects/{first['id']}").json()["state"]["groups"][1]["id"], "g2")
+            self.assertEqual(client.get("/api/projects/..%2Fx").status_code, 404)

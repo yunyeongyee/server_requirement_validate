@@ -204,7 +204,7 @@ export default function ServerSection({
                   className={`libcard pickable ${usedAs(item.id) ? "used" : ""}`}
                   onClick={() => void updateImage(target, item.id)}
                 >
-                  {usedAs(item.id) && <em className="used-badge">{usedAs(item.id)} 사용 중</em>}
+                  {usedAs(item.id) && <em className="used-badge" title={`${usedAs(item.id)} 그림으로 쓰는 중`}>✓ 지금 적용됨</em>}
                   <img src={`/static/${item.file}`} alt="" loading="lazy" />
                   <span>{item.name}</span><small>{item.source}</small>
                 </button>

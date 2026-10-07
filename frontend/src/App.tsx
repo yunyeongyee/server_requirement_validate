@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   applyProposal,
   extractRequirements,
@@ -6,6 +6,9 @@ import {
   getComponents,
   getImageStatus,
   getServers,
+  listProjects,
+  loadProject,
+  saveProject,
   redetectBays,
   renderServer,
   saveBays,
@@ -15,6 +18,7 @@ import {
   validateServer,
 } from "./api";
 import type { Component, ExtractionInfo, InventoryRow, UploadResponse, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
+import type { SavedProject } from "./api";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest, RenderedImages } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
@@ -24,11 +28,6 @@ import ServerBar from "./components/ServerBar";
 import AiToggle from "./components/AiBadge";
 
 export type ModelSource = "document" | "manual" | "default";
-
-interface HistoryEntry {
-  serverId: string;
-  config: ServerConfig;
-}
 
 interface ServerProfile {
   serverId: string;
@@ -106,6 +105,13 @@ export default function App() {
   const [results, setResults] = useState<Record<string, ValidationResult>>({});
   const [documentName, setDocumentName] = useState("");
   const [documentText, setDocumentText] = useState("");
+  /** 저장 이름 (문서 이름, 붙여넣기는 시각을 붙임) · 마지막으로 저장한 내용과 시각 */
+  const [projectName, setProjectName] = useState("");
+  const [savedSnapshot, setSavedSnapshot] = useState("");
+  const [savedAt, setSavedAt] = useState("");
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [extractionInfo, setExtractionInfo] = useState<ExtractionInfo | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -114,9 +120,6 @@ export default function App() {
   const [validationError, setValidationError] = useState("");
   const [validationBusy, setValidationBusy] = useState(false);
   const [renderedImages, setRenderedImages] = useState<RenderedImages>({ front: null, rear: null });
-  /** 서버별 구성 변경 기록 (Ctrl+Z / Ctrl+Y). 모델이 바뀌면 그 서버의 기록은 버린다 */
-  const history = useRef<Record<string, { past: HistoryEntry[]; future: HistoryEntry[] }>>({});
-  const [, setHistoryTick] = useState(0);
   const [imageVersion, setImageVersion] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [apiReady, setApiReady] = useState<boolean | null>(null);
@@ -295,17 +298,89 @@ export default function App() {
     });
   };
 
+  /** 저장 대상: 문서 분석 결과와 서버별 구성 전체 (검증 결과·그림은 다시 계산) */
+  const snapshot = useMemo(() => JSON.stringify({
+    documentName, documentText, extractionInfo, groups, profiles, activeGroupId, inventory, proposalNotes,
+  }), [documentName, documentText, extractionInfo, groups, profiles, activeGroupId, inventory, proposalNotes]);
+  const dirty = !!documentName && snapshot !== savedSnapshot;
+
+  const handleSave = async () => {
+    if (!documentName) return;
+    setSaveBusy(true);
+    setSaveError("");
+    try {
+      const saved = await saveProject(projectName || documentName, JSON.parse(snapshot));
+      setSavedSnapshot(snapshot);
+      setSavedAt(saved.saved_at);
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  const handleOpenProject = async (id: string) => {
+    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 저장한 작업을 열까요?")) return;
+    try {
+      const project = await loadProject<{
+        documentName: string; documentText: string; extractionInfo: ExtractionInfo | null; groups: RequirementGroup[];
+        profiles: Record<string, ServerProfile>; activeGroupId: string; inventory: InventoryRow[]; proposalNotes: Record<string, string[]>;
+      }>(id);
+      const state = project.state;
+      setDocumentName(state.documentName);
+      setDocumentText(state.documentText || "");
+      setExtractionInfo(state.extractionInfo || null);
+      setGroups(state.groups);
+      setProfiles(state.profiles);
+      setActiveGroupId(state.groups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : state.groups[0]?.id || DEFAULT_GROUP_ID);
+      setInventory(state.inventory || []);
+      setProposalNotes(state.proposalNotes || {});
+      setResults({});
+      setRenderedImages({ front: null, rear: null });
+      setView("server");
+      setProjectName(project.name);
+      setSavedAt(project.saved_at);
+      // 저장 당시 내용과 같게 맞춰 '저장 안 됨'으로 보이지 않게
+      setSavedSnapshot(JSON.stringify({
+        documentName: state.documentName, documentText: state.documentText || "", extractionInfo: state.extractionInfo || null,
+        groups: state.groups, profiles: state.profiles,
+        activeGroupId: state.groups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : state.groups[0]?.id || DEFAULT_GROUP_ID,
+        inventory: state.inventory || [], proposalNotes: state.proposalNotes || {},
+      }));
+    } catch (reason) {
+      setUploadError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  // 첫 화면에 '저장한 작업' 목록
+  useEffect(() => {
+    if (!apiReady || documentName) return;
+    listProjects().then(setSavedProjects).catch(() => setSavedProjects([]));
+  }, [apiReady, documentName]);
+  // 저장하지 않고 창을 닫으려 하면 묻는다
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   const handleUpload = (file: File) => analyze(() => uploadRequirement(file, aiOn));
   const handlePaste = (text: string) => analyze(() => pasteText(text, aiOn));
 
   /** 파일 업로드와 붙여넣기 공통: 분석 결과를 서버 그룹·구성에 반영 */
   const analyze = async (run: () => Promise<UploadResponse>) => {
+    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 새 문서를 분석할까요?")) return;
     setUploadBusy(true);
     setUploadError("");
     setExtractionInfo(null);
     try {
       const response = await run();
-      setDocumentName(response.filename === "붙여넣기.tsv" ? "붙여넣은 내용" : response.filename);
+      const pasted = response.filename === "붙여넣기.tsv";
+      setDocumentName(pasted ? "붙여넣은 내용" : response.filename);
+      setProjectName(pasted ? `붙여넣은 내용 ${new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}` : response.filename);
+      setSavedSnapshot("");
+      setSavedAt("");
       setDocumentText(response.text);
       setInventory(response.inventory || []);
       setExtractionInfo(response.extraction || { mode: "rules" });
@@ -383,41 +458,12 @@ export default function App() {
     setRenderedImages({ front: null, rear: null });
   };
 
-  const groupHistory = () => (history.current[activeGroupId] ||= { past: [], future: [] });
   const handleConfigChange = (nextConfig: ServerConfig) => {
-    const profile = profiles[activeGroupId];
-    if (profile && profile.config !== nextConfig) {
-      const record = groupHistory();
-      record.past.push({ serverId: profile.serverId, config: profile.config });
-      if (record.past.length > 100) record.past.shift();
-      record.future = [];
-      setHistoryTick((tick) => tick + 1);
-    }
     setProfiles((current) => {
       const currentProfile = current[activeGroupId];
       return currentProfile ? { ...current, [activeGroupId]: { ...currentProfile, config: nextConfig } } : current;
     });
   };
-
-  /** 되돌리기(-1) / 다시 하기(+1). 다른 모델의 기록이면 버린다 */
-  const stepHistory = (direction: -1 | 1) => {
-    const profile = profiles[activeGroupId];
-    const record = groupHistory();
-    const from = direction < 0 ? record.past : record.future;
-    const to = direction < 0 ? record.future : record.past;
-    const entry = from.pop();
-    if (!profile || !entry) return;
-    if (entry.serverId !== profile.serverId) {
-      history.current[activeGroupId] = { past: [], future: [] };
-      setHistoryTick((tick) => tick + 1);
-      return;
-    }
-    to.push({ serverId: profile.serverId, config: profile.config });
-    setProfiles((current) => ({ ...current, [activeGroupId]: { ...profile, config: entry.config } }));
-    setHistoryTick((tick) => tick + 1);
-  };
-  const canUndo = !!history.current[activeGroupId]?.past.length;
-  const canRedo = !!history.current[activeGroupId]?.future.length;
 
   const handleBackplaneChange = (id: string) => {
     if (!config || !server) return;
@@ -490,6 +536,22 @@ export default function App() {
       {apiReady === null && <div className="stale" role="status">백엔드 API에 연결하는 중입니다…</div>}
       <div className="layout">
         <main className={documentName && view === "server" ? "work" : ""}>
+          {!documentName && savedProjects.length > 0 && (
+            <section className="card saved" aria-label="저장한 작업">
+              <h3>저장한 작업 이어서 하기</h3>
+              <ul>
+                {savedProjects.slice(0, 8).map((item) => (
+                  <li key={item.id}>
+                    <button type="button" className="saved-row" onClick={() => void handleOpenProject(item.id)}>
+                      <b>{item.name}</b>
+                      <span className="muted">서버 {item.servers}종 · {formatSavedAt(item.saved_at)} 저장</span>
+                      <span className="lnk">열기</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {view === "server" && <RequirementSection
             result={validation}
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
@@ -547,8 +609,6 @@ export default function App() {
             images={imageStatus}
             renderedImages={renderedImages}
             onChange={handleConfigChange}
-            onUndo={canUndo ? () => stepHistory(-1) : undefined}
-            onRedo={canRedo ? () => stepHistory(1) : undefined}
             onBackplaneChange={handleBackplaneChange}
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
@@ -562,8 +622,27 @@ export default function App() {
             activeGroupId={activeGroupId}
             onSelectGroup={(id) => { setActiveGroupId(id); setView("server"); }}
           />}
+          {documentName && (
+            <div className={`savebar ${dirty ? "dirty" : ""}`} role="region" aria-label="저장">
+              <span className="savebar-msg">
+                {saveError ? <span className="warn">저장 오류: {saveError}</span>
+                  : dirty ? <><i className="dot" aria-hidden="true" /> 저장하지 않은 변경이 있습니다</>
+                  : <>✓ 저장됨 · {formatSavedAt(savedAt)}</>}
+                <span className="muted small"> — {projectName || documentName}</span>
+              </span>
+              <button type="button" className="btn" disabled={saveBusy || !dirty} onClick={() => void handleSave()}>{saveBusy ? "저장 중…" : "저장하기"}</button>
+            </div>
+          )}
         </main>
       </div>
     </>
   );
+}
+
+/** "2026-10-07T14:32:05" → "10/07 14:32" */
+function formatSavedAt(iso: string): string {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

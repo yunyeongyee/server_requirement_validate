@@ -38,6 +38,9 @@ Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시�
 
 견적서·구성도는 표를 규칙으로 읽고, AI에는 보내지 않는다. AI로 보내기 전에 계정·비밀번호·IP는 가린다. 화면 오른쪽 위 "AI 분석" 토글을 켠 상태로 올린 요구사항 문서만 AI로 보낸다 (기본 꺼짐, 키가 없으면 비활성).
 
+## 작업 저장
+작업 화면 맨 아래 "저장하기"를 누르면 문서 분석 결과와 서버별 구성이 이 PC의 `data/projects/`에 저장된다 (git에 올라가지 않음). 같은 문서 이름이면 덮어쓰고, 첫 화면의 "저장한 작업 이어서 하기"에서 다시 연다.
+
 ## 테스트
 ```bash
 python -m unittest backend.test_ai_extract backend.test_doc_tables backend.test_images
