@@ -598,3 +598,7 @@ figure.stage{position:relative}
 .pl{grid-template-columns:16px 1fr;padding:4px 8px}
 .pl-text{font-size:12.5px}
 main.work{padding-bottom:72px}
+.modal-foot{position:sticky;bottom:-16px;display:flex;align-items:center;justify-content:flex-end;gap:8px;background:#fff;border-top:1px solid var(--line);padding:10px 0 4px;margin-top:4px}
+.modal-foot .muted{margin-right:auto}
+.cardtitle{font-size:16px}
+.modelline .modelname{font-weight:600;color:var(--mute)}

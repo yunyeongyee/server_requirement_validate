@@ -489,9 +489,11 @@ def render(server, cfg, view, catalog: dict) -> dict:
             else:
                 missing.append(opts[b["drive"]]["name"])
         # 백플레인이 쓰지 않는 칸(이미지는 16베이, 구성은 8베이 등) → 필러(막음판)로 덮는다
-        # 빈 베이: 원본 그림에 디스크가 그려진 스텐실도 있어 어두운 빈 칸으로 덮어 장착 여부가 보이게
+        # 빈 베이: Dell 스텐실은 빈 베이를 실제 블랭크 캐리어로 그려 두므로 그대로 둔다.
+        # E3.S 그림만 칸마다 디스크가 그려져 있어 빈 칸을 어둡게 덮는다
         used = {int(k) for k in (cfg.get("bays") or {}) if (cfg["bays"][k] or {}).get("drive") in opts}
-        blanks.extend(r for i, r in enumerate(rects) if i not in used)
+        if re.search(r"e3\.s", base_it["name"], re.I):
+            blanks.extend(r for i, r in enumerate(rects) if i not in used)
         fillers = _unused_bay_groups(rects, bay_candidates(server, bp))
         # 필러는 그림의 베이 규격을 따른다 (E3.S 그림이면 E3.S 필러)
         img_ff = "E3.S" if re.search(r"e3\.s", base_it["name"], re.I) else bp["ff"]
