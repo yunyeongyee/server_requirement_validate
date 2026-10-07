@@ -120,6 +120,25 @@ async def upload(file: UploadFile = File(...), ai: bool = Form(False)):
         raise HTTPException(422, f"본문 추출 실패: {e}")
     if not text.strip():
         raise HTTPException(422, "본문 텍스트가 없습니다 (스캔 PDF라면 OCR 필요)")
+    return await _analyze_document(file.filename, data, text, use_ai)
+
+
+class PasteIn(BaseModel):
+    text: str
+    ai: bool = False
+
+
+@app.post("/api/paste")
+async def paste(body: PasteIn):
+    """견적·사양 표를 복사해 붙여넣은 글. 탭(또는 2칸 이상 공백)으로 칸을 나눠 표로 읽는다."""
+    text = body.text.strip("\n")
+    if not text.strip():
+        raise HTTPException(422, "붙여넣은 내용이 없습니다")
+    return await _analyze_document("붙여넣기.tsv", text.encode("utf-8"), text, body.ai and ai_extract.enabled())
+
+
+async def _analyze_document(filename: str, data: bytes, text: str, use_ai: bool) -> dict:
+    file = type("Doc", (), {"filename": filename})
     # 1) 양식 무관 구조 해석(표·시트·서버 그룹·견적 여부) — 규칙만 사용, 외부 전송 없음
     try:
         doc = await asyncio.to_thread(doc_tables.analyze_document, file.filename, data, text)

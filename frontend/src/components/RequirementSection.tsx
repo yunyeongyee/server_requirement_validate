@@ -48,6 +48,8 @@ interface Props {
   /** 헤더의 '원문' / '다른 문서' 버튼이 바꾸는 값 */
   showDocumentSignal: number;
   pickFileSignal: number;
+  pasteSignal: number;
+  onPaste: (text: string) => void;
   inventory: InventoryRow[];
   onInventoryLink: (groupId: string, row: InventoryRow | null) => void;
 }
@@ -127,6 +129,8 @@ export default function RequirementSection({
   onFocus,
   showDocumentSignal,
   pickFileSignal,
+  pasteSignal,
+  onPaste,
   inventory,
   onInventoryLink,
 }: Props) {
@@ -144,6 +148,22 @@ export default function RequirementSection({
   useEffect(() => {
     if (pickFileSignal) fileInput.current?.click();
   }, [pickFileSignal]);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasted, setPasted] = useState("");
+  useEffect(() => {
+    if (pasteSignal) { setPasted(""); setPasteOpen(true); }
+  }, [pasteSignal]);
+  const pasteBox = (onDone?: () => void) => (
+    <div className="pastebox">
+      <label htmlFor="pastearea"><b>또는 견적·사양 표를 복사해서 붙여넣기</b> <span className="muted small">엑셀·PDF·메일의 표를 그대로 붙여넣으면 품번·품명·수량을 알아서 나눕니다. 요구사항 문장도 됩니다. 외부로 보내지 않습니다.</span></label>
+      <textarea id="pastearea" rows={6} value={pasted} onChange={(event) => setPasted(event.target.value)}
+        placeholder={"PYR2548R2N\tPY RX2540 M8 8x 2.5'\t1\nPYBCP70X2\tIntel Xeon 6515P 16C 2.3 GHz\t1\nPYBME64ST\t64GB (1x64GB) 2Rx4 DDR5-6400 R ECC\t4"} />
+      <div className="row">
+        <button type="button" className="btn small" disabled={busy || !pasted.trim()} onClick={() => { onPaste(pasted); onDone?.(); }}>{busy ? "분석 중…" : "붙여넣은 내용 분석"}</button>
+        {pasted && <button type="button" className="btn ghost small" onClick={() => setPasted("")}>지우기</button>}
+      </div>
+    </div>
+  );
   const activeGroup = groups.find((group) => group.id === activeGroupId) || groups[0];
   const requirements = activeGroup?.requirements || [];
   const spec = activeGroup?.spec || [];
@@ -254,6 +274,7 @@ export default function RequirementSection({
         <strong>{busy ? "문서 분석 중…" : "요구사항 문서나 견적서를 끌어다 놓거나 클릭"}</strong>
         <span>PDF · DOCX · XLSX · TXT · CSV · JSON — 서버 구분, 모델 선택, 견적 구성 적용까지 자동으로 합니다</span>
       </label>
+      {pasteBox()}
       {error && <p className="warn" role="alert">{error}</p>}
     </section>
   );
@@ -339,6 +360,16 @@ export default function RequirementSection({
         <p className={`muted small pad group-evidence ${(activeGroup.confidence ?? 1) < 0.75 ? "low" : ""}`}>
           서버 구분 근거: {activeGroup.evidence.join(" · ")}{activeGroup.notes?.length ? ` · ⚠ ${activeGroup.notes.join(" · ")}` : ""}
         </p>
+      )}
+      {pasteOpen && (
+        <dialog open className="document-dialog">
+          <div className="dlghead">
+            <h3>붙여넣기</h3>
+            <button className="x" aria-label="닫기" onClick={() => setPasteOpen(false)}>✕</button>
+          </div>
+          <p className="muted small">분석하면 지금 화면의 문서를 이 내용으로 바꿉니다.</p>
+          {pasteBox(() => setPasteOpen(false))}
+        </dialog>
       )}
       {showDocument && (
         <dialog open className="document-dialog">

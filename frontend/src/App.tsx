@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   applyProposal,
   extractRequirements,
+  pasteText,
   getComponents,
   getImageStatus,
   getServers,
@@ -13,7 +14,7 @@ import {
   uploadRequirement,
   validateServer,
 } from "./api";
-import type { Component, ExtractionInfo, InventoryRow, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
+import type { Component, ExtractionInfo, InventoryRow, UploadResponse, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
@@ -121,6 +122,7 @@ export default function App() {
   const [documentSignal, setDocumentSignal] = useState(0);
   const [pickFileSignal, setPickFileSignal] = useState(0);
   const [imagesSignal, setImagesSignal] = useState(0);
+  const [pasteSignal, setPasteSignal] = useState(0);
 
   const profile = profiles[activeGroupId];
   const server = useMemo(
@@ -276,13 +278,17 @@ export default function App() {
     });
   };
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = (file: File) => analyze(() => uploadRequirement(file, aiOn));
+  const handlePaste = (text: string) => analyze(() => pasteText(text, aiOn));
+
+  /** 파일 업로드와 붙여넣기 공통: 분석 결과를 서버 그룹·구성에 반영 */
+  const analyze = async (run: () => Promise<UploadResponse>) => {
     setUploadBusy(true);
     setUploadError("");
     setExtractionInfo(null);
     try {
-      const response = await uploadRequirement(file, aiOn);
-      setDocumentName(response.filename);
+      const response = await run();
+      setDocumentName(response.filename === "붙여넣기.tsv" ? "붙여넣은 내용" : response.filename);
       setDocumentText(response.text);
       setInventory(response.inventory || []);
       setExtractionInfo(response.extraction || { mode: "rules" });
@@ -423,6 +429,7 @@ export default function App() {
             {groups.some((group) => group.proposed) && <span className="muted-on-dark">{groups.some((group) => group.doc_role === "config") ? "구성도" : "견적"} 구성 자동 적용</span>}
             <button type="button" className="ghost-on-dark" onClick={() => setDocumentSignal((n) => n + 1)}>원문</button>
             <button type="button" className="ghost-on-dark" onClick={() => setPickFileSignal((n) => n + 1)}>다른 문서</button>
+            <button type="button" className="ghost-on-dark" onClick={() => setPasteSignal((n) => n + 1)}>붙여넣기</button>
           </div>
         )}
         {documentName && <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={activeGroupId} view={view} onSelect={(id) => { setActiveGroupId(id); setView("server"); }} onShowAll={() => setView("all")} />}
@@ -442,6 +449,8 @@ export default function App() {
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             showDocumentSignal={documentSignal}
             pickFileSignal={pickFileSignal}
+            pasteSignal={pasteSignal}
+            onPaste={(text) => void handlePaste(text)}
             inventory={inventory}
             onInventoryLink={handleInventoryLink}
             groups={groups}

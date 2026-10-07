@@ -98,6 +98,21 @@ def load_tables(filename: str, data: bytes) -> list[Table]:
                 out.append(Table(f"표 {tcount}", rows, titles))
         if para_rows:
             out.append(Table("본문", para_rows))
+    elif ext == ".tsv":  # 붙여넣기: 엑셀·웹 표를 복사하면 탭으로 칸이 나뉜다. 탭이 없으면 2칸 이상 공백
+        from .extract import _decode
+        rows = []
+        for i, line in enumerate(_decode(data).splitlines(), 1):
+            if not line.strip():
+                continue
+            cells = line.split("\t") if "\t" in line else re.split(r"\s{2,}|\s\|\s", line.strip())
+            cells = [_s(c) for c in cells]
+            while cells and not cells[-1]:
+                cells.pop()
+            while cells and not cells[0]:
+                cells.pop(0)
+            if any(cells):
+                rows.append((i, cells))
+        out.append(Table("붙여넣기", rows))
     elif ext == ".csv":
         from .extract import _decode
         rows = [(i, [_s(c) for c in r]) for i, r in enumerate(csv.reader(io.StringIO(_decode(data))), 1) if any(x.strip() for x in r)]
@@ -304,6 +319,15 @@ def _key(name: str) -> str:
     return re.sub(r"[\s_\-·]|서버|server|용", "", (name or "").lower())
 
 
+def _is_parts_list(groups: list[dict]) -> bool:
+    for g in groups:
+        items = g.get("items") or []
+        coded = sum(1 for i in items if i.get("code"))
+        if items and any(i["category"] == "base" for i in items) and coded >= max(2, len(items) * 0.5):
+            return True
+    return False
+
+
 def analyze(filename: str, data: bytes) -> dict:
     tables = load_tables(filename, data)
     blocks = [b for t in tables for b in table_blocks(t)]
@@ -377,7 +401,8 @@ def analyze(filename: str, data: bytes) -> dict:
     for g in server_groups:
         g.pop("_has_base"); g.pop("_cats")
     return {
-        "doc_role": "quote" if has_price else ("requirement" if not server_groups else "spec_table"),
+        # 가격 열이 없어도 품번·품명·수량이 있는 부품 목록(본체 행 포함)이면 제안 구성으로 본다
+        "doc_role": "quote" if has_price or _is_parts_list(server_groups) else ("requirement" if not server_groups else "spec_table"),
         "groups": server_groups,
         "common_items": common_items,
         "tables": [{"source": t.source, "rows": len(t.rows)} for t in tables],

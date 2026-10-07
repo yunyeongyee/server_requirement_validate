@@ -59,6 +59,11 @@ export function uploadRequirement(file: File, useAi = false): Promise<UploadResp
   return request<UploadResponse & { groups?: RequirementGroup[] }>("/api/upload", { method: "POST", body: form });
 }
 
+/** 견적·사양 표를 복사해 붙여넣은 글 → 업로드와 같은 형태의 결과 */
+export function pasteText(text: string, useAi = false): Promise<UploadResponse> {
+  return sendJson<UploadResponse>("/api/paste", { text, ai: useAi });
+}
+
 export function extractRequirements(text: string, useAi = false): Promise<Pick<UploadResponse, "requirements" | "spec" | "extraction"> & { groups?: RequirementGroup[] }> {
   return sendJson("/api/extract", { text, ai: useAi });
 }

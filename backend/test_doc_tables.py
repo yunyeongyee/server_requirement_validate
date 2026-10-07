@@ -102,3 +102,25 @@ class SheetPerServerTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in r["inventory"]], ["WAS 서버", "백업"])
         self.assertEqual([(g["name"], g["quantity"]) for g in r["groups"]], [("WAS 서버", 3), ("DB 서버", None)])
 
+
+
+class PasteTests(unittest.TestCase):
+    def test_pasted_parts_list_without_header_or_price(self):
+        """엑셀에서 복사한 '품번 탭 품명 탭 수량' 목록(머리글·가격 없음) → 제안 구성"""
+        data = (Path(__file__).resolve().parent / "testdata" / "paste_parts.tsv").read_bytes()
+        r = D.analyze_document("붙여넣기.tsv", data, data.decode("utf-8"))
+        self.assertEqual(r["doc_role"], "quote")
+        self.assertEqual(len(r["groups"]), 1)
+        p = r["groups"][0]["proposed"]
+        self.assertEqual(p["cpu"]["model"], "Xeon 6515P")
+        self.assertEqual(p["memory"]["total_gb"], 256)
+        self.assertEqual(p["drives"][0]["qty"], 2)
+        self.assertEqual(p["psu"], {"watt": 1600, "count": 2})
+        self.assertEqual(len(p["nic"]) + len(p["ocp"]), 3)
+        cats = {i["category"] for i in r["groups"][0]["items"]}
+        self.assertIn("accessory", cats)  # 케이블·레일은 부속으로 분리
+
+    def test_pasted_requirement_sentences_stay_requirements(self):
+        text = "서버 요구사항\nCPU 2소켓 이상\n메모리 512GB 이상\n"
+        r = D.analyze_document("붙여넣기.tsv", text.encode(), text)
+        self.assertEqual(r["doc_role"], "requirement")
