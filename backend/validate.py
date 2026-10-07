@@ -294,8 +294,9 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
                 actual = f"{name} 원시 {_gb_text(total)}"; status = PASS if total >= float(v) else FAIL
         elif k == "gpu_count":
             actual = f"{s['gpu_count']}EA"
-            status = REVIEW if _cmp(s["gpu_count"], op, v) else FAIL
-            note = "GPU는 전원/쿨링/Riser 추가 검토 필요" if status == REVIEW else ""
+            # 요구 수량 이상이면 충족. 전원·쿨링·Riser 확인은 슬롯 호환성(확인 필요)에서 따로 걸린다
+            status = PASS if _cmp(s["gpu_count"], op, v) else FAIL
+            note = "전원·쿨링·Riser는 호환성에서 확인" if status == PASS else ""
         else:
             note = "검증 규칙 없음"
         out.append(_row(r, actual, status, note))
