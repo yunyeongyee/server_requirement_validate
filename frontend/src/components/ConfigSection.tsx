@@ -90,14 +90,20 @@ export default function ConfigSection({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [showSlotList, setShowSlotList] = useState(false);
-  const [specOpen, setSpecOpen] = useState(false);
-  const specRef = useRef<HTMLDetailsElement>(null);
+  /** 그림 아래 설정 자리에 띄울 것: 디스크(선택 베이·RAID) / CPU·메모리. 슬롯·PSU는 selectedSlot */
+  const [panel, setPanel] = useState<"disk" | "spec" | null>(null);
   const slotPanelRef = useRef<HTMLDivElement>(null);
   const [frontRects, setFrontRects] = useState<Rect[]>([]);
   const [slotHotspots, setSlotHotspots] = useState<Record<string, Rect>>({});
   const [calibrationBusy, setCalibrationBusy] = useState(false);
   const [calibrationMessage, setCalibrationMessage] = useState("");
   const drag = useRef<DragState | null>(null);
+  function openPanel(next: "disk" | "spec") {
+    setSelectedSlot(null);
+    if (next === "spec") setSelectedBays([]);
+    setPanel(next);
+    window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+  }
 
   useEffect(() => {
     setFrontRects(images?.bays.rects || []);
@@ -112,22 +118,25 @@ export default function ConfigSection({
 
   useEffect(() => {
     if (!focus || !server) return;
-    if (focus.kind === "spec") {
-      setSpecOpen(true);
-      window.setTimeout(() => specRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+    if (focus.kind === "bays") {
+      openPanel("disk");
+    } else if (focus.kind === "spec") {
+      openPanel("spec");
     } else if (focus.kind === "slot" && focus.part === "psu") {
       const psuSlots = server.psu_slots || [];
       const target = psuSlots[Math.min(config?.psu_count || 0, psuSlots.length - 1)];
       if (target) {
+        setPanel(null);
         setSelectedSlot(target.id);
         window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
       } else {
-        setSpecOpen(true);
+        openPanel("spec");
       }
     } else if (focus.kind === "slot") {
       const free = server.slots.find((slot) => slot.type !== "ocp" && !config?.slots[slot.id]
         && (result?.slots.find((item) => item.slot === slot.id)?.usable ?? true));
       if (free) {
+        setPanel(null);
         setSelectedSlot(free.id);
         window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
       }
@@ -150,6 +159,8 @@ export default function ConfigSection({
   const patch = (values: Partial<ServerConfig>) => onChange({ ...config, ...values });
 
   const toggleBay = (bay: number) => {
+    setSelectedSlot(null);
+    setPanel("disk");
     setSelectedBays((selected) => selected.includes(bay)
       ? selected.filter((item) => item !== bay)
       : [...selected, bay]);
@@ -296,7 +307,7 @@ export default function ConfigSection({
                     onClick={() => {
                       if (mode !== "edit") return;
                       if (view === "front") toggleBay(index);
-                      else if (slot) setSelectedSlot((current) => current === slot.id ? null : slot.id);
+                      else if (slot) { setPanel(null); setSelectedBays([]); setSelectedSlot((current) => current === slot.id ? null : slot.id); }
                     }}
                   >
                     {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : slot?.type === "psu"
@@ -373,6 +384,10 @@ export default function ConfigSection({
           </div>
         </div>
         <div className="cardbody">
+          <button type="button" className={`specline ${panel === "spec" ? "on" : ""}`} onClick={() => panel === "spec" ? setPanel(null) : openPanel("spec")}>
+            <span className="muted">내부</span> <b>CPU</b> {config.cpu_model} × {config.cpu_count} <span className="muted">·</span> <b>메모리</b> {config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB × ${row.qty}`).join(" + ") || "없음"} = {memoryTotal}GB
+            <span className="lnk specline-act">바꾸기</span>
+          </button>
         {mode === "calib" && <div className="row">
           <span className="muted">빠른 방법: Bay 0의 크기·위치와 마지막 베이 위치만 맞춘 뒤 '처음·끝 사이 균등 배치'를 누르세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
           <button className="btn ghost small" disabled={calibrationBusy} onClick={() => void redetect()}>베이 자동 감지 다시</button>
@@ -393,38 +408,78 @@ export default function ConfigSection({
           </div>
         )}
         {renderStage("front")}
-        {selectedBays.length > 0 ? (
-        <div className="diskbar">
-          <span className="selinfo">선택한 베이 {selectedBays.length}개{selectedBays.length ? ` (${[...selectedBays].sort((a, b) => a - b).join(", ")})` : ""}</span>
-          <select id="addDrive" aria-label="디스크 모델" defaultValue={server.drive_options.find((drive) => drive.ff === backplane.ff)?.id || ""}>
-            {server.drive_options.filter((drive) => drive.ff === backplane.ff).map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
-          </select>
-          <select id="addRole" aria-label="디스크 용도"><option value="data">Data</option><option value="boot">Boot</option></select>
-          <button className="btn small" disabled={!selectedBays.length} onClick={() => {
-            const drive = (document.getElementById("addDrive") as HTMLSelectElement).value;
-            const role = (document.getElementById("addRole") as HTMLSelectElement).value as "boot" | "data";
-            const bays = { ...config.bays };
-            selectedBays.forEach((index) => { bays[String(index)] = { drive, role }; });
-            patch({ bays });
-            setSelectedBays([]);
-          }}>선택 베이에 장착</button>
-          <button className="btn ghost small" disabled={!selectedBays.length} onClick={() => {
-            const bays = { ...config.bays };
-            selectedBays.forEach((index) => delete bays[String(index)]);
-            patch({ bays });
-            setSelectedBays([]);
-          }}>선택 베이 빼기</button>
-          <button className="btn ghost small" onClick={() => setSelectedBays([])}>선택 해제</button>
-          <button className="btn ghost small" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체 선택</button>
-          <button className="btn ghost small" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>디스크 전체 빼기</button>
+        <div className="storage-row">
+          <StorageSummary server={server} config={config} bayCount={backplane.bays} />
+          {backplane.bays > 0 && <span className="muted small">베이를 눌러 디스크·RAID 설정</span>}
         </div>
-        ) : (
-          <div className="storage-row">
-            <StorageSummary server={server} config={config} bayCount={backplane.bays} />
-            {backplane.bays > 0 && <span className="muted small">베이를 눌러 선택하거나 <button type="button" className="lnk" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체 선택</button></span>}
+        {renderStage("rear")}
+        {panel === "disk" && (
+          <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="디스크 · RAID">
+            <div className="row between">
+              <b>{selectedBays.length ? `전면 Bay ${[...selectedBays].sort((a, b) => a - b).join(", ")} 선택됨` : "디스크 · RAID"}</b>
+              <span className="muted">베이를 더 눌러 여러 개 선택 · <button type="button" className="lnk" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체</button></span>
+              <button className="ico" aria-label="닫기" onClick={() => { setPanel(null); setSelectedBays([]); }}>✕</button>
+            </div>
+            <div className="row">
+              디스크 <select id="addDrive" aria-label="디스크 모델" defaultValue={server.drive_options.find((drive) => drive.ff === backplane.ff)?.id || ""}>
+                {server.drive_options.filter((drive) => drive.ff === backplane.ff).map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
+              </select>
+              용도 <select id="addRole" aria-label="디스크 용도"><option value="data">Data</option><option value="boot">Boot</option></select>
+              <button className="btn small" disabled={!selectedBays.length} onClick={() => {
+                const drive = (document.getElementById("addDrive") as HTMLSelectElement).value;
+                const role = (document.getElementById("addRole") as HTMLSelectElement).value as "boot" | "data";
+                const bays = { ...config.bays };
+                selectedBays.forEach((index) => { bays[String(index)] = { drive, role }; });
+                patch({ bays });
+                setSelectedBays([]);
+              }}>장착</button>
+              <button className="btn ghost small" disabled={!selectedBays.length} onClick={() => {
+                const bays = { ...config.bays };
+                selectedBays.forEach((index) => delete bays[String(index)]);
+                patch({ bays });
+                setSelectedBays([]);
+              }}>빼기</button>
+              <button className="btn ghost small" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>전체 빼기</button>
+            </div>
+            <div className="row" role="group" aria-label="Data RAID">
+              Data RAID {RAID_LEVELS.map((level) => (
+                <button type="button" key={level || "none"} className="opt" aria-pressed={config.raid.data === level} onClick={() => patch({ raid: { ...config.raid, data: level } })}>{level || "No RAID"}</button>
+              ))}
+            </div>
+            <div className="row">
+              Boot RAID <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })} aria-label="Boot RAID">
+                {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
+              </select>
+              <label><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
+            </div>
           </div>
         )}
-        {renderStage("rear")}
+        {panel === "spec" && (
+          <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="CPU · 메모리">
+            <div className="row between">
+              <b>CPU · 메모리</b>
+              <button className="ico" aria-label="닫기" onClick={() => setPanel(null)}>✕</button>
+            </div>
+            <div className="row">
+              CPU <select value={config.cpu_model} onChange={(event) => patch({ cpu_model: event.target.value })} aria-label="CPU 모델">
+                {server.cpu_options.map((option) => <option key={option}>{option}</option>)}
+              </select>
+              × <select value={config.cpu_count} onChange={(event) => patch({ cpu_count: Number(event.target.value) })} aria-label="CPU 수량">
+                {Array.from({ length: server.cpu_sockets }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
+              </select>
+            </div>
+            {config.memory.map((row, index) => (
+              <div className="row" key={index}>
+                메모리 <select value={row.size_gb} onChange={(event) => updateMemory(index, { size_gb: Number(event.target.value) })} aria-label="DIMM 용량">
+                  {server.memory.dimm_sizes_gb.map((size) => <option key={size} value={size}>{size}GB RDIMM</option>)}
+                </select>
+                × <input type="number" min="0" max={server.memory.dimm_slots} value={row.qty} style={{ width: 70 }} onChange={(event) => updateMemory(index, { qty: Number(event.target.value) })} aria-label="DIMM 수량" />
+                {config.memory.length > 1 && <button className="ico" aria-label="DIMM 행 삭제" onClick={() => patch({ memory: config.memory.filter((_, rowIndex) => rowIndex !== index) })}>✕</button>}
+              </div>
+            ))}
+            <div className="row"><span className="muted">합계 {memoryTotal}GB · DIMM {memoryCount}/{server.memory.dimm_slots}</span><button type="button" className="lnk" onClick={() => patch({ memory: [...config.memory, { size_gb: 64, qty: 0 }] })}>+ 다른 DIMM</button></div>
+          </div>
+        )}
         {selectedSlot && psuIndex(selectedSlot) >= 0 && (() => {
           const index = psuIndex(selectedSlot);
           const filled = index < config.psu_count;
@@ -474,6 +529,18 @@ export default function ConfigSection({
                 </select>
                 {slotResult?.status ? <StatusBadge status={slotResult.status} /> : <span className="muted">{slotResult && !slotResult.usable ? "사용 불가 (CPU 수 또는 Riser 미장착)" : "빈 슬롯"}</span>}
               </div>
+              {slot.riser && (() => {
+                const riser = server.risers.find((item) => item.id === slot.riser);
+                const on = config.risers.includes(slot.riser);
+                return (
+                  <div className="row" role="group" aria-label={`${riser?.name || slot.riser} 장착`}>
+                    {riser?.name || slot.riser}
+                    <button type="button" className="opt" aria-pressed={on} onClick={() => { if (!on) patch({ risers: [...config.risers, slot.riser as string] }); }}>장착</button>
+                    <button type="button" className="opt" aria-pressed={!on} onClick={() => { if (on) patch({ risers: config.risers.filter((id) => id !== slot.riser) }); }}>없음</button>
+                    {!on && <span className="muted small">Riser가 없으면 이 슬롯을 쓸 수 없습니다</span>}
+                  </div>
+                );
+              })()}
               {!!slotResult?.issues.length && <ul className="issues">{slotResult.issues.map((issue, index) => <li key={index}><StatusBadge status={issue.status} /> {issue.msg}</li>)}</ul>}
             </div>
           );
@@ -509,66 +576,6 @@ export default function ConfigSection({
           </div>
         </details>}
 
-        <details className="fold" id="s4" ref={specRef} open={specOpen} onToggle={(event) => setSpecOpen(event.currentTarget.open)}>
-          <summary><b>CPU · 메모리 · 디스크 RAID · PSU · Riser</b> <span className="muted">— {config.cpu_model} × {config.cpu_count} · {memoryTotal}GB · {config.psu_watt}W × {config.psu_count}</span></summary>
-        <div className="form">
-          <fieldset><legend>CPU</legend>
-            <select value={config.cpu_model} onChange={(event) => patch({ cpu_model: event.target.value })}>
-              {server.cpu_options.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            <label>수량{" "}
-              <select value={config.cpu_count} onChange={(event) => patch({ cpu_count: Number(event.target.value) })}>
-                {Array.from({ length: server.cpu_sockets }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
-              </select>
-            </label>
-          </fieldset>
-          <fieldset><legend>Memory</legend>
-            {config.memory.map((row, index) => (
-              <div className="line" key={index}>
-                <select value={row.size_gb} onChange={(event) => updateMemory(index, { size_gb: Number(event.target.value) })}>
-                  {server.memory.dimm_sizes_gb.map((size) => <option key={size} value={size}>{size}GB RDIMM</option>)}
-                </select>
-                × <input type="number" min="0" max={server.memory.dimm_slots} value={row.qty} style={{ width: 70 }} onChange={(event) => updateMemory(index, { qty: Number(event.target.value) })} />
-                <button className="ico" aria-label="DIMM 행 삭제" onClick={() => patch({ memory: config.memory.filter((_, rowIndex) => rowIndex !== index) })}>✕</button>
-              </div>
-            ))}
-            <button className="btn ghost small" onClick={() => patch({ memory: [...config.memory, { size_gb: 64, qty: 0 }] })}>+ DIMM 행</button>
-            <div className="muted">합계 {memoryTotal}GB · DIMM {memoryCount}/{server.memory.dimm_slots}</div>
-          </fieldset>
-          <fieldset><legend>Disk / RAID</legend>
-            <div className="line">Boot RAID{" "}
-              <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })}>
-                {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
-              </select>
-            </div>
-            <div className="line">Data RAID{" "}
-              <select value={config.raid.data} onChange={(event) => patch({ raid: { ...config.raid, data: event.target.value } })}>
-                {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
-              </select>
-            </div>
-            <label className="line"><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
-          </fieldset>
-          <fieldset><legend>PSU</legend>
-            <select value={config.psu_watt} onChange={(event) => patch({ psu_watt: Number(event.target.value) })}>
-              {server.psu_options.map((watt) => <option key={watt} value={watt}>{watt}W</option>)}
-            </select>
-            <label>수량{" "}
-              <select value={config.psu_count} onChange={(event) => patch({ psu_count: Number(event.target.value) })}>
-                {Array.from({ length: server.psu_bays }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
-              </select>
-            </label>
-          </fieldset>
-          <fieldset><legend>Riser</legend>
-            {server.risers.map((riser) => (
-              <label className="line" key={riser.id}>
-                <input type="checkbox" checked={config.risers.includes(riser.id)} onChange={(event) => patch({
-                  risers: event.target.checked ? [...config.risers, riser.id] : config.risers.filter((id) => id !== riser.id),
-                })} /> {riser.name}
-              </label>
-            ))}
-          </fieldset>
-        </div>
-        </details>
         {(() => {
           if (!result) return null;
           const problems = [

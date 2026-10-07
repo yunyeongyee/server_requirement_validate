@@ -432,3 +432,9 @@ details.fold .issues{margin:8px 0 0}
 .slotpanel .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
 .slotpanel .opt:hover{border-color:var(--accent)}
 .slotpanel .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
+.specline{all:unset;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;width:100%;font-size:13.5px;background:color-mix(in srgb,var(--accent) 4%,var(--panel));border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+.specline:hover,.specline.on{border-color:var(--accent)}
+.specline:focus-visible{outline:2px solid var(--accent)}
+.specline b{font-weight:600}
+.specline-act{margin-left:auto;font-size:12.5px}
+.slotpanel{border:2px solid var(--accent)}

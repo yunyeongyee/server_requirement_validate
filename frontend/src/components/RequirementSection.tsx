@@ -59,7 +59,8 @@ function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> 
   if (key.startsWith("nic_") || key === "ocp_required") return { label: "NIC 추가", request: { kind: "slot", part: "nic" } };
   if (key === "gpu_count") return { label: "GPU 추가", request: { kind: "slot", part: "gpu" } };
   if (key === "dual_psu" || key === "psu_watt") return { label: "PSU 변경", request: { kind: "slot", part: "psu" } };
-  if (["memory_gb", "cpu_sockets", "raid_level"].includes(key)) return { label: "사양 수정", request: { kind: "spec" } };
+  if (key === "raid_level") return { label: "RAID 변경", request: { kind: "bays" } };
+  if (["memory_gb", "cpu_sockets"].includes(key)) return { label: "사양 수정", request: { kind: "spec" } };
   return null;
 }
 
