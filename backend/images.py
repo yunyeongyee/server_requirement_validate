@@ -399,6 +399,28 @@ def _font(px):
         return ImageFont.load_default()
 
 
+def _unused_bay_groups(active: list[dict], candidates: list[dict]) -> list[dict]:
+    """이미지에 보이지만 구성에서 쓰지 않는 베이를 붙어 있는 묶음별 사각형으로."""
+    def covers(a, b):
+        cx, cy = b["x"] + b["w"] / 2, b["y"] + b["h"] / 2
+        return a["x"] < cx < a["x"] + a["w"] and a["y"] < cy < a["y"] + a["h"]
+    unused = sorted([c for c in candidates if not any(covers(a, c) or covers(c, a) for a in active)], key=lambda r: (r["y"], r["x"]))
+    groups: list[list[dict]] = []
+    for r in unused:
+        g = groups[-1] if groups else None
+        last = g[-1] if g else None
+        if last and abs(last["y"] - r["y"]) < r["h"] / 2 and r["x"] - (last["x"] + last["w"]) < r["w"] * 0.8:
+            g.append(r)
+        else:
+            groups.append([r])
+    out = []
+    for g in groups:
+        x0 = min(r["x"] for r in g); y0 = min(r["y"] for r in g)
+        x1 = max(r["x"] + r["w"] for r in g); y1 = max(r["y"] + r["h"] for r in g)
+        out.append({"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0})
+    return out
+
+
 def render(server, cfg, view, catalog: dict) -> dict:
     if view == "front":
         bp = next((b for b in server["backplanes"] if b["id"] == cfg.get("backplane")), server["backplanes"][0])
@@ -409,7 +431,7 @@ def render(server, cfg, view, catalog: dict) -> dict:
     if not base_it:
         return {"url": None, "reason": "이미지 미지정"}
     base_p = ROOT / "static" / base_it["file"]
-    layers, labels, missing, empties = [], [], [], []
+    layers, labels, missing, empties, stretch = [], [], [], [], []
     if view == "front":
         rects = bays(server, bp)["rects"]
         opts = {d["id"]: d for d in server.get("drive_options", [])}
@@ -425,6 +447,14 @@ def render(server, cfg, view, catalog: dict) -> dict:
                 layers.append((ROOT / "static" / it["file"], r))
             else:
                 missing.append(opts[b["drive"]]["name"])
+        # 백플레인이 쓰지 않는 칸(이미지는 16베이, 구성은 8베이 등) → 필러(막음판)로 덮는다
+        fillers = _unused_bay_groups(rects, bay_candidates(server, bp))
+        filler_it = by_name("2U 17G 2.5in Filler") if bp["ff"] == "2.5" else None
+        for box in fillers:
+            if filler_it:
+                stretch.append((ROOT / "static" / filler_it["file"], box))
+            else:
+                empties.append(box)
     else:
         for slot in server["slots"]:
             cid = (cfg.get("slots") or {}).get(slot["id"])
@@ -447,12 +477,17 @@ def render(server, cfg, view, catalog: dict) -> dict:
             if not it or not exact:
                 labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), psu["hotspot"]))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
-                      [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties], sort_keys=True, default=str)
+                      [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
+                      [(str(p), r) for p, r in stretch]], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
             base = b.convert("RGBA")
         W, H = base.size
+        for p, r in stretch:  # 필러: 영역에 꽉 차게 늘림
+            x, y, w, h = (round(W * r["x"] / 100), round(H * r["y"] / 100), round(W * r["w"] / 100), round(H * r["h"] / 100))
+            with Image.open(p) as im:
+                base.alpha_composite(im.convert("RGBA").resize((max(1, w), max(1, h)), Image.LANCZOS), (x, y))
         if empties:  # 빈 PSU 베이: 원본 그림의 PSU를 어둡게 가리고 표시
             shade = ImageDraw.Draw(base, "RGBA")
             for r in empties:

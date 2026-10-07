@@ -317,7 +317,7 @@ export default function ConfigSection({
                     key={view === "front" ? `bay-${index}` : slot?.id || index}
                     className={className}
                     type="button"
-                    title={view === "front" ? `Bay ${index}${bay ? ` · ${server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}` : ""}` : slot?.label}
+                    title={view === "front" ? `Bay ${index} · ${bay ? `${server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive} (${bay.role === "boot" ? "Boot" : "Data"})` : "비어 있음"}` : slot?.label}
                     aria-label={view === "front" ? `Bay ${index}${bay ? " 사용 중" : " 비어 있음"}` : slot?.label}
                     data-calib-key={view === "front" ? String(index) : slot?.id}
                     data-tip={view === "rear" && slot && getSlotResult(slot.id)?.usable === false
@@ -329,7 +329,7 @@ export default function ConfigSection({
                       else if (slot) { setPanel(null); setSelectedBays([]); setSelectedSlot((current) => current === slot.id ? null : slot.id); }
                     }}
                   >
-                    {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : slot?.type === "psu"
+                    {view === "front" ? <span className="bn">{index}</span> : slot?.type === "psu"
                       ? <><span className="tag">{slot.label}</span><span className="psu-w">{psuIndex(slot.id) < config.psu_count ? `${config.psu_watt}W` : "비어 있음"}</span></>
                       : <span className="tag">{slot?.label}</span>}
                     {mode === "calib" && <span className="grip" />}
