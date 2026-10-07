@@ -218,6 +218,8 @@ export interface ImageStatus {
   bays: { rects: Array<{ x: number; y: number; w: number; h: number }>; candidates?: Array<{ x: number; y: number; w: number; h: number }> };
   components: Record<string, { item: ImageRef | null; auto: boolean }>;
   drives: Record<string, { item: ImageRef | null; auto: boolean }>;
+  /** 용량(W)별 PSU 이미지. exact=false 면 다른 용량 이미지로 대체 중 */
+  psus?: Record<string, { item: ImageRef | null; auto: boolean; exact: boolean }>;
   library_count: number;
 }
 

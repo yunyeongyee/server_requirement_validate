@@ -101,7 +101,7 @@ export function getImageJob(id: string): Promise<{
 
 export function setImageMap(
   serverId: string,
-  kind: "front" | "rear" | "component" | "drive",
+  kind: "front" | "rear" | "component" | "drive" | "psu",
   key: string,
   itemId: string | null,
 ): Promise<{ ok: boolean }> {

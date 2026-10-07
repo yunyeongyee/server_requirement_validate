@@ -207,7 +207,7 @@ def image_status(sid: str, backplane: str):
 
 
 class MapIn(BaseModel):
-    kind: str            # front | rear | component | drive
+    kind: str            # front | rear | component | drive | psu
     key: str = ""        # front: backplane id, component: component id, drive: "<drive_id>:<V|H>"
     item_id: str | None = None
 

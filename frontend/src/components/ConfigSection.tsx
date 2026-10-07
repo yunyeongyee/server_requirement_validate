@@ -442,6 +442,9 @@ export default function ConfigSection({
                 ))}
                 {filled && <button type="button" className="opt" onClick={() => patch({ psu_count: index })}>빼기</button>}
               </div>
+              {filled && images?.psus?.[String(config.psu_watt)] && !images.psus[String(config.psu_watt)].exact && (
+                <p className="warn small">{config.psu_watt}W PSU 이미지가 라이브러리에 없어 {images.psus[String(config.psu_watt)].item?.name || "다른 PSU"} 그림에 용량을 표시했습니다. Dell 스텐실에서 해당 PSU 이미지를 올리면 자동으로 바뀝니다.</p>
+              )}
               <p className="muted small">한 서버의 PSU는 같은 용량으로 장착합니다. 용량을 바꾸면 장착된 PSU 모두 바뀝니다. 예상 최대 소비전력 {result ? `${Math.round(result.summary.power_est_w)}W` : "-"}.</p>
               {psuWarn && <ul className="issues">{result?.general.filter((item) => /PSU|전원|소비전력/.test(item.msg)).map((item, i) => <li key={i}><StatusBadge status={item.status} /> {item.msg}</li>)}</ul>}
             </div>

@@ -121,7 +121,7 @@ def start_ingest(files: list[tuple[str, bytes]]) -> str:
 def _map() -> dict:
     with _lock:
         m = json.loads(MAPFILE.read_text(encoding="utf-8")) if MAPFILE.exists() else {}
-    m.setdefault("servers", {}); m.setdefault("components", {}); m.setdefault("drives", {})
+    m.setdefault("servers", {}); m.setdefault("components", {}); m.setdefault("drives", {}); m.setdefault("psus", {})
     return m
 
 
@@ -140,6 +140,8 @@ def set_map(server_id: str, kind: str, key: str, item_id: str | None):
         tgt = m["components"]
     elif kind == "drive":
         tgt = m["drives"]
+    elif kind == "psu":  # key: 용량(W)
+        tgt = m["psus"]
     else:
         raise ValueError(kind)
     if item_id:
@@ -169,6 +171,26 @@ def comp_item(comp: dict) -> tuple[dict | None, bool]:
     if ov and item(ov):
         return item(ov), False
     return by_name(comp.get("stencil")), True
+
+
+def psu_item(watt) -> tuple[dict | None, bool, bool]:
+    """PSU 용량 → (이미지, 자동 여부, 같은 용량 이미지인지).
+    직접 연결 > 이름에 같은 W가 있는 PSU 이미지 > 가장 가까운 W의 PSU 이미지(대체)."""
+    ov = _map()["psus"].get(str(int(watt))) if watt else None
+    if ov and item(ov):
+        return item(ov), False, True
+    cands = []
+    for it in library():
+        if it.get("file") and it.get("category") == "psu":
+            m = re.search(r"(\d{3,4})\s*w\b", it["name"], re.I)
+            if m:
+                cands.append((int(m.group(1)), it))
+    if not cands or not watt:
+        return None, True, False
+    exact = [it for w, it in cands if w == int(watt)]
+    if exact:
+        return exact[-1], True, True
+    return min(cands, key=lambda c: abs(c[0] - watt))[1], True, False
 
 
 def drive_item(drive: dict, orient: str) -> tuple[dict | None, bool]:
@@ -352,7 +374,11 @@ def status(server, comps: list[dict], bp_id: str) -> dict:
         for o in (("V", "H") if d["ff"] == "2.5" else ("V",)):
             it, auto = drive_item(d, o)
             drv[f"{d['id']}:{o}"] = {"item": _brief(it), "auto": auto}
-    return {"front": {"item": _brief(fi), "auto": fa, "stencil": bp.get("stencil")},
+    psus = {}
+    for w in server.get("psu_options", []):
+        it, auto, exact = psu_item(w)
+        psus[str(w)] = {"item": _brief(it), "auto": auto, "exact": exact}
+    return {"front": {"item": _brief(fi), "auto": fa, "stencil": bp.get("stencil")}, "psus": psus,
             "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil")},
             "bays": {**by, "candidates": bay_candidates(server, bp)}, "components": comp_imgs, "drives": drv, "library_count": len(library())}
 
@@ -383,7 +409,7 @@ def render(server, cfg, view, catalog: dict) -> dict:
     if not base_it:
         return {"url": None, "reason": "이미지 미지정"}
     base_p = ROOT / "static" / base_it["file"]
-    layers, labels, missing = [], [], []
+    layers, labels, missing, empties = [], [], [], []
     if view == "front":
         rects = bays(server, bp)["rects"]
         opts = {d["id"]: d for d in server.get("drive_options", [])}
@@ -409,13 +435,31 @@ def render(server, cfg, view, catalog: dict) -> dict:
                 layers.append((ROOT / "static" / it["file"], slot["hotspot"]))
             else:
                 labels.append((catalog[cid].get("short") or catalog[cid]["name"], slot["hotspot"]))
+        # 장착된 PSU: PSU1부터 psu_count 개. 같은 용량 이미지가 없으면 대체 이미지 + 용량 라벨
+        watt = cfg.get("psu_watt")
+        it, _, exact = psu_item(watt)
+        empties = [p["hotspot"] for p in server.get("psu_slots", [])[int(cfg.get("psu_count") or 0):] if p.get("hotspot")]
+        for psu in server.get("psu_slots", [])[:int(cfg.get("psu_count") or 0)]:
+            if not psu.get("hotspot"):
+                continue
+            if it:
+                layers.append((ROOT / "static" / it["file"], psu["hotspot"]))
+            if not it or not exact:
+                labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), psu["hotspot"]))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
-                      [(str(p), p.stat().st_mtime, r) for p, r in layers], labels], sort_keys=True, default=str)
+                      [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
             base = b.convert("RGBA")
         W, H = base.size
+        if empties:  # 빈 PSU 베이: 원본 그림의 PSU를 어둡게 가리고 표시
+            shade = ImageDraw.Draw(base, "RGBA")
+            for r in empties:
+                x, y, w, h = (W * r["x"] / 100, H * r["y"] / 100, W * r["w"] / 100, H * r["h"] / 100)
+                shade.rounded_rectangle((x, y, x + w, y + h), radius=4, fill=(20, 24, 30, 215))
+                f = _font(max(11, int(min(h * 0.2, 24))))
+                shade.text((x + w / 2, y + h / 2), "EMPTY", fill=(220, 226, 232, 255), font=f, anchor="mm")
         for p, r in layers:
             x, y, w, h = (round(W * r["x"] / 100), round(H * r["y"] / 100), round(W * r["w"] / 100), round(H * r["h"] / 100))
             with Image.open(p) as im:
