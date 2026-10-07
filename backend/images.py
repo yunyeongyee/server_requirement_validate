@@ -431,7 +431,7 @@ def render(server, cfg, view, catalog: dict) -> dict:
     if not base_it:
         return {"url": None, "reason": "이미지 미지정"}
     base_p = ROOT / "static" / base_it["file"]
-    layers, labels, missing, empties, stretch = [], [], [], [], []
+    layers, labels, missing, empties, stretch, blanks = [], [], [], [], [], []
     if view == "front":
         rects = bays(server, bp)["rects"]
         opts = {d["id"]: d for d in server.get("drive_options", [])}
@@ -448,8 +448,13 @@ def render(server, cfg, view, catalog: dict) -> dict:
             else:
                 missing.append(opts[b["drive"]]["name"])
         # 백플레인이 쓰지 않는 칸(이미지는 16베이, 구성은 8베이 등) → 필러(막음판)로 덮는다
+        # 빈 베이: 원본 그림에 디스크가 그려진 스텐실도 있어 어두운 빈 칸으로 덮어 장착 여부가 보이게
+        used = {int(k) for k in (cfg.get("bays") or {}) if (cfg["bays"][k] or {}).get("drive") in opts}
+        blanks.extend(r for i, r in enumerate(rects) if i not in used)
         fillers = _unused_bay_groups(rects, bay_candidates(server, bp))
-        filler_it = by_name("2U 17G 2.5in Filler") if bp["ff"] == "2.5" else None
+        # 필러는 그림의 베이 규격을 따른다 (E3.S 그림이면 E3.S 필러)
+        img_ff = "E3.S" if re.search(r"e3\.s", base_it["name"], re.I) else bp["ff"]
+        filler_it = by_name("2U 17G E3.S Filler") if img_ff == "E3.S" else by_name("2U 17G 2.5in Filler") if img_ff == "2.5" else None
         for box in fillers:
             if filler_it:
                 stretch.append((ROOT / "static" / filler_it["file"], box))
@@ -478,12 +483,17 @@ def render(server, cfg, view, catalog: dict) -> dict:
                 labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), psu["hotspot"]))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
                       [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
-                      [(str(p), r) for p, r in stretch]], sort_keys=True, default=str)
+                      [(str(p), r) for p, r in stretch], blanks], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
             base = b.convert("RGBA")
         W, H = base.size
+        if blanks:
+            pen = ImageDraw.Draw(base, "RGBA")
+            for r in blanks:
+                x, y, w, h = (W * r["x"] / 100, H * r["y"] / 100, W * r["w"] / 100, H * r["h"] / 100)
+                pen.rectangle((x, y, x + w, y + h), fill=(24, 27, 32, 255), outline=(92, 100, 110, 255), width=max(1, round(min(w, h) * 0.03)))
         for p, r in stretch:  # 필러: 영역에 꽉 차게 늘림
             x, y, w, h = (round(W * r["x"] / 100), round(H * r["y"] / 100), round(W * r["w"] / 100), round(H * r["h"] / 100))
             with Image.open(p) as im:

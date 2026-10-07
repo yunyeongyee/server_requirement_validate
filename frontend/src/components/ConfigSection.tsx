@@ -306,7 +306,7 @@ export default function ConfigSection({
                 const bay = config.bays[String(bayIndex)];
                 const status = view === "front" ? getBayResult(bayIndex)?.status : slot ? getSlotResult(slot.id)?.status : null;
                 const className = view === "front"
-                  ? `bay ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
+                  ? `bay ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
                   : slot?.type === "psu"
                   ? `hs psu ${selectedSlot === slot.id ? "sel" : ""} ${psuIndex(slot.id) < config.psu_count ? (psuWarn ? "s-review" : "s-ok") : "empty"}`
                   : slot && getSlotResult(slot.id)?.usable === false
