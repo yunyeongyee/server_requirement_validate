@@ -19,6 +19,8 @@ from . import visio
 ROOT = Path(__file__).resolve().parent.parent
 LIB = ROOT / "static" / "images" / "library"
 RENDERS = ROOT / "static" / "renders"
+import logging
+log = logging.getLogger(__name__)
 MANIFEST = LIB / "manifest.json"
 MAPFILE = ROOT / "data" / "image_map.json"
 for d in (LIB, RENDERS):
@@ -27,9 +29,36 @@ _lock = threading.RLock()
 
 
 # =============================================================== 라이브러리
+_CONFLICT = re.compile(r"^<<<<<<< [^\n]*\n(.*?)^=======\n(.*?)^>>>>>>> [^\n]*\n?", re.S | re.M)
+
+
+def _read_json(path: Path, default):
+    """JSON 파일 읽기. 'git pull --autostash' 충돌로 <<<<<<< 표시가 남아 깨졌으면
+    받은 쪽(새 코드) → 내 쪽 순으로 복구해 다시 저장하고, 깨진 원본은 .broken 으로 남긴다. 둘 다 안 되면 기본값."""
+    if not path.exists():
+        return default
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    backup = path.with_name(path.name + f".broken-{time.strftime('%Y%m%d-%H%M%S')}")
+    backup.write_text(text, encoding="utf-8")
+    for side in (1, 2):
+        try:
+            data = json.loads(_CONFLICT.sub(lambda m: m.group(side), text))
+        except ValueError:
+            continue
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        log.warning("%s 가 깨져 있어 복구했습니다 (원본: %s)", path.name, backup.name)
+        return data
+    log.error("%s 를 읽을 수 없어 비워서 시작합니다 (원본: %s)", path.name, backup.name)
+    return default
+
+
 def library() -> list[dict]:
     with _lock:
-        return json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else []
+        return _read_json(MANIFEST, [])
 
 
 def _save_library(items):
@@ -120,7 +149,7 @@ def start_ingest(files: list[tuple[str, bytes]]) -> str:
 # =============================================================== 매핑
 def _map() -> dict:
     with _lock:
-        m = json.loads(MAPFILE.read_text(encoding="utf-8")) if MAPFILE.exists() else {}
+        m = _read_json(MAPFILE, {})
     m.setdefault("servers", {}); m.setdefault("components", {}); m.setdefault("drives", {}); m.setdefault("psus", {})
     return m
 

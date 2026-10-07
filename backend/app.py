@@ -205,7 +205,12 @@ def delete_library(item_id: str):
 # ------------------------------------------------ 이미지 매핑 / 베이 / 합성
 @app.get("/api/images/{sid}")
 def image_status(sid: str, backplane: str):
-    return images.status(server_by_id(sid), list(catalog().values()), backplane)
+    server = server_by_id(sid)
+    try:
+        return images.status(server, list(catalog().values()), backplane)
+    except Exception as error:  # 원인을 화면에 보여준다 (그냥 HTTP 500 이 아니라)
+        logger.exception("image status failed")
+        raise HTTPException(500, f"서버 그림을 불러오지 못했습니다: {type(error).__name__}: {error}") from error
 
 
 class MapIn(BaseModel):

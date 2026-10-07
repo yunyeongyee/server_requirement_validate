@@ -15,3 +15,15 @@ class RealImageOnlyTests(unittest.TestCase):
                     self.assertEqual(I.rear_item(s)[0], None)
                     for bp in s["backplanes"]:
                         self.assertEqual(I.front_item(s, bp["id"])[0], None)
+
+
+class BrokenMapTests(unittest.TestCase):
+    """git pull --autostash 충돌로 설정 파일에 <<<<<<< 가 남아도 500 대신 복구해서 동작."""
+    def test_conflicted_json_is_recovered(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "image_map.json"
+            path.write_text('<<<<<<< Updated upstream\n{"servers": {"a": 1}}\n=======\n{"servers": {"b": 2}}\n>>>>>>> Stashed changes\n', encoding="utf-8")
+            self.assertEqual(I._read_json(path, {}), {"servers": {"a": 1}})
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"servers": {"a": 1}})
+            self.assertTrue(list(Path(d).glob("image_map.json.broken-*")))

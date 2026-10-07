@@ -16,6 +16,8 @@ title Server Requirement Validator
 
 echo [1/4] 최신 코드 받는 중...
 rem 좌표 보정·이미지 선택으로 바뀐 data 파일이 있어도 받도록 --autostash 사용
+rem 이전 받기에서 충돌이 남아 있으면 다음 받기가 막히므로 충돌 상태만 푼다 (파일 내용은 앱이 읽을 때 복구)
+git reset -q >nul 2>&1
 git pull --autostash
 if errorlevel 1 (
   echo.

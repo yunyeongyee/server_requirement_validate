@@ -30,7 +30,7 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
     <div className="quotebox">
       <b>견적 붙여넣기</b> <span className="muted small">견적 표를 엑셀에서 그대로 긁어 붙여넣으면 아래 서버 그림에 장착됩니다</span>
       <textarea aria-label="견적 붙여넣기" rows={editing ? 8 : 4} value={text} onChange={(event) => setText(event.target.value)} autoFocus={editing}
-        placeholder={"HW 서버\tRX2540M8\tPY RX2540 M8 16x 2.5'\t1\nIntel Xeon 6520P 24C 2.4 GHz\t2\n64GB (1x64GB) 2Rx4 DDR5-6400 R ECC\t8"} />
+        placeholder="견적사항을 붙여넣으세요 — 엑셀 견적 표를 그대로 복사해서 Ctrl+V" />
       <div className="row">
         <button type="button" className="btn small" disabled={busy || !text.trim()} onClick={() => { onPaste(text); setText(""); setEditing(false); }}>{busy ? "읽는 중…" : "견적 적용"}</button>
         {editing && <button type="button" className="btn ghost small" onClick={() => setEditing(false)}>취소</button>}
