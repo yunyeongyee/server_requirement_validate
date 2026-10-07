@@ -24,10 +24,6 @@ if errorlevel 1 (
 )
 for /f "delims=" %%c in ('git log -1 --format^="%%h %%s"') do echo    현재 코드: %%c
 
-if not exist ".env" (
-  copy ".env.example" ".env" >nul
-  echo    설정 파일 .env 를 만들었습니다. AI 분석을 쓰려면 .env 를 메모장으로 열어 OPENAI_API_KEY= 뒤에 키를 넣으세요.
-)
 echo [2/4] 파이썬 패키지 확인 중...
 python -m pip install -q -r requirements.txt
 if errorlevel 1 goto :fail

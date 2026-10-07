@@ -4,10 +4,9 @@ import type {
   ImageStatus,
   LibraryImage,
   Requirement,
-  RequirementGroup,
   Server,
   ServerConfig,
-  UploadResponse,
+  PasteResponse,
   ValidationResult,
 } from "./types";
 
@@ -52,20 +51,12 @@ export function getComponents(): Promise<Component[]> {
   return request<Component[]>("/api/components");
 }
 
-export function uploadRequirement(file: File, useAi = false): Promise<UploadResponse> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("ai", useAi ? "true" : "false");
-  return request<UploadResponse & { groups?: RequirementGroup[] }>("/api/upload", { method: "POST", body: form });
-}
 
 /** 견적·사양 표를 복사해 붙여넣은 글 → 업로드와 같은 형태의 결과 */
-export function pasteText(text: string, useAi = false): Promise<UploadResponse> {
-  return sendJson<UploadResponse>("/api/paste", { text, ai: useAi });
-}
 
-export function extractRequirements(text: string, useAi = false): Promise<Pick<UploadResponse, "requirements" | "spec" | "extraction"> & { groups?: RequirementGroup[] }> {
-  return sendJson("/api/extract", { text, ai: useAi });
+
+export function pasteText(text: string): Promise<PasteResponse> {
+  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
 }
 
 export function validateServer(
@@ -145,24 +136,8 @@ export function applyProposal(
   });
 }
 
-export interface AiStatus {
-  enabled: boolean;
-  key_set: boolean;
-  key_hint: string;
-  model: string;
-  mode: string;
-  custom_base_url: boolean;
-  ok?: boolean;
-  message?: string;
-}
 
-export function getAiStatus(): Promise<AiStatus> {
-  return request<AiStatus>("/api/ai/status");
-}
 
-export function checkAi(): Promise<AiStatus> {
-  return sendJson<AiStatus>("/api/ai/check", {});
-}
 
 export interface SavedProject {
   id: string;

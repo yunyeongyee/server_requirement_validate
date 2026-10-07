@@ -4,6 +4,7 @@
 결과 상태: PASS(충족) / FAIL(미충족) / INCOMPATIBLE(호환 불가) / REVIEW(확인 필요)
 """
 from __future__ import annotations
+import re
 
 PASS, FAIL, INCOMP, REVIEW = "충족", "미충족", "호환 불가", "확인 필요"
 SEVERITY = {INCOMP: 3, FAIL: 2, REVIEW: 1, PASS: 0}
@@ -181,8 +182,31 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
         "psu_count": psu_cnt, "psu_watt": psu_w,
         "free_pcie": free,
         "gpu_count": sum(1 for c in eff if c["category"] == "GPU"),
+        "cpu_model": cfg.get("cpu_model", ""), "cpu_cores": cpu_cores(cfg.get("cpu_model", "")),
+        "disks": {role: [_drive_gb(d.get("model", "")) for d in cfg.get("drives", []) if d.get("role", "data") == role
+                         for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
         "power_est_w": estimate_power(cfg, eff),
     }
+
+
+# CPU 모델별 코어 수 (카탈로그 CPU). 모르는 모델은 이름의 '32C' 표기로, 그것도 없으면 None → 확인 필요
+CPU_CORES = {"xeon silver 4410y": 12, "xeon gold 5418y": 24, "xeon gold 6430": 32, "xeon gold 6442y": 24,
+             "xeon platinum 8462y+": 32, "xeon 6515p": 16}
+
+
+def cpu_cores(model: str) -> int | None:
+    key = re.sub(r"\s+", " ", model or "").strip().lower()
+    if key in CPU_CORES:
+        return CPU_CORES[key]
+    m = re.search(r"(\d{1,3})\s*c\b", key)
+    return int(m.group(1)) if m else None
+
+
+def _drive_gb(name: str) -> float:
+    if "BOSS" in (name or ""):
+        return 480.0  # BOSS-N1 M.2 기본 구성 480GB × 2
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(TB|GB)", name or "", re.I)
+    return float(m.group(1)) * (1000 if m.group(2).upper() == "TB" else 1) if m else 0
 
 
 def _ports_at(cards, speed):
@@ -210,8 +234,9 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             best = max((c["speed_gb"] for c in s["nics"]), default=0)
             actual = f"최고 {best:g}GbE" if best else "NIC 없음"; status = PASS if best >= float(v) else FAIL
         elif k == "nic_ports":
-            n = _ports_at(s["nics"], nic_speed)
-            actual = f"{n}Port" + (f" (≥{nic_speed:g}GbE)" if nic_speed else ""); status = PASS if _cmp(n, op, v) else FAIL
+            at = float(r.get("at_speed") or nic_speed or 0)
+            n = _ports_at(s["nics"], at)
+            actual = f"{n}Port" + (f" (≥{at:g}GbE)" if at else ""); status = PASS if _cmp(n, op, v) else FAIL
         elif k == "fc_speed_gb":
             best = max((c["speed_gb"] for c in s["fcs"]), default=0)
             actual = f"최고 {best:g}Gb FC" if best else "FC HBA 없음"; status = PASS if best >= float(v) else FAIL
@@ -238,6 +263,28 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
         elif k == "free_pcie":
             actual = f"{s['free_pcie']}개"; status = PASS if _cmp(s["free_pcie"], op, v) else FAIL
             note = "CPU/Riser 조건상 사용 가능한 빈 슬롯 기준 (OCP 제외, DW GPU 인접 슬롯 차감)"
+        elif k == "cpu_cores":
+            per_cpu = "CPU당" in str(r.get("note", ""))
+            cores = s["cpu_cores"]
+            if cores is None:
+                actual = s["cpu_model"]; status = REVIEW; note = "이 CPU의 코어 수를 모릅니다 — 직접 확인"
+            else:
+                have = cores if per_cpu else cores * s["cpu_sockets"]
+                actual = f"{have} Core" + (" (CPU당)" if per_cpu else f" ({cores}C × {s['cpu_sockets']})")
+                status = PASS if _cmp(have, op, v) else FAIL
+        elif k in ("disk_count", "disk_size_gb", "disk_total_gb"):
+            role = "boot" if "boot" in str(r.get("note", "")).lower() else "data"
+            disks = s["disks"][role] or (s["disks"]["boot"] if role == "data" else [])
+            name = "Boot" if role == "boot" else "Data"
+            if k == "disk_count":
+                actual = f"{name} {len(disks)}개"; status = PASS if _cmp(len(disks), op, v) else FAIL
+            elif k == "disk_size_gb":
+                smallest = min(disks, default=0)
+                actual = f"{name} {_gb_text(smallest)}" if disks else "디스크 없음"
+                status = PASS if disks and smallest >= float(v) else FAIL
+            else:
+                total = sum(disks)
+                actual = f"{name} 원시 {_gb_text(total)}"; status = PASS if total >= float(v) else FAIL
         elif k == "gpu_count":
             actual = f"{s['gpu_count']}EA"
             status = REVIEW if _cmp(s["gpu_count"], op, v) else FAIL
@@ -246,6 +293,10 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             note = "검증 규칙 없음"
         out.append(_row(r, actual, status, note))
     return out
+
+
+def _gb_text(gb: float) -> str:
+    return f"{gb / 1000:g}TB" if gb >= 1000 else f"{gb:g}GB"
 
 
 def _actual_text(k, s, ns, fs):

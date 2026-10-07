@@ -2,19 +2,16 @@
 # API Endpoint / 서버 실행
 import asyncio, json, logging
 from pathlib import Path
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config
-config.load_env()  # .env 의 API 키·설정을 환경변수로 (다른 모듈보다 먼저)
-from . import ai_extract, doc_tables, extract, images, parts, proposal, validate as V
+from . import doc_tables, extract, images, parts, paste as P, proposal, validate as V
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 STATIC = ROOT / "static"
-DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".csv", ".json"}
 
 app = FastAPI(title="Server Requirement Validator")
 logger = logging.getLogger(__name__)
@@ -51,16 +48,6 @@ def index():
 @app.get("/api/version")
 def version():
     return {"version": "v4"}
-
-
-@app.get("/api/ai/status")
-def ai_status():
-    return ai_extract.status()
-
-
-@app.post("/api/ai/check")
-async def ai_check():
-    return {**ai_extract.status(), **(await asyncio.to_thread(ai_extract.check_connection))}
 
 
 PROJECTS = DATA / "projects"
@@ -131,109 +118,31 @@ def components():
     return list(catalog().values())
 
 
-# ------------------------------------------------ 요구사항 문서
-def _analyze_requirements(text: str, context: dict | None = None, ai_allowed: bool = True,
-                          rule_groups: list[dict] | None = None) -> dict:
-    # 표 구조로 먼저 찾은 서버 그룹이 있으면 그것을 AI에 기준으로 준다
-    rule_groups = rule_groups or extract.extract_server_groups(text)
-    if ai_allowed:
-        groups, extraction_info = ai_extract.extract_groups(text, context, rule_groups)
-    else:
-        groups = rule_groups
-        extraction_info = {"mode": "rules_fallback", "effort": None}
-    _suggest_models(groups, text)
-    return {
-        "requirements": extract.extract_requirements(text),
-        "spec": extract.spec_summary(text),
-        "groups": groups,
-        "extraction": extraction_info,
-    }
-
-
-def _suggest_models(groups: list[dict], text: str):
-    """요구사항 문서에서도 모델명(R760 등)을 찾아 그룹별 추천 모델로 붙인다. 그룹 안 → 문서 전체 순."""
-    servers_list = load_servers()["servers"]
-    doc_hint = parts.model_of(text)
-    for g in groups:
-        if g.get("suggested_server"):
-            continue
-        own = " ".join([g.get("name", "")] + [r.get("source", "") for r in g.get("requirements", [])])
-        hint = g.get("model_hint") or parts.model_of(own) or doc_hint
-        if hint:
-            g["model_hint"] = hint
-            g["suggested_server"] = proposal.suggest_server(hint, servers_list)
-
-
-@app.post("/api/upload")
-async def upload(file: UploadFile = File(...), ai: bool = Form(False)):
-    """ai: 화면의 'AI 분석' 토글. 켜고 올린 문서만, 그리고 키가 설정돼 있을 때만 외부 AI로 보낸다."""
-    use_ai = ai and ai_extract.enabled()
-    ext = Path(file.filename).suffix.lower()
-    if ext not in DOC_TYPES:
-        raise HTTPException(400, f"지원 형식: {', '.join(sorted(DOC_TYPES))}")
-    data = await file.read()
-    try:
-        text = extract.extract_text(file.filename, data)
-    except Exception as e:
-        raise HTTPException(422, f"본문 추출 실패: {e}")
-    if not text.strip():
-        raise HTTPException(422, "본문 텍스트가 없습니다 (스캔 PDF라면 OCR 필요)")
-    return await _analyze_document(file.filename, data, text, use_ai)
+# ------------------------------------------------ 요구사항 붙여넣기
+def _suggest(group: dict, text: str):
+    """그룹(또는 붙여넣은 글 전체)에서 모델명(R760 등)을 찾아 추천 모델로 붙인다."""
+    if group.get("suggested_server"):
+        return
+    own = " ".join([group.get("name", ""), group.get("model_hint") or "", group.get("base_desc") or ""]
+                   + [r.get("source", "") for r in group.get("requirements", [])])
+    hint = group.get("model_hint") or parts.model_of(own) or parts.model_of(text)
+    if hint:
+        group["model_hint"] = hint
+        group["suggested_server"] = proposal.suggest_server(hint, load_servers()["servers"])
 
 
 class PasteIn(BaseModel):
     text: str
-    ai: bool = False
 
 
 @app.post("/api/paste")
-async def paste(body: PasteIn):
-    """견적·사양 표를 복사해 붙여넣은 글. 탭(또는 2칸 이상 공백)으로 칸을 나눠 표로 읽는다."""
-    text = body.text.strip("\n")
+def paste(body: PasteIn):
+    """긁어 붙인 요구사항 문장·견적 표 → 서버 1대 분석 + 줄마다 결과 + (여러 서버가 보이면) 나누기 제안.
+    탭(또는 2칸 이상 공백)은 표의 칸으로 읽는다. 외부 전송 없음."""
+    text = body.text.replace("\r\n", "\n").strip("\n")
     if not text.strip():
         raise HTTPException(422, "붙여넣은 내용이 없습니다")
-    return await _analyze_document("붙여넣기.tsv", text.encode("utf-8"), text, body.ai and ai_extract.enabled())
-
-
-async def _analyze_document(filename: str, data: bytes, text: str, use_ai: bool) -> dict:
-    file = type("Doc", (), {"filename": filename})
-    # 1) 양식 무관 구조 해석(표·시트·서버 그룹·견적 여부) — 규칙만 사용, 외부 전송 없음
-    try:
-        doc = await asyncio.to_thread(doc_tables.analyze_document, file.filename, data, text)
-    except Exception:
-        logger.exception("document structure analysis failed")
-        doc = None
-    # 견적서·구성도는 표를 규칙으로 정확히 읽으므로 그대로. 요구사항 문서는 AI가 켜져 있으면 AI로 확인한다.
-    structured = doc and doc["groups"] and (doc["doc_role"] == "quote" or any(g.get("doc_role") == "config" for g in doc["groups"]))
-    if doc and doc["groups"] and (structured or not use_ai):
-        servers_list = load_servers()["servers"]
-        for g in doc["groups"]:
-            g["suggested_server"] = proposal.suggest_server(g.get("model_hint"), servers_list)
-        _suggest_models(doc["groups"], text)
-        return {"filename": file.filename, "chars": len(text), "text": text,
-                "requirements": [], "spec": [], "groups": doc["groups"], "doc_role": doc["doc_role"],
-                "common_items": doc["common_items"], "inventory": doc.get("inventory", []),
-                "extraction": {"mode": "rules", "effort": None}}
-    context = None
-    context_error = None
-    if use_ai:
-        try:
-            context = await asyncio.to_thread(extract.extract_document_context, file.filename, data)
-        except Exception:
-            logger.exception("Could not preserve document structure for AI extraction")
-            context_error = "문서 표/시트 맥락 추출에 실패해 평문 규칙 결과를 사용했습니다."
-    hint = doc["groups"] if doc and doc["groups"] and len(doc["groups"]) > 1 else None
-    result = await asyncio.to_thread(_analyze_requirements, text, context, use_ai and not bool(context_error), hint)
-    if hint and doc.get("inventory"):
-        result["inventory"] = doc["inventory"]
-    if context_error:
-        context_error = f"{context_error} 원문을 확인하세요."
-        result["extraction"] = {
-            "mode": "rules_fallback",
-            "effort": None,
-            "notice": context_error,
-        }
-    return {"filename": file.filename, "chars": len(text), "text": text, **result}
+    return P.analyze(text, _suggest)
 
 
 class ProposalIn(BaseModel):
@@ -247,16 +156,6 @@ class ProposalIn(BaseModel):
 def apply_proposal(body: ProposalIn):
     """견적서 제안 구성 → 선택한 모델의 서버 구성(배치 제안 + 옮기지 못한 항목 안내)."""
     return proposal.to_config(server_by_id(body.server_id), body.proposed, catalog(), body.base_config, body.backplane_hint)
-
-
-class TextIn(BaseModel):
-    text: str
-    ai: bool = False  # 화면의 'AI 분석' 토글
-
-
-@app.post("/api/extract")
-def extract_from_text(body: TextIn):
-    return _analyze_requirements(body.text, None, body.ai and ai_extract.enabled())
 
 
 # ------------------------------------------------ 검증

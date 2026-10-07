@@ -11,6 +11,23 @@ export interface Requirement {
   note?: string;
   confidence?: number;
   _new?: boolean;
+  /** 근거가 된 붙여넣은 줄 번호 (대표 줄 / 함께 읽은 줄들) */
+  line?: number;
+  lines?: number[];
+  /** 'NIC 4포트'가 몇 GbE 이상 포트인지 (속도별 포트 요구) */
+  at_speed?: number;
+  /** 사용자가 직접 고치거나 추가한 항목 — 다시 분석해도 남긴다 */
+  _user?: boolean;
+}
+
+/** 붙여넣은 한 줄을 무엇으로 읽었는지 */
+export interface PasteLine {
+  n: number;
+  text: string;
+  /** req 요구사항 / part 견적 품목 / skip 검증 대상 아님 / head 제목 / warn 읽지 못함 */
+  status: "req" | "part" | "skip" | "head" | "warn";
+  label?: string;
+  hint?: string;
 }
 
 export interface SpecItem {
@@ -70,13 +87,23 @@ export interface RequirementGroup {
   inventory_link?: string | null;
   items?: QuoteItem[];
   proposed?: ProposedConfig;
+  /** 이 서버에 붙여넣은 원문과 줄마다 결과 */
+  text?: string;
+  lines?: PasteLine[];
+  /** 사용자가 '검증 대상 아님'으로 정한 줄 */
+  line_marks?: Record<number, "skip">;
+  /** 붙여넣은 내용에 서버가 여럿 보일 때 나누기 제안 */
+  split?: RequirementGroup[];
+  common_lines?: number;
 }
 
-export interface ExtractionInfo {
-  mode: "rules" | "rules_fallback" | "ai";
-  effort?: "low" | "medium" | null;
-  notice?: string;
+export interface PasteResponse {
+  server: RequirementGroup;
+  split: RequirementGroup[];
+  common_lines: number;
+  inventory?: InventoryRow[];
 }
+
 
 export interface ProjectSummary {
   id: string;
@@ -193,6 +220,7 @@ export interface ValidationResult {
     issues: ValidationIssue[];
   }>;
   requirements: Array<{
+    id: string;
     requirement: string;
     actual: string;
     status: string;
@@ -226,18 +254,6 @@ export interface ImageStatus {
   library_count: number;
 }
 
-export interface UploadResponse {
-  filename: string;
-  chars: number;
-  text: string;
-  requirements: Requirement[];
-  spec: SpecGroup[];
-  groups?: RequirementGroup[];
-  extraction?: ExtractionInfo;
-  doc_role?: "quote" | "config" | "requirement" | "spec_table";
-  common_items?: QuoteItem[];
-  inventory?: InventoryRow[];
-}
 
 export interface InventoryRow {
   name: string;

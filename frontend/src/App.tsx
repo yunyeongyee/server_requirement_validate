@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   applyProposal,
-  extractRequirements,
   pasteText,
   getComponents,
   getImageStatus,
@@ -14,10 +13,9 @@ import {
   saveBays,
   saveHotspots,
   setImageMap,
-  uploadRequirement,
   validateServer,
 } from "./api";
-import type { Component, ExtractionInfo, InventoryRow, UploadResponse, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
+import type { Component, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import type { SavedProject } from "./api";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest, RenderedImages } from "./components/ConfigSection";
@@ -25,7 +23,6 @@ import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
-import AiToggle from "./components/AiBadge";
 
 export type ModelSource = "document" | "manual" | "default";
 
@@ -37,6 +34,19 @@ interface ServerProfile {
 }
 
 const DEFAULT_GROUP_ID = "server-1";
+const emptyGroup = (id: string, name: string): RequirementGroup => ({ id, name, requirements: [], spec: [] });
+const stamp = () => formatSavedAt(new Date().toISOString());
+const newGroupId = () => `server-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+/** 아직 아무것도 넣지 않은 탭 */
+const isBlank = (group: RequirementGroup) => !group.text && !group.requirements.length && !group.proposed;
+
+interface SavedState {
+  workName?: string;
+  groups: RequirementGroup[];
+  profiles: Record<string, ServerProfile>;
+  activeGroupId: string;
+  proposalNotes?: Record<string, string[]>;
+}
 
 
 function defaultConfig(server: Server): ServerConfig {
@@ -97,24 +107,20 @@ function makeSummaries(
 export default function App() {
   const [servers, setServers] = useState<Server[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
-  const [groups, setGroups] = useState<RequirementGroup[]>([
-    { id: DEFAULT_GROUP_ID, name: "서버 1", requirements: [], spec: [] },
-  ]);
+  const [groups, setGroups] = useState<RequirementGroup[]>([emptyGroup(DEFAULT_GROUP_ID, "서버 1")]);
   const [activeGroupId, setActiveGroupId] = useState(DEFAULT_GROUP_ID);
   const [profiles, setProfiles] = useState<Record<string, ServerProfile>>({});
   const [results, setResults] = useState<Record<string, ValidationResult>>({});
-  const [documentName, setDocumentName] = useState("");
-  const [documentText, setDocumentText] = useState("");
-  /** 저장 이름 (문서 이름, 붙여넣기는 시각을 붙임) · 마지막으로 저장한 내용과 시각 */
-  const [projectName, setProjectName] = useState("");
+  /** 작업 이름(저장 이름) · 마지막으로 저장한 내용과 시각 */
+  const [workName, setWorkName] = useState(() => `새 작업 ${stamp()}`);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [savedAt, setSavedAt] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
-  const [extractionInfo, setExtractionInfo] = useState<ExtractionInfo | null>(null);
-  const [uploadBusy, setUploadBusy] = useState(false);
-  const [uploadError, setUploadError] = useState("");
+  const [openMenu, setOpenMenu] = useState(false);
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState("");
   const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null);
   const [imageError, setImageError] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -127,22 +133,19 @@ export default function App() {
   const [proposalNotes, setProposalNotes] = useState<Record<string, string[]>>({});
   const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
   const [view, setView] = useState<"server" | "all">("server");
-  const [inventory, setInventory] = useState<InventoryRow[]>([]);
-  const [aiOn, setAiOn] = useState(() => { try { return localStorage.getItem("srv.ai") === "1"; } catch { return false; } });
   const [focus, setFocus] = useState<FocusRequest | null>(null);
-  const [documentSignal, setDocumentSignal] = useState(0);
-  const [pickFileSignal, setPickFileSignal] = useState(0);
   const [imagesSignal, setImagesSignal] = useState(0);
-  const [pasteSignal, setPasteSignal] = useState(0);
 
-  const profile = profiles[activeGroupId];
+  const group = groups.find((item) => item.id === activeGroupId) || groups[0];
+  const profile = profiles[group.id];
   const server = useMemo(
     () => servers.find((item) => item.id === profile?.serverId) || null,
     [servers, profile?.serverId],
   );
   const config = profile?.config || null;
-  const validation = results[activeGroupId] || null;
+  const validation = results[group.id] || null;
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
+  const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
 
   useEffect(() => {
     let active = true;
@@ -154,7 +157,12 @@ export default function App() {
         setApiReady(true);
         setLoadError("");
         if (serverList.length) {
-          setProfiles({ [DEFAULT_GROUP_ID]: { serverId: serverList[0].id, config: defaultConfig(serverList[0]), source: "default" } });
+          // 아직 모델이 없는 서버 탭에 기본 모델
+          setProfiles((current) => {
+            const next = { ...current };
+            groups.forEach((item) => { if (!next[item.id]) next[item.id] = { serverId: serverList[0].id, config: defaultConfig(serverList[0]), source: "default" }; });
+            return next;
+          });
         }
       })
       .catch((reason: unknown) => {
@@ -164,6 +172,7 @@ export default function App() {
         }
       });
     return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiRetry]);
 
   // 모든 요구 서버를 검증해 프로젝트 결과표가 '미검증'으로 남지 않게 한다
@@ -234,82 +243,123 @@ export default function App() {
     return () => { active = false; window.clearTimeout(timer); };
   }, [server, config, imageVersion]);
 
-  const installGroups = (nextGroups: RequirementGroup[]) => {
-    const normalized = nextGroups.length
-      ? nextGroups
-      : [{ id: DEFAULT_GROUP_ID, name: "서버 1", requirements: [], spec: [] }];
-    const defaultServer = servers[0];
-    const nextProfiles: Record<string, ServerProfile> = {};
-    normalized.forEach((group, index) => {
-      const existing = profiles[group.id];
-      const suggested = servers.find((item) => item.id === group.suggested_server);
-      // 문서에서 찾은 모델이 있으면 그것을 우선. 사용자가 직접 고른 모델은 같은 그룹이면 유지.
-      if (existing?.source === "manual" && (!suggested || existing.serverId === suggested.id)) {
-        nextProfiles[group.id] = existing;
-        return;
-      }
-      if (suggested) {
-        nextProfiles[group.id] = existing?.serverId === suggested.id
-          ? { ...existing, source: "document" }
-          : { serverId: suggested.id, config: defaultConfig(suggested), source: "document" };
-        return;
-      }
-      const fallback = servers.find((item) => item.id === (existing?.serverId || (index === 0 ? server?.id : undefined))) || defaultServer;
-      if (fallback) {
-        nextProfiles[group.id] = existing?.serverId === fallback.id
-          ? { ...existing, source: "default" }
-          : { serverId: fallback.id, config: defaultConfig(fallback), source: "default" };
-      }
-    });
-    setGroups(normalized);
-    setProfiles(nextProfiles);
-    setProposalNotes({});
-    setResults({});
-    setActiveGroupId(normalized[0].id);
-    // 서버·백플레인이 그대로면 이미지 effect 가 다시 돌지 않으므로 상태를 지우지 말고 다시 불러온다
-    setImageVersion((version) => version + 1);
+
+  /** 붙여넣기 분석 결과의 추천 모델 → 그 서버 탭의 모델 (사용자가 직접 고른 모델은 유지) */
+  const profileFor = (next: RequirementGroup, existing: ServerProfile | undefined): ServerProfile | null => {
+    const suggested = servers.find((item) => item.id === next.suggested_server);
+    if (existing?.source === "manual" && existing) return existing;
+    if (suggested) return existing?.serverId === suggested.id ? { ...existing, source: "document" } : { serverId: suggested.id, config: defaultConfig(suggested), source: "document" };
+    return existing || defaultProfile();
+  };
+
+  /** 견적 품목이면 제안 구성을 그 서버 구성에 바로 적용 */
+  const applyQuote = async (target: RequirementGroup, targetProfile: ServerProfile | null) => {
+    if (!target.proposed || !targetProfile) return;
+    const base = target.items?.find((item) => item.category === "base");
+    try {
+      const { config: nextConfig, notes } = await applyProposal(targetProfile.serverId, target.proposed, targetProfile.config, base?.attrs || null);
+      setProfiles((current) => ({ ...current, [target.id]: { ...(current[target.id] || targetProfile), config: nextConfig } }));
+      setProposalNotes((current) => ({ ...current, [target.id]: notes }));
+    } catch {
+      /* 적용 실패 시 견적 패널의 '다시 적용'으로 */
+    }
+  };
+
+  /** 이 서버 탭에 붙여넣기: replace = 내용 교체, append = 지금 내용 뒤에 붙여 다시 분석 */
+  const handlePaste = async (text: string, mode: "replace" | "append") => {
+    const target = group;
+    const fullText = mode === "append" && target.text ? `${target.text}\n${text}` : text;
+    setPasteBusy(true);
+    setPasteError("");
+    try {
+      const response = await pasteText(fullText);
+      const analyzed = response.server;
+      // 사용자가 직접 고치거나 추가한 항목은 남긴다 (줄 번호는 append 라 그대로 유효)
+      const kept = mode === "append" ? target.requirements.filter((item) => item._user) : [];
+      const next: RequirementGroup = {
+        ...analyzed,
+        id: target.id,
+        name: target.name,
+        quantity: target.quantity ?? analyzed.quantity ?? null,
+        requirements: [...analyzed.requirements, ...kept],
+        line_marks: mode === "append" ? target.line_marks : {},
+        split: response.split.length > 1 ? response.split : undefined,
+        common_lines: response.common_lines,
+      };
+      const nextProfile = profileFor(next, profiles[target.id]);
+      setGroups((current) => current.map((item) => item.id === target.id ? next : item));
+      if (nextProfile) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
+      setProposalNotes((current) => { const copy = { ...current }; delete copy[target.id]; return copy; });
+      setRenderedImages({ front: null, rear: null });
+      setImageVersion((version) => version + 1);
+      await applyQuote(next, nextProfile);
+    } catch (reason) {
+      setPasteError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPasteBusy(false);
+    }
+  };
+
+  /** 나누기 제안 수락: 지금 탭을 서버별 탭으로 바꾼다 */
+  const handleSplit = async () => {
+    const parts = group.split || [];
+    if (!parts.length) return;
+    const made = parts.map((part) => ({ ...part, id: newGroupId(), split: undefined, line_marks: {} }));
+    const madeProfiles = Object.fromEntries(made.map((part) => [part.id, profileFor(part, undefined)]).filter(([, value]) => value)) as Record<string, ServerProfile>;
+    setGroups((current) => current.flatMap((item) => item.id === group.id ? made : [item]));
+    setProfiles((current) => { const next = { ...current, ...madeProfiles }; delete next[group.id]; return next; });
+    setActiveGroupId(made[0].id);
     setView("server");
-    return { normalized, nextProfiles };
+    await Promise.all(made.map((part) => applyQuote(part, madeProfiles[part.id] || null)));
   };
+  const handleKeepOne = () => setGroups((current) => current.map((item) => item.id === group.id ? { ...item, split: undefined } : item));
 
-  /** 견적서 그룹은 업로드 직후 제안 구성을 자동으로 적용한다 */
-  const autoApply = async (nextGroups: RequirementGroup[], nextProfiles: Record<string, ServerProfile>) => {
-    const quoteGroups = nextGroups.filter((group) => group.proposed && nextProfiles[group.id]);
-    if (!quoteGroups.length) return;
-    const applied = await Promise.all(quoteGroups.map(async (group) => {
-      const groupProfile = nextProfiles[group.id];
-      const base = group.items?.find((item) => item.category === "base");
-      try {
-        const { config: nextConfig, notes } = await applyProposal(groupProfile.serverId, group.proposed!, groupProfile.config, base?.attrs || null);
-        return [group.id, groupProfile, nextConfig, notes] as const;
-      } catch {
-        return null;
-      }
+  const handleAddServer = (copy: boolean) => {
+    const id = newGroupId();
+    const used = new Set(groups.map((item) => item.name));
+    let index = groups.length + 1;
+    while (used.has(`서버 ${index}`)) index++;
+    const made: RequirementGroup = copy
+      ? { ...JSON.parse(JSON.stringify(group)), id, name: `${group.name} 복사`, split: undefined }
+      : emptyGroup(id, `서버 ${index}`);
+    const madeProfile = copy && profile ? JSON.parse(JSON.stringify(profile)) as ServerProfile : defaultProfile();
+    setGroups((current) => [...current, made]);
+    if (madeProfile) setProfiles((current) => ({ ...current, [id]: madeProfile }));
+    if (copy && proposalNotes[group.id]) setProposalNotes((current) => ({ ...current, [id]: current[group.id] }));
+    setActiveGroupId(id);
+    setView("server");
+  };
+  const handleRename = (id: string, name: string, quantity: number | null) =>
+    setGroups((current) => current.map((item) => item.id === id ? { ...item, name, quantity } : item));
+  const handleRemoveServer = (id: string) => {
+    const target = groups.find((item) => item.id === id);
+    if (!target || groups.length < 2) return;
+    if (!isBlank(target) && !window.confirm(`'${target.name}' 서버를 삭제할까요? 붙여넣은 내용과 구성이 지워집니다.`)) return;
+    const index = groups.findIndex((item) => item.id === id);
+    const rest = groups.filter((item) => item.id !== id);
+    setGroups(rest);
+    setProfiles((current) => { const next = { ...current }; delete next[id]; return next; });
+    if (activeGroupId === id) setActiveGroupId(rest[Math.max(0, index - 1)].id);
+  };
+  const handleMarkLine = (line: number, mark: "skip" | null) =>
+    setGroups((current) => current.map((item) => {
+      if (item.id !== group.id) return item;
+      const marks = { ...(item.line_marks || {}) };
+      if (mark) marks[line] = mark; else delete marks[line];
+      return { ...item, line_marks: marks };
     }));
-    setProfiles((current) => {
-      const next = { ...current };
-      applied.forEach((entry) => { if (entry) next[entry[0]] = { ...entry[1], config: entry[2] }; });
-      return next;
-    });
-    setProposalNotes((current) => {
-      const next = { ...current };
-      applied.forEach((entry) => { if (entry) next[entry[0]] = entry[3]; });
-      return next;
-    });
-  };
 
-  /** 저장 대상: 문서 분석 결과와 서버별 구성 전체 (검증 결과·그림은 다시 계산) */
-  const snapshot = useMemo(() => JSON.stringify({
-    documentName, documentText, extractionInfo, groups, profiles, activeGroupId, inventory, proposalNotes,
-  }), [documentName, documentText, extractionInfo, groups, profiles, activeGroupId, inventory, proposalNotes]);
-  const dirty = !!documentName && snapshot !== savedSnapshot;
+  /** 저장 대상: 서버별 붙여넣은 내용·요구사항·구성 전체 (검증 결과·그림은 다시 계산) */
+  const snapshot = useMemo(() => JSON.stringify({ workName, groups, profiles, activeGroupId, proposalNotes } satisfies SavedState),
+    [workName, groups, profiles, activeGroupId, proposalNotes]);
+  const hasWork = groups.some((item) => !isBlank(item)) || groups.length > 1;
+  const dirty = hasWork && snapshot !== savedSnapshot;
 
   const handleSave = async () => {
-    if (!documentName) return;
     setSaveBusy(true);
     setSaveError("");
     try {
-      const saved = await saveProject(projectName || documentName, JSON.parse(snapshot));
+      const saved = await saveProject(workName.trim() || `작업 ${stamp()}`, JSON.parse(snapshot));
       setSavedSnapshot(snapshot);
       setSavedAt(saved.saved_at);
     } catch (reason) {
@@ -319,44 +369,42 @@ export default function App() {
     }
   };
 
+  const resetWork = (state: SavedState | null, name: string, at: string) => {
+    const nextGroups = state?.groups?.length ? state.groups : [emptyGroup(DEFAULT_GROUP_ID, "서버 1")];
+    const nextProfiles = state?.profiles || {};
+    nextGroups.forEach((item) => { if (!nextProfiles[item.id]) { const fallback = defaultProfile(); if (fallback) nextProfiles[item.id] = fallback; } });
+    const nextActive = nextGroups.some((item) => item.id === state?.activeGroupId) ? state!.activeGroupId : nextGroups[0].id;
+    setGroups(nextGroups);
+    setProfiles(nextProfiles);
+    setActiveGroupId(nextActive);
+    setProposalNotes(state?.proposalNotes || {});
+    setResults({});
+    setRenderedImages({ front: null, rear: null });
+    setView("server");
+    setWorkName(name);
+    setSavedAt(at);
+    setPasteError("");
+    // 연 직후에는 '저장 안 됨'으로 보이지 않게 같은 형식으로 기억
+    setSavedSnapshot(state ? JSON.stringify({ workName: name, groups: nextGroups, profiles: nextProfiles, activeGroupId: nextActive, proposalNotes: state.proposalNotes || {} } satisfies SavedState) : "");
+  };
   const handleOpenProject = async (id: string) => {
+    setOpenMenu(false);
     if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 저장한 작업을 열까요?")) return;
     try {
-      const project = await loadProject<{
-        documentName: string; documentText: string; extractionInfo: ExtractionInfo | null; groups: RequirementGroup[];
-        profiles: Record<string, ServerProfile>; activeGroupId: string; inventory: InventoryRow[]; proposalNotes: Record<string, string[]>;
-      }>(id);
-      const state = project.state;
-      setDocumentName(state.documentName);
-      setDocumentText(state.documentText || "");
-      setExtractionInfo(state.extractionInfo || null);
-      setGroups(state.groups);
-      setProfiles(state.profiles);
-      setActiveGroupId(state.groups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : state.groups[0]?.id || DEFAULT_GROUP_ID);
-      setInventory(state.inventory || []);
-      setProposalNotes(state.proposalNotes || {});
-      setResults({});
-      setRenderedImages({ front: null, rear: null });
-      setView("server");
-      setProjectName(project.name);
-      setSavedAt(project.saved_at);
-      // 저장 당시 내용과 같게 맞춰 '저장 안 됨'으로 보이지 않게
-      setSavedSnapshot(JSON.stringify({
-        documentName: state.documentName, documentText: state.documentText || "", extractionInfo: state.extractionInfo || null,
-        groups: state.groups, profiles: state.profiles,
-        activeGroupId: state.groups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : state.groups[0]?.id || DEFAULT_GROUP_ID,
-        inventory: state.inventory || [], proposalNotes: state.proposalNotes || {},
-      }));
+      const project = await loadProject<SavedState>(id);
+      resetWork(project.state, project.name, project.saved_at);
     } catch (reason) {
-      setUploadError(reason instanceof Error ? reason.message : String(reason));
+      setPasteError(reason instanceof Error ? reason.message : String(reason));
     }
   };
-
-  // 첫 화면에 '저장한 작업' 목록
+  const handleNewWork = () => {
+    setOpenMenu(false);
+    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 새 작업을 시작할까요?")) return;
+    resetWork(null, `새 작업 ${stamp()}`, "");
+  };
   useEffect(() => {
-    if (!apiReady || documentName) return;
-    listProjects().then(setSavedProjects).catch(() => setSavedProjects([]));
-  }, [apiReady, documentName]);
+    if (openMenu) listProjects().then(setSavedProjects).catch(() => setSavedProjects([]));
+  }, [openMenu]);
   // 저장하지 않고 창을 닫으려 하면 묻는다
   useEffect(() => {
     if (!dirty) return;
@@ -365,93 +413,24 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  const handleUpload = (file: File) => analyze(() => uploadRequirement(file, aiOn));
-  const handlePaste = (text: string) => analyze(() => pasteText(text, aiOn));
-
-  /** 파일 업로드와 붙여넣기 공통: 분석 결과를 서버 그룹·구성에 반영 */
-  const analyze = async (run: () => Promise<UploadResponse>) => {
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 새 문서를 분석할까요?")) return;
-    setUploadBusy(true);
-    setUploadError("");
-    setExtractionInfo(null);
-    try {
-      const response = await run();
-      const pasted = response.filename === "붙여넣기.tsv";
-      setDocumentName(pasted ? "붙여넣은 내용" : response.filename);
-      setProjectName(pasted ? `붙여넣은 내용 ${new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}` : response.filename);
-      setSavedSnapshot("");
-      setSavedAt("");
-      setDocumentText(response.text);
-      setInventory(response.inventory || []);
-      setExtractionInfo(response.extraction || { mode: "rules" });
-      const installed = installGroups(response.groups?.length ? response.groups : [{
-        id: DEFAULT_GROUP_ID,
-        name: "서버 1",
-        requirements: response.requirements || [],
-        spec: response.spec || [],
-      }]);
-      await autoApply(installed.normalized, installed.nextProfiles);
-    } catch (reason) {
-      setUploadError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setUploadBusy(false);
-    }
+  const handleApplyProposal = async () => {
+    setApplyingGroupId(group.id);
+    await applyQuote(group, profile || null);
+    setRenderedImages({ front: null, rear: null });
+    setApplyingGroupId(null);
   };
 
-  const handleReExtract = async (text: string) => {
-    setDocumentText(text);
-    setUploadError("");
-    try {
-      const response = await extractRequirements(text, aiOn);
-      setExtractionInfo(response.extraction || { mode: "rules" });
-      installGroups(response.groups?.length ? response.groups : [{
-        id: DEFAULT_GROUP_ID,
-        name: "서버 1",
-        requirements: response.requirements || [],
-        spec: response.spec || [],
-      }]);
-    } catch (reason) {
-      setUploadError(reason instanceof Error ? reason.message : String(reason));
-    }
-  };
-
-  const handleApplyProposal = async (groupId: string) => {
-    const group = groups.find((item) => item.id === groupId);
-    const groupProfile = profiles[groupId];
-    const groupServer = servers.find((item) => item.id === groupProfile?.serverId);
-    if (!group?.proposed || !groupProfile || !groupServer) return;
-    const base = group.items?.find((item) => item.category === "base");
-    setApplyingGroupId(groupId);
-    try {
-      const { config: nextConfig, notes } = await applyProposal(groupServer.id, group.proposed, groupProfile.config, base?.attrs || null);
-      setProfiles((current) => ({ ...current, [groupId]: { ...groupProfile, serverId: groupServer.id, config: nextConfig } }));
-      setProposalNotes((current) => ({ ...current, [groupId]: notes }));
-      setRenderedImages({ front: null, rear: null });
-    } catch (reason) {
-      setUploadError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setApplyingGroupId(null);
-    }
-  };
-
-  /** 납품 목록 항목과 연결: 수량을 그 항목 수량으로 */
-  const handleInventoryLink = (groupId: string, row: InventoryRow | null) => {
-    setGroups((current) => current.map((group) => group.id === groupId
-      ? { ...group, inventory_link: row?.name || null, quantity: row ? row.qty : null }
-      : group));
-  };
-
-  const handleRequirementsChange = (groupId: string, requirements: Requirement[]) => {
-    setGroups((current) => current.map((group) => group.id === groupId ? { ...group, requirements } : group));
+  const handleRequirementsChange = (requirements: Requirement[]) => {
+    setGroups((current) => current.map((item) => item.id === group.id ? { ...item, requirements } : item));
   };
 
   const handleServerChange = (id: string) => {
     const nextServer = servers.find((item) => item.id === id);
     if (!nextServer) return;
-    setProfiles((current) => ({ ...current, [activeGroupId]: { serverId: id, config: defaultConfig(nextServer), source: "manual" } }));
+    setProfiles((current) => ({ ...current, [group.id]: { serverId: id, config: defaultConfig(nextServer), source: "manual" } }));
     setResults((current) => {
       const next = { ...current };
-      delete next[activeGroupId];
+      delete next[group.id];
       return next;
     });
     setImageStatus(null);
@@ -460,8 +439,8 @@ export default function App() {
 
   const handleConfigChange = (nextConfig: ServerConfig) => {
     setProfiles((current) => {
-      const currentProfile = current[activeGroupId];
-      return currentProfile ? { ...current, [activeGroupId]: { ...currentProfile, config: nextConfig } } : current;
+      const currentProfile = current[group.id];
+      return currentProfile ? { ...current, [group.id]: { ...currentProfile, config: nextConfig } } : current;
     });
   };
 
@@ -511,80 +490,65 @@ export default function App() {
       <header className="top">
         <div className="brand">
           <h1>Server Requirement Validator</h1>
-          <p>고객 요구사항 문서 ↔ 실제 서버 구성 검증</p>
         </div>
-        <AiToggle on={aiOn} onChange={(next) => { setAiOn(next); try { localStorage.setItem("srv.ai", next ? "1" : "0"); } catch { /* 저장 불가 환경 */ } }} usedOnDocument={!!documentName && extractionInfo?.mode === "ai"} />
-        {documentName && (
-          <div className="docline">
-            <b>{documentName}</b>
-            <span>서버 {groups.length}종 · {groups.reduce((total, group) => total + (group.quantity || 1), 0)}대</span>
-            {groups.some((group) => group.proposed) && <span className="muted-on-dark">{groups.some((group) => group.doc_role === "config") ? "구성도" : "견적"} 구성 자동 적용</span>}
-            <button type="button" className="ghost-on-dark" onClick={() => setDocumentSignal((n) => n + 1)}>원문</button>
-            <button type="button" className="ghost-on-dark" onClick={() => setPickFileSignal((n) => n + 1)}>다른 문서</button>
-            <button type="button" className="ghost-on-dark" onClick={() => setPasteSignal((n) => n + 1)}>붙여넣기</button>
-          </div>
-        )}
-        {documentName && <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={activeGroupId} view={view} onSelect={(id) => { setActiveGroupId(id); setView("server"); }} onShowAll={() => setView("all")} />}
+        <div className="workline">
+          <input className="workname" aria-label="작업 이름" value={workName} onChange={(event) => setWorkName(event.target.value)} title="작업 이름 — 저장할 때 이 이름으로" />
+          <span className="muted-on-dark">서버 {groups.length}종 · {groups.reduce((total, item) => total + (item.quantity || 1), 0)}대</span>
+          <span className="openwrap">
+            <button type="button" className="ghost-on-dark" aria-expanded={openMenu} onClick={() => setOpenMenu(!openMenu)}>열기 ▾</button>
+            {openMenu && (
+              <span className="openmenu" role="menu">
+                <button type="button" role="menuitem" onClick={handleNewWork}><b>＋ 새 작업</b></button>
+                {savedProjects.length ? savedProjects.slice(0, 12).map((item) => (
+                  <button type="button" role="menuitem" key={item.id} onClick={() => void handleOpenProject(item.id)}>
+                    {item.name}<small>서버 {item.servers}종 · {formatSavedAt(item.saved_at)} 저장</small>
+                  </button>
+                )) : <span className="muted small pad">저장한 작업이 없습니다</span>}
+              </span>
+            )}
+          </span>
+        </div>
+        <span className="localnote">외부 전송 없음 · 모든 분석은 이 PC에서</span>
+        <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={group.id} view={view}
+          onSelect={(id) => { setActiveGroupId(id); setView("server"); }} onShowAll={() => setView("all")}
+          onAdd={handleAddServer} onRename={handleRename} onRemove={handleRemoveServer} />
       </header>
       {apiReady === false && (
         <div className="stale offline-banner" role="status">
-          <span>백엔드 API에 연결되지 않았습니다. 화면은 볼 수 있지만 문서 분석, 서버 카탈로그, 이미지 및 검증 기능은 API 연결 후 사용할 수 있습니다.</span>
+          <span>백엔드 API에 연결되지 않았습니다. 서버 실행 상태를 확인하세요.</span>
           <button className="btn ghost small" onClick={() => { setApiReady(null); setApiRetry((attempt) => attempt + 1); }}>다시 연결</button>
           {loadError && <small role="alert">{loadError}</small>}
         </div>
       )}
       {apiReady === null && <div className="stale" role="status">백엔드 API에 연결하는 중입니다…</div>}
       <div className="layout">
-        <main className={documentName && view === "server" ? "work" : ""}>
-          {!documentName && savedProjects.length > 0 && (
-            <section className="card saved" aria-label="저장한 작업">
-              <h3>저장한 작업 이어서 하기</h3>
-              <ul>
-                {savedProjects.slice(0, 8).map((item) => (
-                  <li key={item.id}>
-                    <button type="button" className="saved-row" onClick={() => void handleOpenProject(item.id)}>
-                      <b>{item.name}</b>
-                      <span className="muted">서버 {item.servers}종 · {formatSavedAt(item.saved_at)} 저장</span>
-                      <span className="lnk">열기</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+        <main className={view === "server" ? "work" : ""}>
           {view === "server" && <RequirementSection
-            result={validation}
-            onFocus={(request) => setFocus({ ...request, n: Date.now() })}
-            showDocumentSignal={documentSignal}
-            pickFileSignal={pickFileSignal}
-            pasteSignal={pasteSignal}
-            onPaste={(text) => void handlePaste(text)}
-            inventory={inventory}
-            onInventoryLink={handleInventoryLink}
-            groups={groups}
-            activeGroupId={activeGroupId}
-            documentName={documentName}
-            documentText={documentText}
-            extractionInfo={extractionInfo}
-            busy={uploadBusy}
-            error={uploadError}
-            onUpload={handleUpload}
-            onChange={handleRequirementsChange}
-            onReExtract={handleReExtract}
+            key={`req-${group.id}`}
+            group={group}
+            busy={pasteBusy}
+            error={pasteError}
             servers={servers}
             activeServer={server}
-            proposalNotes={proposalNotes}
-            applyingGroupId={applyingGroupId}
-            onApplyProposal={(groupId) => void handleApplyProposal(groupId)}
+            proposalNotes={proposalNotes[group.id]}
+            applying={applyingGroupId === group.id}
+            onApplyProposal={() => void handleApplyProposal()}
+            result={validation}
+            onFocus={(request) => setFocus({ ...request, n: Date.now() })}
+            onPaste={(text, mode) => void handlePaste(text, mode)}
+            onChange={handleRequirementsChange}
+            onMarkLine={handleMarkLine}
+            onSplit={() => void handleSplit()}
+            onKeepOne={handleKeepOne}
           />}
-          {documentName && view === "server" && <ConfigSection
-            key={`${documentName}:${activeGroupId}`}
+          {view === "server" && <ConfigSection
+            key={`cfg-${group.id}`}
             modelLine={<ServerSection
             servers={servers}
             components={components}
             server={server}
             modelSource={profile?.source || "default"}
-            modelHint={groups.find((group) => group.id === activeGroupId)?.model_hint || null}
+            modelHint={group.model_hint || null}
             apiReady={apiReady}
             backplaneId={config?.backplane || ""}
             images={imageStatus}
@@ -613,22 +577,22 @@ export default function App() {
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
           />}
-          {documentName && view === "all" && <ResultSection
+          {view === "all" && <ResultSection
             server={server}
             result={validation}
             error={validationError}
             loading={validationBusy}
             projectSummaries={projectSummaries}
-            activeGroupId={activeGroupId}
+            activeGroupId={group.id}
             onSelectGroup={(id) => { setActiveGroupId(id); setView("server"); }}
           />}
-          {documentName && (
+          {hasWork && (
             <div className={`savebar ${dirty ? "dirty" : ""}`} role="region" aria-label="저장">
               <span className="savebar-msg">
                 {saveError ? <span className="warn">저장 오류: {saveError}</span>
                   : dirty ? <><i className="dot" aria-hidden="true" /> 저장하지 않은 변경이 있습니다</>
                   : <>✓ 저장됨 · {formatSavedAt(savedAt)}</>}
-                <span className="muted small"> — {projectName || documentName}</span>
+                <span className="muted small"> — {workName}</span>
               </span>
               <button type="button" className="btn" disabled={saveBusy || !dirty} onClick={() => void handleSave()}>{saveBusy ? "저장 중…" : "저장하기"}</button>
             </div>

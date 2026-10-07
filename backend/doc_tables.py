@@ -319,11 +319,18 @@ def _key(name: str) -> str:
     return re.sub(r"[\s_\-·]|서버|server|용", "", (name or "").lower())
 
 
+HARDWARE = {"cpu", "memory", "drive", "raid", "fc", "nic", "ocp", "psu", "riser", "gpu", "boot_module"}
+
+
 def _is_parts_list(groups: list[dict]) -> bool:
     for g in groups:
         items = g.get("items") or []
         coded = sum(1 for i in items if i.get("code"))
         if items and any(i["category"] == "base" for i in items) and coded >= max(2, len(items) * 0.5):
+            return True
+        # 본체 행 없이 부품만 긁어 온 경우: 품번 붙은 하드웨어 품목이 2종류 이상이면 부품 목록
+        kinds = {i["category"] for i in items if i.get("code") and i["category"] in HARDWARE}
+        if len(kinds) >= 2 and coded >= max(2, len(items) * 0.6):
             return True
     return False
 
@@ -659,7 +666,7 @@ def analyze_document(filename: str, data: bytes, text: str) -> dict:
             for i, g in enumerate(cg, 1):
                 body = "\n".join(l for l, _ in g["lines"])
                 groups.append({"id": f"server-{i}", "name": g["name"], "quantity": g["qty"], "doc_role": "requirement",
-                               "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body),
+                               "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body), "text": body,
                                "evidence": [f"서버가 열로 나열된 표 ({g['where']})"], "confidence": 0.85, "notes": []})
             return {"doc_role": "requirement", "groups": groups, "common_items": [], "tables": res["tables"]}
     try:

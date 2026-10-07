@@ -326,8 +326,6 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .top{padding:10px 24px 0;row-gap:6px}
 .top .brand p{display:none}
 .top h1{font-size:16px}
-.docline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:#AEB9C4;margin-right:auto;margin-left:20px}
-.docline b{color:#EEF2F6;font-weight:600}
 .muted-on-dark{color:#8FA0B1}
 .ghost-on-dark{font:inherit;font-size:12.5px;background:transparent;border:1px solid rgba(255,255,255,.25);color:#EEF2F6;border-radius:4px;padding:2px 10px;cursor:pointer}
 .ghost-on-dark:hover{background:rgba(255,255,255,.1)}
@@ -430,28 +428,6 @@ figure.stage{position:relative}
 .ptools i{width:1px;background:#39424D;margin:3px 2px}
 .ptools [data-tip]:hover::after{bottom:auto;top:calc(100% + 6px);left:auto;right:0;transform:none}
 .slotpanel .opts{display:inline-flex;gap:4px}
-.aibadge{position:relative;order:3;margin-left:auto}
-.ai-chip{font:inherit;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#DCE3EA;border-radius:999px;padding:2px 10px;cursor:pointer}
-.ai-chip:hover{background:rgba(255,255,255,.14)}
-.ai-dot{width:8px;height:8px;border-radius:50%;background:#8E99A6}
-.ai-on .ai-dot{background:#3DDC84} .ai-bad .ai-dot{background:#F07272}
-.ai-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:320px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:12px;display:grid;gap:8px;font-size:13px}
-.ai-pop dl{margin:0;display:grid;gap:4px}
-.ai-pop dl div{display:grid;grid-template-columns:72px 1fr;gap:8px}
-.ai-pop dt{color:var(--mute)} .ai-pop dd{margin:0;word-break:break-all}
-.ai-pop .ok-msg{color:var(--ok);margin:0}
-.ai-pop .warn{margin:0}
-.ai-pop code{background:color-mix(in srgb,var(--accent) 10%,transparent);padding:0 4px;border-radius:3px}
-.aitoggle{position:relative;order:3;margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#DCE3EA;cursor:pointer;user-select:none}
-.aitoggle input{position:absolute;opacity:0;width:1px;height:1px}
-.aitoggle .switch{width:34px;height:18px;border-radius:999px;background:#4A535E;position:relative;transition:background .15s}
-.aitoggle .switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
-.aitoggle input:checked+.switch{background:#2EA44F}
-.aitoggle input:checked+.switch::after{transform:translateX(16px)}
-.aitoggle input:focus-visible+.switch{outline:2px solid #5A9BFF;outline-offset:2px}
-.aitoggle.disabled{opacity:.55;cursor:not-allowed}
-.aitoggle small{color:#9FD8B0}
-.aitoggle[data-tip]:hover::after{left:auto;right:0;transform:none;bottom:auto;top:calc(100% + 6px)}
 .pastebox{display:grid;gap:8px;margin-top:16px}
 .pastebox label{display:grid;gap:2px}
 .pastebox textarea{font:13px/1.5 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical;tab-size:4;min-height:110px}
@@ -526,3 +502,61 @@ figure.stage{position:relative}
 .saved-row{all:unset;box-sizing:border-box;display:flex;gap:12px;align-items:center;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer}
 .saved-row:hover,.saved-row:focus-visible{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent)}
 .saved-row b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── 헤더: 작업 이름 · 열기 · 서버 탭(＋ 서버) ── */
+.workline{display:flex;align-items:center;gap:10px;margin-right:auto;margin-left:18px;font-size:13px}
+.workname{font:inherit;font-size:13.5px;color:#EEF2F6;background:transparent;border:1px dashed rgba(255,255,255,.28);border-radius:4px;padding:3px 8px;width:min(34vw,300px)}
+.workname:hover,.workname:focus{border-style:solid;border-color:#5A9BFF;outline:none;background:rgba(255,255,255,.06)}
+.muted-on-dark{color:#AEB9C4}
+.localnote{font-size:12px;color:#8E9BA8}
+.openwrap,.stab-add{position:relative}
+.openmenu,.stab-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:250px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:4px;display:grid;max-height:60vh;overflow:auto}
+.openmenu button,.stab-menu button{all:unset;box-sizing:border-box;display:block;padding:7px 10px;border-radius:5px;cursor:pointer;font-size:13.5px}
+.openmenu button:hover,.stab-menu button:hover,.openmenu button:focus-visible,.stab-menu button:focus-visible{background:#EEF3F8}
+.openmenu small,.stab-menu small{display:block;color:var(--mute);font-size:11.5px}
+.stab-wrap{display:inline-flex;align-items:center;border-bottom:3px solid transparent}
+.stab-wrap .stab{border-bottom:0}
+.stab-wrap.on{border-bottom-color:#5A9BFF}
+.stab-x{font:inherit;font-size:11px;background:transparent;border:0;color:#8E9BA8;cursor:pointer;padding:2px 6px;border-radius:3px;margin-left:-6px}
+.stab-x:hover{color:#fff;background:rgba(255,255,255,.12)}
+.stab-plus{font:inherit;font-size:13px;margin:0 6px 5px;border:1px solid #4A9BF0;color:#9CC8F2;background:transparent;border-radius:4px;padding:3px 10px;cursor:pointer;white-space:nowrap}
+.stab-plus:hover{background:rgba(74,155,240,.15);color:#fff}
+.stab-edit{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;color:#AEB9C4}
+.stab-edit input{font:inherit;font-size:13px;border:1px solid #5A9BFF;border-radius:3px;padding:2px 6px;background:#1A1F25;color:#fff;width:150px}
+.stab-edit input[name=qty]{width:52px}
+.servertabs{overflow:visible;flex-wrap:wrap}
+
+/* ── 왼쪽: 붙여넣은 줄마다 결과 ── */
+.pastebox.first textarea{min-height:200px;border:2px dashed #9DB7D0;border-radius:8px;background:#FAFCFE;padding:12px}
+.pastebox textarea{width:100%}
+.splitbar{border:2px solid var(--accent);border-radius:8px;background:#F3F8FD;margin:10px 16px 0;padding:10px 12px;font-size:13.5px}
+.splitbar .row{margin:8px 0 0}
+.srcbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;padding-top:10px}
+.srcbar-act{margin-left:auto;display:flex;gap:12px}
+.warnline{margin:6px 16px 0;padding:6px 10px;background:#FFF6E0;border:1px solid #F0D08A;border-radius:6px;color:#7A4A00;font-size:13px}
+.plines{list-style:none;margin:8px 16px 0;padding:0;border:1px solid #E3E8ED;border-radius:6px}
+.pl{display:grid;grid-template-columns:20px 1fr;gap:6px;padding:7px 10px;border-top:1px solid #EEF1F4}
+.pl:first-child{border-top:0}
+.pl-ic{font-weight:800;text-align:center;line-height:1.5}
+.pl-req .pl-ic,.pl-part .pl-ic{color:var(--ok)}
+.pl-warn{background:#FFFBF0}.pl-warn .pl-ic{color:#C77700}
+.pl-skip .pl-text{color:#9AA5B1}.pl-skip .pl-ic{color:#9AA5B1}
+.pl-head .pl-text{font-weight:700;color:var(--mute);font-size:13px}
+.pl-text{font-size:13.5px;color:#2D3742;word-break:break-word;white-space:pre-wrap;tab-size:4}
+.pl-tag{font-size:11.5px;color:#7A8592;background:#F1F3F5;border-radius:3px;padding:0 6px;margin-left:6px;white-space:nowrap}
+.pl-hint{font-size:12.5px;color:#8A5300;margin-top:2px}
+.pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;align-items:center}
+.pl-acts select{font:inherit;font-size:12.5px;border:1px solid var(--accent);color:var(--accent);border-radius:4px;padding:2px 6px;background:#fff}
+.pl-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.rchip{display:inline-flex;align-items:stretch;border:1px solid;border-radius:4px;font-size:12.5px;overflow:hidden;background:#fff}
+.rchip-main{font:inherit;font-size:12.5px;background:transparent;border:0;color:inherit;padding:1px 8px;cursor:pointer}
+.rchip-main:hover{text-decoration:underline}
+.rchip-fix{font:inherit;font-size:12px;border:0;border-left:1px solid currentColor;background:rgba(255,255,255,.6);color:var(--accent);padding:1px 7px;cursor:pointer;text-decoration:underline}
+.rchip-act{opacity:.85}
+.rchip.c-ok{border-color:#9FD3B5;background:#F1FAF4;color:#1D6B44}
+.rchip.c-fail,.rchip.c-incomp{border-color:#F0B5B0;background:#FFF5F4;color:#9E1F15}
+.rchip.c-review{border-color:#F0D08A;background:#FFFAEC;color:#8A5300}
+.rchip.c-part{border-color:#C9D9EA;background:#F4F8FC;color:#365B80;padding:1px 8px}
+.pl .reqedit,.loose .reqedit{margin-top:6px}
+.loose{display:grid;gap:4px;padding-top:10px}
+.btn.small.danger{color:var(--fail);border-color:#E3A29C}
