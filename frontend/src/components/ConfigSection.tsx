@@ -106,6 +106,9 @@ export default function ConfigSection({
   const [showSlotList, setShowSlotList] = useState(false);
   /** 그림 아래 설정 자리에 띄울 것: 디스크(선택 베이·RAID) / CPU·메모리. 슬롯·PSU는 selectedSlot */
   const [panel, setPanel] = useState<"disk" | "spec" | null>(null);
+  /** 빈 베이를 클릭하면 바로 꽂을 디스크 종류·용도 (마지막에 고른 값) */
+  const [diskChoice, setDiskChoice] = useState("");
+  const [roleChoice, setRoleChoice] = useState<"data" | "boot">("data");
   const slotPanelRef = useRef<HTMLDivElement>(null);
   const [frontRects, setFrontRects] = useState<Rect[]>([]);
   const [slotHotspots, setSlotHotspots] = useState<Record<string, Rect>>({});
@@ -174,12 +177,29 @@ export default function ConfigSection({
   const getBayResult = (bay: number) => result?.bays.find((item) => item.bay === bay);
   const patch = (values: Partial<ServerConfig>) => onChange({ ...config, ...values });
 
+  const driveOptions = server.drive_options.filter((drive) => drive.ff === backplane.ff);
+  const currentDrive = driveOptions.find((drive) => drive.id === diskChoice)?.id || driveOptions[0]?.id || "";
+  /** 빈 베이: 바로 꽂고 그 베이를 선택 / 꽂힌 베이: 선택 토글 (종류·용도 변경, 빼기) */
   const toggleBay = (bay: number) => {
     setSelectedSlot(null);
     setPanel("disk");
+    if (!config.bays[String(bay)] && currentDrive) {
+      patch({ bays: { ...config.bays, [String(bay)]: { drive: currentDrive, role: roleChoice } } });
+      setSelectedBays([bay]);
+      return;
+    }
     setSelectedBays((selected) => selected.includes(bay)
       ? selected.filter((item) => item !== bay)
       : [...selected, bay]);
+  };
+  const applyToSelected = (values: Partial<{ drive: string; role: "data" | "boot" }>) => {
+    if (!selectedBays.length) return;
+    const bays = { ...config.bays };
+    selectedBays.forEach((index) => {
+      const old = bays[String(index)];
+      bays[String(index)] = { drive: values.drive || old?.drive || currentDrive, role: values.role || old?.role || roleChoice };
+    });
+    patch({ bays });
   };
 
   const updateMemory = (index: number, values: Partial<ServerConfig["memory"][number]>) => {
@@ -338,7 +358,7 @@ export default function ConfigSection({
                 const bay = config.bays[String(bayIndex)];
                 const status = view === "front" ? getBayResult(bayIndex)?.status : slot ? getSlotResult(slot.id)?.status : null;
                 const className = view === "front"
-                  ? `bay ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
+                  ? `bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
                   : slot?.type === "psu"
                   ? `hs psu ${selectedSlot === slot.id ? "sel" : ""} ${psuIndex(slot.id) < config.psu_count ? (psuWarn ? "s-review" : "s-ok") : "empty"}`
                   : slot && getSlotResult(slot.id)?.usable === false
@@ -486,50 +506,60 @@ export default function ConfigSection({
         {renderStage("front")}
         <div className="storage-row">
           <StorageSummary server={server} config={config} bayCount={backplane.bays} />
-          {backplane.bays > 0 && <span className="muted small">베이를 눌러 디스크·RAID 설정</span>}
+          {backplane.bays > 0 && <span className="muted small">빈 베이를 누르면 디스크가 꽂힙니다</span>}
         </div>
+        {panel === "disk" && (() => {
+          const chosen = selectedBays.map((index) => config.bays[String(index)]).filter(Boolean);
+          const shownDrive = chosen.length && chosen.every((bay) => bay.drive === chosen[0].drive) ? chosen[0].drive : currentDrive;
+          const shownRole = chosen.length && chosen.every((bay) => bay.role === chosen[0].role) ? chosen[0].role : roleChoice;
+          const empty = Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]);
+          return (
+            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="디스크 · RAID">
+              <div className="row between">
+                <b>{selectedBays.length ? `Bay ${[...selectedBays].sort((a, b) => a - b).join(", ")} 선택됨` : "디스크 · RAID"}</b>
+                <span className="muted small">빈 베이를 누르면 바로 꽂힙니다 · 꽂힌 베이를 누르면 선택</span>
+                <button className="ico" aria-label="닫기" onClick={() => { setPanel(null); setSelectedBays([]); }}>✕</button>
+              </div>
+              <div className="row">
+                디스크 <select aria-label="디스크 종류" value={shownDrive} onChange={(event) => { setDiskChoice(event.target.value); applyToSelected({ drive: event.target.value }); }}>
+                  {driveOptions.map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
+                </select>
+                <span role="group" aria-label="용도" className="opts">
+                  {(["data", "boot"] as const).map((role) => (
+                    <button type="button" key={role} className="opt" aria-pressed={shownRole === role} onClick={() => { setRoleChoice(role); applyToSelected({ role }); }}>{role === "data" ? "Data" : "Boot"}</button>
+                  ))}
+                </span>
+                {chosen.length > 0 && <button type="button" className="btn ghost small" onClick={() => {
+                  const bays = { ...config.bays };
+                  selectedBays.forEach((index) => delete bays[String(index)]);
+                  patch({ bays });
+                  setSelectedBays([]);
+                }}>선택한 디스크 빼기</button>}
+              </div>
+              <div className="row">
+                {empty.length > 0 && <button type="button" className="lnk" onClick={() => {
+                  const bays = { ...config.bays };
+                  empty.forEach((index) => { bays[String(index)] = { drive: currentDrive, role: roleChoice }; });
+                  patch({ bays });
+                  setSelectedBays(empty);
+                }}>빈 베이 {empty.length}개 모두 채우기</button>}
+                {Object.keys(config.bays).length > 0 && <button type="button" className="lnk" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>전체 빼기</button>}
+              </div>
+              <div className="row" role="group" aria-label="Data RAID">
+                Data RAID {RAID_LEVELS.map((level) => (
+                  <button type="button" key={level || "none"} className="opt" aria-pressed={config.raid.data === level} onClick={() => patch({ raid: { ...config.raid, data: level } })}>{level || "No RAID"}</button>
+                ))}
+              </div>
+              <div className="row">
+                Boot RAID <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })} aria-label="Boot RAID">
+                  {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
+                </select>
+                <label><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
+              </div>
+            </div>
+          );
+        })()}
         {renderStage("rear")}
-        {panel === "disk" && (
-          <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="디스크 · RAID">
-            <div className="row between">
-              <b>{selectedBays.length ? `전면 Bay ${[...selectedBays].sort((a, b) => a - b).join(", ")} 선택됨` : "디스크 · RAID"}</b>
-              <span className="muted">베이를 더 눌러 여러 개 선택 · <button type="button" className="lnk" onClick={() => setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]))}>빈 베이 전체</button></span>
-              <button className="ico" aria-label="닫기" onClick={() => { setPanel(null); setSelectedBays([]); }}>✕</button>
-            </div>
-            <div className="row">
-              디스크 <select id="addDrive" aria-label="디스크 모델" defaultValue={server.drive_options.find((drive) => drive.ff === backplane.ff)?.id || ""}>
-                {server.drive_options.filter((drive) => drive.ff === backplane.ff).map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
-              </select>
-              용도 <select id="addRole" aria-label="디스크 용도"><option value="data">Data</option><option value="boot">Boot</option></select>
-              <button className="btn small" disabled={!selectedBays.length} onClick={() => {
-                const drive = (document.getElementById("addDrive") as HTMLSelectElement).value;
-                const role = (document.getElementById("addRole") as HTMLSelectElement).value as "boot" | "data";
-                const bays = { ...config.bays };
-                selectedBays.forEach((index) => { bays[String(index)] = { drive, role }; });
-                patch({ bays });
-                setSelectedBays([]);
-              }}>장착</button>
-              <button className="btn ghost small" disabled={!selectedBays.length} onClick={() => {
-                const bays = { ...config.bays };
-                selectedBays.forEach((index) => delete bays[String(index)]);
-                patch({ bays });
-                setSelectedBays([]);
-              }}>빼기</button>
-              <button className="btn ghost small" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>전체 빼기</button>
-            </div>
-            <div className="row" role="group" aria-label="Data RAID">
-              Data RAID {RAID_LEVELS.map((level) => (
-                <button type="button" key={level || "none"} className="opt" aria-pressed={config.raid.data === level} onClick={() => patch({ raid: { ...config.raid, data: level } })}>{level || "No RAID"}</button>
-              ))}
-            </div>
-            <div className="row">
-              Boot RAID <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })} aria-label="Boot RAID">
-                {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
-              </select>
-              <label><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
-            </div>
-          </div>
-        )}
         {panel === "spec" && (
           <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="CPU · 메모리">
             <div className="row between">

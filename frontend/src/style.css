@@ -465,3 +465,7 @@ figure.stage{position:relative}
 .ptools button:disabled{opacity:.4;cursor:default}
 .ptools i{width:1px;background:#39424D;margin:3px 2px}
 .ptools [data-tip]:hover::after{bottom:auto;top:calc(100% + 6px);left:auto;right:0;transform:none}
+.bay.filled::after{content:"";position:absolute;left:1px;right:1px;bottom:1px;height:4px;background:#3DDC84;border-radius:1px}
+.bay.filled.boot::after{background:#F5B942}
+.mode-clean .bay.filled::after,.mode-calib .bay.filled::after{display:none}
+.slotpanel .opts{display:inline-flex;gap:4px}
