@@ -13,6 +13,7 @@ interface Props {
   /** 그림에서 직접 바꿔 견적과 달라진 곳 수 */
   diffCount: number;
   onPaste: (text: string) => void;
+  onResolve: (line: number, use: "ai" | "rule") => void;
   onReapply: () => void;
   onClear: () => void;
   onSplit: () => void;
@@ -21,7 +22,7 @@ interface Props {
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onReapply, onClear, onSplit, onKeepOne, onMarkLine }: Props) {
+export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, onMarkLine }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
@@ -45,6 +46,7 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
   const count = (wanted: string) => lines.filter((line) => state(line.n, line.status) === wanted).length;
   const warn = count("warn");
   const replaced = (notes || []).filter((note) => /대체|없음|근사|제한/.test(note)).length;
+  const conflicts = quote.ai?.conflicts || [];
 
   return (
     <div className="quotebox on">
@@ -53,6 +55,8 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
         <span className="muted small">{quote.base_desc || quote.model_hint || "본체 미표기"} · 품목 {count("part")} · 부속품 {count("skip")}
           {replaced ? <> · <span className="q-warn">대체 {replaced}</span></> : null}
           {warn ? <> · <span className="q-warn">확인 필요 {warn}</span></> : null}
+          {conflicts.length ? <> · <span className="q-warn">AI·규칙 해석 다름 {conflicts.length}</span></> : null}
+          {quote.ai?.used ? <> · AI 정리</> : null}
           {diffCount ? <> · <span className="q-diff">견적 대비 변경 {diffCount}</span></> : null}
         </span>
         <span className="quotehead-act">
@@ -68,6 +72,22 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
             <button type="button" className="btn small" onClick={onSplit}>{quote.split.length}개 탭으로 나누기</button>
             <button type="button" className="btn ghost small" onClick={onKeepOne}>첫 번째만 쓰기</button>
           </div>
+        </div>
+      )}
+      {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
+      {conflicts.length > 0 && (
+        <div className="warnlist aiconf" role="region" aria-label="AI와 규칙의 해석이 다른 품목">
+          <b>⚠ AI와 규칙의 해석이 다른 품목 {conflicts.length}개</b> <span className="muted small">— 기본은 AI 해석, 품목마다 고르세요</span>
+          {conflicts.map((c) => (
+            <div key={c.line} className="cf">
+              <div className="cf-text" title={c.text}>{c.text}</div>
+              <div className="cf-opts">
+                <button type="button" className={`opt ${c.using === "ai" ? "on" : ""}`} onClick={() => onResolve(c.line, "ai")}>AI: {c.ai}</button>
+                <button type="button" className={`opt ${c.using === "rule" ? "on" : ""}`} disabled={!c.can_use_rule} onClick={() => onResolve(c.line, "rule")}>규칙: {c.rule ?? "읽지 못함"}</button>
+              </div>
+              {c.unverified.length > 0 && <div className="cf-why">원문에서 확인하지 못한 값: {c.unverified.join(", ")}</div>}
+            </div>
+          ))}
         </div>
       )}
       <details className="quotefold">

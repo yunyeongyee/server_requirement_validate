@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   applyProposal,
+  getAiStatus,
   pasteText,
   getComponents,
   getImageStatus,
@@ -12,6 +13,7 @@ import {
   setImageMap,
   validateServer,
 } from "./api";
+import type { AiStatus } from "./api";
 import type { Component, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest, RenderedImages } from "./components/ConfigSection";
@@ -20,6 +22,7 @@ import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
 import QuotePanel from "./components/QuotePanel";
+import AiToggle from "./components/AiToggle";
 import { configDiff } from "./configDiff";
 
 export type ModelSource = "document" | "manual" | "default";
@@ -120,6 +123,11 @@ export default function App() {
   const [view, setView] = useState<"server" | "all">("server");
   const [focus, setFocus] = useState<FocusRequest | null>(null);
   const [imagesSignal, setImagesSignal] = useState(0);
+  /** AI 분석: 서버에 키가 있고 사용자가 켜 둔 경우만 (저장된 선택이 없으면 키가 있을 때 기본 켬) */
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [aiPref, setAiPref] = useState<boolean | null>(() => { try { const v = localStorage.getItem("srv.ai"); return v === null ? null : v === "1"; } catch { return null; } });
+  const aiOn = !!aiStatus?.enabled && (aiPref ?? true);
+  const changeAi = (next: boolean) => { setAiPref(next); try { localStorage.setItem("srv.ai", next ? "1" : "0"); } catch { /* 저장 불가 환경 */ } };
 
   const group = groups.find((item) => item.id === activeGroupId) || groups[0];
   const profile = profiles[group.id];
@@ -133,6 +141,10 @@ export default function App() {
   const diff = useMemo(() => SHOW_QUOTE_DIFF && group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
+
+  useEffect(() => {
+    if (apiReady) getAiStatus().then(setAiStatus).catch(() => setAiStatus(null));
+  }, [apiReady]);
 
   useEffect(() => {
     let active = true;
@@ -254,24 +266,25 @@ export default function App() {
   };
 
   /** 왼쪽 칸: 요구사항 붙여넣기. replace = 교체, append = 지금 내용 뒤에 붙여 다시 분석. 견적·구성은 건드리지 않는다 */
-  const handlePaste = async (text: string, mode: "replace" | "append") => {
+  const handlePaste = async (text: string, mode: "replace" | "append" | "refresh", ruleLines: number[] = []) => {
     const target = group;
-    const fullText = mode === "append" && target.text ? `${target.text}\n${text}` : text;
+    const fullText = mode === "append" && target.text ? `${target.text}\n${text}` : mode === "refresh" ? target.text || text : text;
     setPasteBusy(true);
     setPasteError("");
     try {
-      const response = await pasteText(fullText, "requirement");
+      const response = await pasteText(fullText, "requirement", aiOn, ruleLines);
       const analyzed = response.server;
       // 사용자가 직접 고치거나 추가한 항목은 남긴다 (줄 번호는 append 라 그대로 유효)
-      const kept = mode === "append" ? target.requirements.filter((item) => item._user) : [];
+      const kept = mode !== "replace" ? target.requirements.filter((item) => item._user) : [];
       const next: RequirementGroup = {
         ...target,
         text: analyzed.text, lines: analyzed.lines, spec: analyzed.spec,
         requirements: [...analyzed.requirements, ...kept],
         model_hint: target.model_hint || analyzed.model_hint, suggested_server: target.suggested_server || analyzed.suggested_server,
-        line_marks: mode === "append" ? target.line_marks : {},
+        line_marks: mode !== "replace" ? target.line_marks : {},
         split: response.split.length > 1 ? response.split : undefined,
         common_lines: response.common_lines,
+        ai: response.ai,
       };
       setGroups((current) => current.map((item) => item.id === target.id ? next : item));
       // 견적이 아직 없을 때만 요구사항에 적힌 모델(R760 등)로 모델을 고른다
@@ -287,12 +300,12 @@ export default function App() {
   };
 
   /** 오른쪽 칸: 견적 붙여넣기 → 견적 모델로 모델 선택 → 그림에 장착 */
-  const handleQuotePaste = async (text: string) => {
+  const handleQuotePaste = async (text: string, ruleLines: number[] = []) => {
     const target = group;
     setQuoteBusy(true);
     setQuoteError("");
     try {
-      const response = await pasteText(text, "quote");
+      const response = await pasteText(text, "quote", aiOn, ruleLines);
       const quote: RequirementGroup = { ...response.server, split: response.split.length > 1 ? response.split : undefined, line_marks: {} };
       const existing = profiles[target.id];
       const nextProfile = profileFor(quote, existing?.source === "manual" ? existing : existing && { ...existing, source: "default" });
@@ -308,6 +321,13 @@ export default function App() {
       setQuoteBusy(false);
     }
   };
+  /** AI 와 규칙이 다른 줄에서 어느 쪽 값을 쓸지 고르면, 같은 원문으로 다시 분석한다 (AI 응답은 서버가 기억해 다시 부르지 않음) */
+  const nextRuleLines = (current: number[] | undefined, line: number, use: "ai" | "rule") =>
+    use === "rule" ? [...new Set([...(current || []), line])] : (current || []).filter((n) => n !== line);
+  const handleResolve = (line: number, use: "ai" | "rule") =>
+    void handlePaste(group.text || "", "refresh", nextRuleLines(group.ai?.rule_lines, line, use));
+  const handleQuoteResolve = (line: number, use: "ai" | "rule") =>
+    void handleQuotePaste(group.quote?.text || "", nextRuleLines(group.quote?.ai?.rule_lines, line, use));
   const handleClearQuote = () => {
     setGroups((current) => current.map((item) => item.id === group.id ? { ...item, quote: undefined, quote_config: undefined } : item));
     setProposalNotes((current) => { const copy = { ...current }; delete copy[group.id]; return copy; });
@@ -474,7 +494,8 @@ export default function App() {
         <div className="workline">
           <span className="muted-on-dark">서버 {groups.length}종 · {groups.reduce((total, item) => total + (item.quantity || 1), 0)}대</span>
         </div>
-        <span className="localnote">외부 전송 없음 · 모든 분석은 이 PC에서</span>
+        <AiToggle status={aiStatus} on={aiOn} onChange={changeAi} />
+        <span className="localnote">{aiOn ? "AI 켬 — 붙여넣은 내용이 OpenAI로 전송됩니다 (계정·IP는 가림)" : "외부 전송 없음 · 모든 분석은 이 PC에서"}</span>
         <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={group.id} view={view}
           onSelect={(id) => { setActiveGroupId(id); setView("server"); }} onShowAll={() => setView("all")}
           onAdd={handleAddServer} onRename={handleRename} onRemove={handleRemoveServer} />
@@ -497,6 +518,7 @@ export default function App() {
             result={validation}
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             onPaste={(text, mode) => void handlePaste(text, mode)}
+            onResolve={handleResolve}
             onChange={handleRequirementsChange}
             onMarkLine={handleMarkLine}
             onSplit={() => void handleSplit()}
@@ -549,6 +571,7 @@ export default function App() {
               applying={applyingGroupId === group.id}
               diffCount={diff?.count || 0}
               onPaste={(text) => void handleQuotePaste(text)}
+              onResolve={handleQuoteResolve}
               onReapply={() => void handleApplyProposal()}
               onClear={handleClearQuote}
               onSplit={() => void handleQuoteSplit()}

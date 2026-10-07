@@ -55,8 +55,8 @@ export function getComponents(): Promise<Component[]> {
 /** 견적·사양 표를 복사해 붙여넣은 글 → 업로드와 같은 형태의 결과 */
 
 
-export function pasteText(text: string, kind: "requirement" | "quote"): Promise<PasteResponse> {
-  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind }) });
+export function pasteText(text: string, kind: "requirement" | "quote", ai = false, ruleLines: number[] = []): Promise<PasteResponse> {
+  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind, ai, rule_lines: ruleLines }) });
 }
 
 export function validateServer(
@@ -139,3 +139,20 @@ export function applyProposal(
 
 
 
+
+export interface AiStatus {
+  enabled: boolean;
+  key_set: boolean;
+  model: string;
+  key_hint: string;
+  ok?: boolean;
+  message?: string;
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return request("/api/ai/status");
+}
+
+export function checkAi(): Promise<AiStatus> {
+  return request("/api/ai/check", { method: "POST" });
+}

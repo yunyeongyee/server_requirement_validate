@@ -34,6 +34,7 @@ interface Props {
   result: ValidationResult | null;
   onFocus: (request: Omit<FocusRequest, "n">) => void;
   onPaste: (text: string, mode: "replace" | "append") => void;
+  onResolve: (line: number, use: "ai" | "rule") => void;
   onChange: (requirements: Requirement[]) => void;
   onMarkLine: (line: number, mark: "skip" | null) => void;
   onSplit: () => void;
@@ -71,7 +72,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 
 export default function RequirementSection({
   group, busy, error,
-  result, onFocus, onPaste, onChange, onMarkLine, onSplit, onKeepOne,
+  result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
@@ -208,6 +209,22 @@ export default function RequirementSection({
         </div>
       )}
       {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
+      {group.ai?.notice && <p className="warn small pad" role="status">{group.ai.notice}</p>}
+      {!!group.ai?.conflicts.length && (
+        <div className="warnlist aiconf" role="region" aria-label="AI와 규칙의 해석이 다른 줄">
+          <b>⚠ AI와 규칙의 해석이 다른 줄 {group.ai.conflicts.length}개</b> <span className="muted small">— 기본은 AI 해석, 줄마다 고르세요</span>
+          {group.ai.conflicts.map((c) => (
+            <div key={c.line} className="cf">
+              <div className="cf-text" title={c.text}>{c.text}</div>
+              <div className="cf-opts">
+                <button type="button" className={`opt ${c.using === "ai" ? "on" : ""}`} onClick={() => onResolve(c.line, "ai")}>AI: {c.ai}</button>
+                <button type="button" className={`opt ${c.using === "rule" ? "on" : ""}`} disabled={!c.can_use_rule} onClick={() => onResolve(c.line, "rule")}>규칙: {c.rule ?? "읽지 못함"}</button>
+              </div>
+              {c.unverified.length > 0 && <div className="cf-why">원문에서 확인하지 못한 값: {c.unverified.join(", ")}</div>}
+            </div>
+          ))}
+        </div>
+      )}
       {n("warn") > 0 && (
         <div className="warnlist" role="region" aria-label="읽지 못한 줄">
           <b>⚠ 읽지 못한 줄 {n("warn")}개</b> <span className="muted small">— 항목으로 추가하거나 제외하세요</span>

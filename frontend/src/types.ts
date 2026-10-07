@@ -97,11 +97,34 @@ export interface RequirementGroup {
   common_lines?: number;
   /** 오른쪽 칸에 붙여넣은 견적 (요구사항과 따로) */
   quote?: RequirementGroup;
+  /** 이 붙여넣기를 AI로 정제했는지, 규칙과 다른 줄 */
+  ai?: AiInfo;
   /** 견적대로 적용했을 때의 구성 — 그림에서 직접 바꾼 곳을 '견적 대비 변경'으로 표시하는 기준 */
   quote_config?: ServerConfig;
 }
 
+/** AI 해석과 규칙 파서 해석이 다른 줄 (기본값은 AI, 줄마다 규칙 값을 고를 수 있다) */
+export interface AiConflict {
+  line: number;
+  text: string;
+  kind: "diff" | "unverified";
+  ai: string;
+  rule: string | null;
+  unverified: string[];
+  can_use_rule: boolean;
+  using: "ai" | "rule";
+}
+
+export interface AiInfo {
+  used: boolean;
+  model?: string;
+  notice: string | null;
+  conflicts: AiConflict[];
+  rule_lines: number[];
+}
+
 export interface PasteResponse {
+  ai?: AiInfo;
   server: RequirementGroup;
   error?: string;
   split: RequirementGroup[];

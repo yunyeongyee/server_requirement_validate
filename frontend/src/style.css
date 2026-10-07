@@ -602,3 +602,27 @@ main.work{padding-bottom:72px}
 .modal-foot .muted{margin-right:auto}
 .cardtitle{font-size:16px}
 .modelline .modelname{font-weight:600;color:var(--mute)}
+
+/* AI 분석 토글 (헤더) */
+.aitoggle-wrap{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#DCE3EA}
+.aitoggle{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.aitoggle input{position:absolute;opacity:0;width:1px;height:1px}
+.aitoggle .switch{width:34px;height:18px;border-radius:999px;background:#4A535E;position:relative;transition:background .15s}
+.aitoggle .switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+.aitoggle input:checked+.switch{background:#2EA44F}
+.aitoggle input:checked+.switch::after{transform:translateX(16px)}
+.aitoggle input:focus-visible+.switch{outline:2px solid #5A9BFF;outline-offset:2px}
+.aitoggle.disabled{opacity:.55;cursor:not-allowed}
+.aitoggle[data-tip]:hover::after{left:auto;right:0;transform:none;bottom:auto;top:calc(100% + 6px)}
+.aitest{color:#9CC8F2;font-size:12px}
+.aicheck{font-size:12px;color:#CFE8D5;max-width:360px}
+/* AI와 규칙의 해석이 다른 줄 */
+.aiconf{background:#F3F8FD;border-color:#B9D3EE}
+.cf{border-top:1px solid #DCE7F3;padding:6px 0;display:grid;gap:4px}
+.cf:first-of-type{border-top:0}
+.cf-text{font-size:13px;color:#2D3742;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cf-opts{display:flex;flex-wrap:wrap;gap:6px}
+.cf-opts .opt{font:inherit;font-size:12.5px;border:1px solid var(--line);background:#fff;border-radius:4px;padding:1px 10px;cursor:pointer;text-align:left}
+.cf-opts .opt.on{border-color:var(--accent);background:#E6F0FA;font-weight:600}
+.cf-opts .opt:disabled{opacity:.45;cursor:default}
+.cf-why{font-size:12px;color:#8A5300}

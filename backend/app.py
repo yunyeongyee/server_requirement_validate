@@ -7,7 +7,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import doc_tables, extract, images, parts, paste as P, proposal, validate as V
+from . import config
+config.load_env()  # .env 의 API 키·설정을 환경변수로 (다른 모듈보다 먼저)
+from . import ai_normalize, doc_tables, extract, images, parts, paste as P, proposal, validate as V
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -50,6 +52,16 @@ def version():
     return {"version": "v4"}
 
 
+@app.get("/api/ai/status")
+def ai_status():
+    return ai_normalize.status()
+
+
+@app.post("/api/ai/check")
+async def ai_check():
+    return {**ai_normalize.status(), **(await asyncio.to_thread(ai_normalize.check_connection))}
+
+
 @app.get("/api/servers")
 def servers():
     return load_servers()
@@ -76,6 +88,8 @@ def _suggest(group: dict, text: str):
 class PasteIn(BaseModel):
     text: str
     kind: str = "requirement"  # requirement(왼쪽 칸) | quote(오른쪽 칸)
+    ai: bool = False           # 화면의 'AI 분석' 토글
+    rule_lines: list[int] = []  # AI 와 규칙이 다른 줄에서 사용자가 '규칙 값'을 고른 줄
 
 
 @app.post("/api/paste")
@@ -85,7 +99,7 @@ def paste(body: PasteIn):
     text = body.text.replace("\r\n", "\n").strip("\n")
     if not text.strip():
         raise HTTPException(422, "붙여넣은 내용이 없습니다")
-    result = P.analyze(text, _suggest, body.kind)
+    result = P.analyze(text, _suggest, body.kind, body.ai, body.rule_lines)
     if result.get("error"):
         raise HTTPException(422, result["error"])
     return result

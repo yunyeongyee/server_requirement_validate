@@ -9,9 +9,11 @@
 외부 전송 없음.
 """
 from __future__ import annotations
-import re
+import logging, re
 
-from . import doc_tables, extract, parts
+from . import ai_normalize as A, doc_tables, extract, parts
+
+logger = logging.getLogger(__name__)
 
 SKIP_CATEGORIES = {"accessory", "license", "transceiver"}
 # 숫자 없는 짧은 제목 줄 ("서버 요구사항", "[하드웨어 사양]")
@@ -47,7 +49,7 @@ def _logical(lines: list[str]) -> list[tuple[list[int], str]]:
     return out
 
 
-def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) -> list[dict]:
+def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict], ignored: dict | None = None) -> list[dict]:
     groups = _logical(lines)
     owner = {i: idx for idx, _ in groups for i in idx}   # 줄 → 그 줄이 속한 문장의 줄들
     norms = [_norm(line) for line in lines]
@@ -82,6 +84,9 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) ->
             row["status"] = "skip" if item["category"] in SKIP_CATEGORIES else "part"
             qty = f" × {item['qty']:g}" if item.get("qty") else ""
             row["label"] = f"{item.get('category_ko') or item['category']} · {item.get('desc', '')}{qty}"
+        elif ignored and index in ignored:
+            row["status"] = "skip"
+            row["label"] = f"AI가 제외: {ignored[index]}" if ignored[index] else "AI가 제외"
         elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line) or REQ_ID.match(raw.strip()):
             row["status"] = "head"
         elif SOFTWARE.search(raw):
@@ -95,12 +100,12 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) ->
     return out
 
 
-def _server(group: dict, text: str) -> dict:
+def _server(group: dict, text: str, ignored: dict | None = None) -> dict:
     lines = text.splitlines()
     requirements = group.get("requirements") or []
     items = group.get("items") or []
     return {**{k: v for k, v in group.items() if k != "text"}, "text": text,
-            "lines": _tag_lines(lines, requirements, items)}
+            "lines": _tag_lines(lines, requirements, items, ignored)}
 
 
 def _group_text(group: dict, text: str) -> str:
@@ -113,15 +118,58 @@ def _group_text(group: dict, text: str) -> str:
     return "\n".join(keep) or text
 
 
-def analyze(text: str, suggest, kind: str = "requirement") -> dict:
+def analyze(text: str, suggest, kind: str = "requirement", use_ai: bool = False, rule_lines=()) -> dict:
     """kind = 어느 칸에 붙여넣었는지. 판정하지 않고 칸이 정한다 (요구사항을 견적으로, 견적을 요구사항으로 잘못 읽지 않게).
-      requirement: 요구사항 규칙으로 읽기. 서버 제목이 여럿이면 나누기 제안
-      quote      : 견적 표로 읽기(품목 → 제안 구성). 본체가 여럿이면 나누기 제안
-    → {server, split, common_lines}. suggest(group, text) 는 추천 모델을 붙이는 콜백."""
-    return _quote(text, suggest) if kind == "quote" else _requirement(text, suggest)
+      requirement: 요구사항 / quote: 견적 표(품목 → 제안 구성). 서버가 여럿이면 나누기 제안
+    use_ai: AI 로 정규화(기본값) — 규칙 파서 결과와 다르면 ai.conflicts 로 돌려준다. 실패하면 규칙 결과 + 안내.
+    rule_lines: 사용자가 '규칙 값'을 고른 줄(0부터). → {server, split, common_lines, ai}"""
+    rule_lines = {int(n) for n in rule_lines}
+    lines = text.splitlines()
+    rule = _quote_rule(text) if kind == "quote" else _requirement_rule(text)
+    ai: dict = {"used": False, "notice": None, "conflicts": [], "rule_lines": sorted(rule_lines)}
+    built = None
+    if use_ai:
+        if not A.enabled():
+            ai["notice"] = "AI 키가 설정되어 있지 않아 규칙으로 분석했습니다 (.env 의 OPENAI_API_KEY)"
+        else:
+            try:
+                built = _with_ai(kind, text, lines, rule, rule_lines)
+                ai.update(used=True, model=A.settings()["model"], conflicts=built["conflicts"])
+            except A.AIError as error:
+                ai["notice"] = f"AI 분석에 실패해 규칙으로 분석했습니다 — {error.user_message}"
+            except Exception:  # 예상 못한 응답도 분석 전체를 멈추지 않는다
+                logger.exception("AI normalization failed")
+                ai["notice"] = "AI 분석 중 오류가 나서 규칙으로 분석했습니다"
+    groups, ignored = (built["groups"], built["ignored"]) if built else (rule["groups"], {})
+    if kind == "quote":
+        out = _quote_response(groups, text, suggest, ignored, built["common_note"] if built else None)
+    else:
+        out = _requirement_response(groups, built["common"] if built else None, text, suggest, ignored, rule)
+    if out.get("error") and built is None and not groups:
+        return out
+    out["ai"] = ai
+    if out.get("server") is not None:
+        out["server"]["ai"] = ai
+    for part in out.get("split") or []:
+        part["ai"] = {**ai, "conflicts": part.pop("_conflicts", [])}
+    return out
 
 
-def _requirement(text: str, suggest) -> dict:
+def _carve(lines: list[str], wanted: set[int], reqs=None, items=None, conflicts=None):
+    """전체 원문에서 이 서버에 속한 줄만 떼어 내고, 항목의 줄 번호를 새 번호로 바꾼다."""
+    idx = sorted(i for i in wanted if 0 <= i < len(lines))
+    pos = {old: new for new, old in enumerate(idx)}
+    text = "\n".join(lines[i] for i in idx)
+    def remap(r):
+        mapped = [pos[i] for i in (r.get("lines") or []) if i in pos]
+        line = pos.get(r.get("line"))
+        return {**r, "line": line if line is not None else (mapped[0] if mapped else None), "lines": mapped}
+    new_conflicts = [{**c, "line": pos[c["line"]]} for c in conflicts or [] if c["line"] in pos]
+    return text, [remap(r) for r in reqs or []], [remap(i) for i in items or []], new_conflicts, pos
+
+
+# ── 규칙 파서 (AI 가 꺼져 있거나 실패했을 때, 그리고 AI 결과와 비교할 때) ──
+def _requirement_rule(text: str) -> dict:
     groups = extract.extract_server_groups(text)
     split, common = [], ""
     if len(groups) > 1:
@@ -131,17 +179,16 @@ def _requirement(text: str, suggest) -> dict:
             m = doc_tables.HEAD_QTY.search(group["name"])
             group = {**group, "name": doc_tables.clean_name(group["name"]), "quantity": int(m.group(1)) if m else None,
                      "doc_role": "requirement", "requirements": extract.extract_requirements(section),
-                     "spec": extract.spec_summary(section)}
-            suggest(group, section)
-            split.append(_server(group, section))
+                     "spec": extract.spec_summary(section), "_section": section}
+            split.append(group)
     joined = "\n".join(t for _, t in _logical(text.splitlines()))
     whole = {"id": "server-1", "name": "서버 1", "doc_role": "requirement",
              "requirements": extract.extract_requirements(joined), "spec": extract.spec_summary(joined)}
-    suggest(whole, text)
-    return {"server": _server(whole, text), "split": split, "common_lines": len(common.splitlines()) if common else 0}
+    _tag_lines(text.splitlines(), whole["requirements"], [])   # 규칙 항목에 원문 줄 번호를 붙인다 (AI 결과와 줄 단위 비교용)
+    return {"groups": split, "whole": whole, "common_lines": len(common.splitlines()) if common else 0}
 
 
-def _quote(text: str, suggest) -> dict:
+def _quote_rule(text: str) -> dict:
     try:
         res = doc_tables.analyze("붙여넣기.tsv", text.encode("utf-8"))
     except Exception:
@@ -149,21 +196,90 @@ def _quote(text: str, suggest) -> dict:
     groups = [{**g, "doc_role": "quote", "requirements": [], "spec": []} for g in res.get("groups") or [] if g.get("items")]
     if not groups:
         groups = _quote_by_lines(text)
+    return {"groups": groups}
+
+
+def _with_ai(kind: str, text: str, lines: list[str], rule: dict, rule_lines: set[int]) -> dict:
+    if kind == "quote":
+        result = A.normalize("quotation", lines)
+        out = A.quote_from_ai(result, lines, rule["groups"], rule_lines)
+        if not out["groups"]:
+            raise A.AIError("empty", "AI가 견적 품목을 찾지 못했습니다")
+        out["common_note"] = None
+        out["common"] = []
+        return out
+    result = A.normalize("requirement", lines)
+    out = A.requirements_from_ai(result, lines, rule["whole"]["requirements"], rule_lines)
+    if not out["groups"] and not out["common"]:
+        raise A.AIError("empty", "AI가 요구사항을 찾지 못했습니다")
+    return out
+
+
+# ── 응답 조립 ──
+def _requirement_response(groups, common, text, suggest, ignored, rule) -> dict:
+    lines = text.splitlines()
+    if common is None:  # 규칙 결과
+        split = []
+        for group in groups:
+            section = group.pop("_section", group.get("text", ""))
+            suggest(group, section)
+            built = _server(group, section)
+            built["_conflicts"] = []
+            split.append(built)
+        whole = rule["whole"]
+        suggest(whole, text)
+        return {"server": _server(whole, text), "split": split, "common_lines": rule["common_lines"]}
+    # AI 결과: 서버 그룹이 하나면 한 서버, 여럿이면 나누기 제안
+    everything = [r for g in groups for r in g["requirements"]] + common
+    seen, union = set(), []
+    for r in everything:
+        k = (r["key"], r.get("op"), str(r.get("value")), tuple(r.get("lines") or []))
+        if k not in seen:
+            seen.add(k)
+            union.append(r)
+    split = []
+    if len(groups) > 1:
+        for g in groups:
+            reqs = g["requirements"] + common
+            wanted = {i for r in reqs for i in (r.get("lines") or [])}
+            section, rs, _, _, _ = _carve(lines, wanted, reqs=reqs)
+            group = {"id": "server-x", "name": doc_tables.clean_name(g["name"]) or "서버", "quantity": g.get("quantity"),
+                     "doc_role": "requirement", "requirements": rs, "spec": []}
+            suggest(group, section)
+            built = _server(group, section)
+            built["_conflicts"] = []
+            split.append(built)
+    whole = {"id": "server-1", "name": "서버 1", "doc_role": "requirement", "requirements": union, "spec": []}
+    if len(groups) == 1 and groups[0].get("quantity"):
+        whole["quantity"] = groups[0]["quantity"]
+    suggest(whole, text)
+    return {"server": _server(whole, text, ignored), "split": split, "common_lines": len(common)}
+
+
+def _quote_response(groups, text, suggest, ignored, common_note) -> dict:
     if not groups:
         return {"server": None, "split": [], "common_lines": 0,
                 "error": "견적 표로 읽지 못했습니다 — 품명과 수량이 있는 표를 엑셀에서 그대로 긁어 붙여넣으세요"}
+    lines = text.splitlines()
     split = []
     if len(groups) > 1:
         for group in groups:
-            section = _group_text(group, text)
+            wanted = {i["line"] for i in group.get("items") or [] if i.get("line") is not None}
+            if wanted:
+                section, _, items, _, _ = _carve(lines, wanted, items=group.get("items"))
+                group = {**group, "items": items}
+            else:
+                section = _group_text(group, text)
             suggest(group, section)
-            split.append(_server(group, section))
+            built = _server(group, section)
+            built["_conflicts"] = []
+            split.append(built)
     whole = dict(groups[0])
     if len(groups) > 1:
         whole["notes"] = [*(whole.get("notes") or []), f"본체가 {len(groups)}대로 보여 첫 번째 본체 구성을 적용했습니다 — 서버별로 나누세요"]
     whole["items"] = [it for group in groups for it in group.get("items") or []]
     suggest(whole, text)
-    return {"server": _server(whole, text), "split": split, "common_lines": 0}
+    return {"server": _server(whole, text, ignored), "split": split, "common_lines": 0}
 
 
 def _quote_by_lines(text: str) -> list[dict]:
