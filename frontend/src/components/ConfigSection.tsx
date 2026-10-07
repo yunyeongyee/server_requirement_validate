@@ -23,7 +23,7 @@ interface Props {
 
 export interface FocusRequest {
   kind: "slot" | "spec" | "bays";
-  part?: "fc" | "nic" | "gpu";
+  part?: "fc" | "nic" | "gpu" | "psu";
   n: number;
 }
 
@@ -104,7 +104,7 @@ export default function ConfigSection({
   }, [server?.id, config?.backplane, images?.bays.rects]);
   useEffect(() => {
     const next: Record<string, Rect> = {};
-    server?.slots.forEach((slot) => {
+    [...(server?.slots || []), ...(server?.psu_slots || [])].forEach((slot) => {
       if (slot.hotspot) next[slot.id] = { ...slot.hotspot };
     });
     setSlotHotspots(next);
@@ -115,6 +115,15 @@ export default function ConfigSection({
     if (focus.kind === "spec") {
       setSpecOpen(true);
       window.setTimeout(() => specRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+    } else if (focus.kind === "slot" && focus.part === "psu") {
+      const psuSlots = server.psu_slots || [];
+      const target = psuSlots[Math.min(config?.psu_count || 0, psuSlots.length - 1)];
+      if (target) {
+        setSelectedSlot(target.id);
+        window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+      } else {
+        setSpecOpen(true);
+      }
     } else if (focus.kind === "slot") {
       const free = server.slots.find((slot) => slot.type !== "ocp" && !config?.slots[slot.id]
         && (result?.slots.find((item) => item.slot === slot.id)?.usable ?? true));
@@ -246,13 +255,19 @@ export default function ConfigSection({
     }
   };
 
+  const psuSlots = (server.psu_slots || []).map((psu) => ({
+    ...psu, type: "psu", gen: 0, lanes: 0, height: "", double_width_ok: false, cpu: 0, riser: null,
+  }));
+  const psuIndex = (id: string) => psuSlots.findIndex((psu) => psu.id === id);
+  const psuWarn = !!result?.general.some((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg));
+
   const renderStage = (view: "front" | "rear") => {
     const info = images?.[view];
     const rendered = renderedImages[view] || info?.item?.url || null;
     const isVisible = imageView === "both" || imageView === view;
     const areas = view === "front"
       ? currentFrontRects.map((area, index) => ({ area, slot: undefined, index }))
-      : server.slots.flatMap((slot, index) => slotHotspots[slot.id] ? [{ area: slotHotspots[slot.id], slot, index }] : []);
+      : [...server.slots, ...psuSlots].flatMap((slot, index) => slotHotspots[slot.id] ? [{ area: slotHotspots[slot.id], slot, index }] : []);
     return (
       <figure className="stage" key={view} hidden={!isVisible}>
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span></figcaption>
@@ -266,6 +281,8 @@ export default function ConfigSection({
                 const status = view === "front" ? getBayResult(bayIndex)?.status : slot ? getSlotResult(slot.id)?.status : null;
                 const className = view === "front"
                   ? `bay ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
+                  : slot?.type === "psu"
+                  ? `hs psu ${selectedSlot === slot.id ? "sel" : ""} ${psuIndex(slot.id) < config.psu_count ? (psuWarn ? "s-review" : "s-ok") : "empty"}`
                   : `hs ${selectedSlot === slot?.id ? "sel" : ""} ${status === "충족" ? "s-ok" : status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`;
                 return (
                   <button
@@ -282,7 +299,9 @@ export default function ConfigSection({
                       else if (slot) setSelectedSlot((current) => current === slot.id ? null : slot.id);
                     }}
                   >
-                    {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : <span className="tag">{slot?.label}</span>}
+                    {view === "front" ? <><span className="bn">{index}</span>{bay && <span className="bay-label">{server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}</span>}</> : slot?.type === "psu"
+                      ? <><span className="tag">{slot.label}</span><span className="psu-w">{psuIndex(slot.id) < config.psu_count ? `${config.psu_watt}W` : "비어 있음"}</span></>
+                      : <span className="tag">{slot?.label}</span>}
                     {mode === "calib" && <span className="grip" />}
                     {mode === "calib" && view === "front" && (
                       <span
@@ -406,7 +425,29 @@ export default function ConfigSection({
           </div>
         )}
         {renderStage("rear")}
-        {selectedSlot && (() => {
+        {selectedSlot && psuIndex(selectedSlot) >= 0 && (() => {
+          const index = psuIndex(selectedSlot);
+          const filled = index < config.psu_count;
+          return (
+            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label={`${psuSlots[index].label} 구성`}>
+              <div className="row between">
+                <b>{psuSlots[index].label}</b>
+                <span className="muted">{filled ? `${config.psu_watt}W 장착` : "비어 있음"} · 전원 공급 장치 {config.psu_count}/{psuSlots.length}개</span>
+                <button className="ico" aria-label="PSU 패널 닫기" onClick={() => setSelectedSlot(null)}>✕</button>
+              </div>
+              <div className="opts" role="group" aria-label="PSU 용량">
+                {server.psu_options.map((watt) => (
+                  <button type="button" key={watt} className="opt" aria-pressed={filled && config.psu_watt === watt}
+                    onClick={() => patch({ psu_watt: watt, psu_count: Math.max(config.psu_count, index + 1) })}>{watt}W</button>
+                ))}
+                {filled && <button type="button" className="opt" onClick={() => patch({ psu_count: index })}>빼기</button>}
+              </div>
+              <p className="muted small">한 서버의 PSU는 같은 용량으로 장착합니다. 용량을 바꾸면 장착된 PSU 모두 바뀝니다. 예상 최대 소비전력 {result ? `${Math.round(result.summary.power_est_w)}W` : "-"}.</p>
+              {psuWarn && <ul className="issues">{result?.general.filter((item) => /PSU|전원|소비전력/.test(item.msg)).map((item, i) => <li key={i}><StatusBadge status={item.status} /> {item.msg}</li>)}</ul>}
+            </div>
+          );
+        })()}
+        {selectedSlot && psuIndex(selectedSlot) < 0 && (() => {
           const slot = server.slots.find((item) => item.id === selectedSlot);
           if (!slot) return null;
           const slotResult = getSlotResult(slot.id);

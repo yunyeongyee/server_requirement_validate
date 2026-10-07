@@ -423,3 +423,12 @@ details.fold .issues{margin:8px 0 0}
 .invlink{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding-top:10px;font-size:13.5px}
 .invlink label{font-weight:600}
 .invlink select{font:inherit;font-size:13.5px}
+.hs.psu{border-style:solid;border-color:rgba(255,170,60,.85);background:rgba(255,170,60,.08)}
+.hs.psu.empty{border-style:dashed;border-color:rgba(200,200,200,.7);background:rgba(0,0,0,.35)}
+.hs.psu.s-ok{border-color:#3DDC84}
+.hs .psu-w{position:absolute;left:2px;bottom:2px;font-size:11px;font-weight:700;color:#fff;background:rgba(10,30,50,.85);padding:0 4px;border-radius:2px}
+.mode-clean .psu-w{display:none}
+.slotpanel .opts{display:flex;flex-wrap:wrap;gap:6px}
+.slotpanel .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
+.slotpanel .opt:hover{border-color:var(--accent)}
+.slotpanel .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}

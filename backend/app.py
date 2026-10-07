@@ -23,7 +23,10 @@ def load_servers() -> dict:
 
 
 def save_servers(d: dict):
-    (DATA / "servers.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+    path = DATA / "servers.json"
+    crlf = b"\r\n" in path.read_bytes()[:200]  # 원래 줄바꿈 형식을 유지해 불필요한 diff를 만들지 않는다
+    text = json.dumps(d, ensure_ascii=False, indent=2) + "\n"
+    path.write_bytes((text.replace("\n", "\r\n") if crlf else text).encode("utf-8"))
 
 
 def catalog() -> dict:
@@ -247,7 +250,7 @@ def save_hotspots(sid: str, body: HotspotIn):
     s = next((s for s in data["servers"] if s["id"] == sid), None)
     if not s:
         raise HTTPException(404)
-    for slot in s["slots"]:
+    for slot in s["slots"] + s.get("psu_slots", []):
         if slot["id"] in body.hotspots:
             slot["hotspot"] = {k: round(float(v), 2) for k, v in body.hotspots[slot["id"]].items()}
     save_servers(data)

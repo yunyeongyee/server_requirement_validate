@@ -137,6 +137,8 @@ export interface Server {
   backplanes: Backplane[];
   slots: Slot[];
   drive_options: DriveOption[];
+  /** 후면 PSU 베이 위치 (PSU1부터 순서대로 채움) */
+  psu_slots?: Array<{ id: string; label: string; hotspot?: { x: number; y: number; w: number; h: number } }>;
 }
 
 export interface ServerConfig {

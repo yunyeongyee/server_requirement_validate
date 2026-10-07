@@ -384,6 +384,7 @@ export default function App() {
     const updatedServer = {
       ...server,
       slots: server.slots.map((slot) => ({ ...slot, hotspot: hotspots[slot.id] || slot.hotspot })),
+      psu_slots: server.psu_slots?.map((psu) => ({ ...psu, hotspot: hotspots[psu.id] || psu.hotspot })),
     };
     await saveHotspots(server.id, hotspots);
     await saveBays(server.id, config.backplane, rects);
