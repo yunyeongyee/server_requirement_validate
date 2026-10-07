@@ -10,6 +10,8 @@ const KEY_DEFS: Record<string, [string, string]> = {
   disk_size_gb: ["Disk Size", "GB"],
   disk_total_gb: ["Disk Total", "GB"],
   raid_level: ["RAID", ""],
+  raid_controller: ["RAID Controller", ""],
+  rack_mount: ["Rack Type", ""],
   nic_speed_gb: ["NIC Speed", "GbE"],
   nic_ports: ["NIC Port", "Port"],
   fc_speed_gb: ["FC Speed", "Gb"],
@@ -21,7 +23,7 @@ const KEY_DEFS: Record<string, [string, string]> = {
   gpu_count: ["GPU", "EA"],
   manual: ["수기 검토", ""],
 };
-const BOOLEAN_KEYS = new Set(["ocp_required", "dual_psu"]);
+const BOOLEAN_KEYS = new Set(["ocp_required", "dual_psu", "raid_controller", "rack_mount"]);
 /** 칩 뒤에 붙여 보여줄 짧은 조건 (CPU당 / Boot / 10GbE 이상 포트) */
 const SHOWN_NOTES = /^(CPU당|Boot|[\d.]+GbE 이상 포트)$/;
 
@@ -45,7 +47,7 @@ function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> 
   if (key.startsWith("nic_") || key === "ocp_required") return { label: "NIC 추가", request: { kind: "slot", part: "nic" } };
   if (key === "gpu_count") return { label: "GPU 추가", request: { kind: "slot", part: "gpu" } };
   if (key === "dual_psu" || key === "psu_watt") return { label: "PSU 변경", request: { kind: "slot", part: "psu" } };
-  if (key === "raid_level") return { label: "RAID 변경", request: { kind: "bays" } };
+  if (key === "raid_level" || key === "raid_controller") return { label: "RAID 변경", request: { kind: "bays" } };
   if (key.startsWith("disk_")) return { label: "디스크 추가", request: { kind: "bays" } };
   if (["memory_gb", "cpu_sockets", "cpu_cores"].includes(key)) return { label: "사양 수정", request: { kind: "spec" } };
   return null;

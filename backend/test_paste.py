@@ -98,6 +98,31 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(status["disk_count"], "미충족")   # 2개뿐
 
 
+class SpecSheetTests(unittest.TestCase):
+    """제안요청서 형식 (요구 번호 · 글머리 · 줄바꿈된 '이상' · 둘째 줄로 넘어간 문장)."""
+    TEXT = "\n".join([
+        "ECR-003", "미들웨어서버 H/W", "• 형태 : Rack Type",
+        "• CPU : Intel Xeon 6 6505P 2.2GHz 이상 (12Core / 24Thread 이상)", "• Memory : 64GB 이상",
+        "• Disk : Enterprise SSD 480GB RAID1", "• NIC : 10Gbps Dual Port × 2 ", "이상",
+        "• HBA : 32Gbps Dual Port × 2 이상", "• OS : Red Hat Enterprise Linux Standard", "• RAID Controller 지원",
+        "• 이중전원(Redundant Power) 지원",
+        "• 미들웨어(TP Monitor) 운영을 위한 서버로 충분한 처리성능을 제공하여야 ",
+        "  하며, 향후 시스템 확장 및 서비스 증가에도 안정적인 운영이 가능하여야 한다.",
+    ])
+
+    def test_every_line_read_and_model_number_is_not_a_socket_count(self):
+        sv = TestClient(app).post("/api/paste", json={"text": self.TEXT, "kind": "requirement"}).json()["server"]
+        self.assertNotIn("warn", [l["status"] for l in sv["lines"]])
+        got = {(r["key"], r["value"]) for r in sv["requirements"]}
+        for item in [("cpu_cores", 12), ("memory_gb", 64.0), ("disk_size_gb", 480.0), ("raid_level", "RAID1"),
+                     ("nic_speed_gb", 10.0), ("nic_ports", 4), ("fc_speed_gb", 32.0), ("fc_ports", 4),
+                     ("rack_mount", True), ("raid_controller", True), ("dual_psu", True)]:
+            self.assertIn(item, got)
+        self.assertNotIn("cpu_sockets", [k for k, _ in got])  # '6505P' 의 5P 는 소켓 수가 아님
+        os_line = next(l for l in sv["lines"] if "Red Hat" in l["text"])
+        self.assertEqual(os_line["status"], "skip")
+
+
 class RaidTests(unittest.TestCase):
     def test_higher_raid_satisfies(self):
         from .validate import _raid_covers

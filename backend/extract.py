@@ -165,6 +165,8 @@ KEYS = {
     "disk_count":    ("Disk", "EA"),
     "disk_size_gb":  ("Disk Size", "GB"),
     "disk_total_gb": ("Disk Total", "GB"),
+    "rack_mount":    ("Rack Type", ""),
+    "raid_controller": ("RAID Controller", ""),
 }
 
 VAGUE = re.compile(r"(충분한|충분히|적절한|적정|안정적|고성능|최적|원활|유연한|확장성|우수한|향후\s*고려|등\s*고려|협의)")
@@ -220,8 +222,14 @@ def _ports(L: str) -> int | None:
     if t:
         return int(t.group(1))
     p = re.search(NUM + r"\s*(?:port|포트|p\b)", L)
-    if not p:
+    word = re.search(r"(single|dual|quad|octa|싱글|듀얼|쿼드)\s*-?\s*(?:port|포트)", L)
+    if not p and not word:
         return None
+    if not p:
+        # 'Dual Port × 2' → 2 × 2
+        n = {"single": 1, "싱글": 1, "dual": 2, "듀얼": 2, "quad": 4, "쿼드": 4, "octa": 8}[word.group(1)]
+        mult = re.search(r"(?:port|포트)[^x×*\d]{0,12}[x×*]\s*(\d+)\s*(?:ea|개|장|식)?", L[word.start():])
+        return n * int(mult.group(1)) if mult else n
     n = int(float(p.group(1)))
     mult = re.search(r"(?:port|포트|p\b)[^x×*\d]{0,12}[x×*]\s*(\d+)\s*(?:ea|개|장|식)?", L[p.start():])
     return n * int(mult.group(1)) if mult else n
@@ -252,7 +260,7 @@ def extract_requirements(text: str) -> list[dict]:
 
         # CPU sockets
         if re.search(r"cpu|프로세서|processor|소켓|socket|중앙\s*처리|xeon|epyc", L):
-            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
+            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(?<![\w.])(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
             if m:
                 n = 2 if (m.group(5) or "dual" in L or "2-way" in L) else int(m.group(1) or m.group(2) or m.group(4))
                 if 1 <= n <= 8:
@@ -333,6 +341,14 @@ def extract_requirements(text: str) -> list[dict]:
                 found.append(_req("disk_size_gb", ">=", float(size.group(1)) * (1000 if size.group(2) == "tb" else 1), line, note=boot))
             if count:
                 found.append(_req("disk_count", ">=" if re.search(GE, L) or not re.search(r"정확히|only", L) else "=", int(count.group(1) or count.group(2)), line, note=boot))
+
+        # 폼팩터: 랙형
+        if re.search(r"rack\s*(?:type|mount|형)?|랙\s*(?:형|타입|마운트)", L) and re.search(r"형태|폼\s*팩터|form|type|타입|형\b|rack\s*type|랙형", L) \
+                and not re.search(r"kit|키트|rail|레일", L):
+            found.append(_req("rack_mount", "=", True, line))
+        # RAID 컨트롤러 (수준 표기 없이 '지원/필요')
+        if re.search(r"raid\s*(?:controller|컨트롤러|카드|card)|\b(?:perc|praid)\b|하드웨어\s*raid|hw\s*raid", L):
+            found.append(_req("raid_controller", "=", True, line))
 
         # RAID
         m = re.search(r"raid\s*-?\s*(10|1|5|6|0)\b", L)

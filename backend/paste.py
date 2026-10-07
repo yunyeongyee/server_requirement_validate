@@ -22,8 +22,36 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", extract.normalize(text)).strip(" -•*·\t").lower()
 
 
+BULLET = re.compile(r"^\s*(?:[•\-\*·□■○●▶▷◦‣]|\d+[.)]|[가-하][.)])\s*")
+CONT_WORD = re.compile(r"^(?:이상|이하|미만|초과|以上|or more|at least)\W*$", re.I)
+CONNECTIVE = re.compile(r"^(?:하며|하고|하여|및|또는|그리고|으로|로서|등|이며|하여야|해야)")
+REQ_ID = re.compile(r"^[A-Z]{2,6}[-_ ]?\d{1,4}(?:[-_.]\d+)?$")
+SOFTWARE = re.compile(r"^\W*(?:os|운영\s*체제|o/s|소프트웨어|software|s/w|sw|라이선스|license|dbms|db)\s*[:：]|red\s*hat|rhel|windows\s*server|vmware|vsphere|ubuntu|suse|oracle\s*linux|rocky|centos", re.I)
+
+
+def _logical(lines: list[str]) -> list[tuple[list[int], str]]:
+    """줄바꿈으로 끊긴 문장을 잇는다: 다음 줄이 '이상'뿐이거나, 들여쓴 이어지는 줄이거나, '하며/및'으로 이어지면 앞 줄에 붙인다."""
+    out: list[tuple[list[int], str]] = []
+    for index, raw in enumerate(lines):
+        text = raw.strip()
+        if not text:
+            continue
+        if out:
+            prev_idx, prev = out[-1]
+            prev_open = not re.search(r"[.。!?]$|다\.?$", prev)
+            indented = re.match(r"^(?:\s{2,}|\t)", raw) and not BULLET.match(raw)
+            if CONT_WORD.match(text) or (indented and prev_open) or (prev_open and CONNECTIVE.match(text)):
+                out[-1] = (prev_idx + [index], f"{prev} {text}")
+                continue
+        out.append(([index], text))
+    return out
+
+
 def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) -> list[dict]:
+    groups = _logical(lines)
+    owner = {i: idx for idx, _ in groups for i in idx}   # 줄 → 그 줄이 속한 문장의 줄들
     norms = [_norm(line) for line in lines]
+    gnorm = {idx[0]: _norm(text) for idx, text in groups}
     # 요구사항 → 근거가 된 줄 (근거가 줄의 일부이거나 줄이 근거의 일부)
     for req in requirements:
         if req.get("line") is not None:
@@ -32,6 +60,8 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) ->
         # 1) 근거가 통째로 들어 있는 줄들 → 2) 그런 줄이 없을 때만 근거의 일부인 줄들
         #    (PDF처럼 '항목명 줄 + 값 줄'이 이어진 근거). 대표 줄은 숫자가 있는 줄
         hits = [i for i, line in enumerate(norms) if line and any(src and src in line for src in sources)]
+        if not hits:  # 이어 붙인 문장에서 찾기
+            hits = [i for first, text in gnorm.items() if text and any(src and src in text for src in sources) for i in owner[first]]
         if not hits:
             hits = [i for i, line in enumerate(norms) if len(line) >= 2 and any(line in src for src in sources)]
         if hits:
@@ -46,14 +76,17 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict]) ->
         row = {"n": index, "text": raw.strip()}
         item = next((it for it in items if (it.get("code") and _norm(it["code"]) in line)
                      or (it.get("desc") and _norm(it["desc"]) in line)), None)
-        if index in used:
+        if index in used or any(i in used for i in owner.get(index, [])):
             row["status"] = "req"
         elif item and item.get("category") != "unknown":
             row["status"] = "skip" if item["category"] in SKIP_CATEGORIES else "part"
             qty = f" × {item['qty']:g}" if item.get("qty") else ""
             row["label"] = f"{item.get('category_ko') or item['category']} · {item.get('desc', '')}{qty}"
-        elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line):
+        elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line) or REQ_ID.match(raw.strip()):
             row["status"] = "head"
+        elif SOFTWARE.search(raw):
+            row["status"] = "skip"
+            row["label"] = "OS·소프트웨어 — H/W 검증 대상 아님"
         else:
             row["status"] = "warn"
             cats = [cat for cat, pattern in extract.SPEC_CATS if re.search(pattern, line, re.I)]
@@ -101,8 +134,9 @@ def _requirement(text: str, suggest) -> dict:
                      "spec": extract.spec_summary(section)}
             suggest(group, section)
             split.append(_server(group, section))
+    joined = "\n".join(t for _, t in _logical(text.splitlines()))
     whole = {"id": "server-1", "name": "서버 1", "doc_role": "requirement",
-             "requirements": extract.extract_requirements(text), "spec": extract.spec_summary(text)}
+             "requirements": extract.extract_requirements(joined), "spec": extract.spec_summary(joined)}
     suggest(whole, text)
     return {"server": _server(whole, text), "split": split, "common_lines": len(common.splitlines()) if common else 0}
 

@@ -182,6 +182,7 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
         "psu_count": psu_cnt, "psu_watt": psu_w,
         "free_pcie": free,
         "gpu_count": sum(1 for c in eff if c["category"] == "GPU"),
+        "form_factor": server.get("form_factor", ""),
         "cpu_model": cfg.get("cpu_model", ""), "cpu_cores": cpu_cores(cfg.get("cpu_model", "")),
         "disks": {role: [_drive_gb(d.get("model", "")) for d in cfg.get("drives", []) if d.get("role", "data") == role
                          for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
@@ -292,6 +293,12 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             else:
                 total = sum(disks)
                 actual = f"{name} 원시 {_gb_text(total)}"; status = PASS if total >= float(v) else FAIL
+        elif k == "rack_mount":
+            ff = str(s.get("form_factor") or "")
+            actual = ff or "-"; status = PASS if re.search(r"\d\s*u\b|rack", ff, re.I) else REVIEW
+        elif k == "raid_controller":
+            have = bool(s["raid_boot"] or s["raid_data"])
+            actual = "RAID 구성됨" if have else "RAID 구성 없음"; status = PASS if have else FAIL
         elif k == "gpu_count":
             actual = f"{s['gpu_count']}EA"
             # 요구 수량 이상이면 충족. 전원·쿨링·Riser 확인은 슬롯 호환성(확인 필요)에서 따로 걸린다
