@@ -213,6 +213,25 @@ def _extract_at_effort(
     return _validate_and_convert(response, text, context)
 
 
+_SECRET_LABEL = re.compile(r"(?i)(?<![a-z])(pw|pwd|passwd|password|passcode|비밀번호|패스워드|암호|id|계정|account|user(?:name)?)(\s*[:=]?\s+)(\S+)")
+_IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_PASSWORD_LIKE = re.compile(r"(?=\S*[a-z])(?=\S*[A-Z])(?=\S*\d)(?=\S*[@#$%^&*!?~.\-_+=])\S{8,}")
+
+
+def redact(value):
+    """외부 AI로 보내기 전에 계정·비밀번호·IP를 가린다. 사양 추출에는 필요 없는 정보다.
+    라벨 뒤의 값('PW xxx'), IP 주소, 대·소문자·숫자·특수문자가 섞인 8자 이상 토큰을 가린다."""
+    if isinstance(value, str):
+        value = _SECRET_LABEL.sub(lambda m: f"{m.group(1)}{m.group(2)}[가림]", value)
+        value = _IP.sub("[IP]", value)
+        return _PASSWORD_LIKE.sub("[가림]", value)
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    if isinstance(value, dict):
+        return {key: redact(item) for key, item in value.items()}
+    return value
+
+
 def _request_openai(
     api_key: str,
     model: str,
@@ -222,7 +241,7 @@ def _request_openai(
     rule_groups: list[dict],
 ) -> dict:
     source_text, document_structure = _model_input(text, context, rule_groups, effort)
-    prompt = {"source_text": source_text, "document_structure": document_structure}
+    prompt = redact({"source_text": source_text, "document_structure": document_structure})
     if effort == "low":
         prompt["known_server_groups"] = [group.get("name", "") for group in rule_groups]
     if len(json.dumps(prompt, ensure_ascii=False)) > MAX_CONTEXT_CHARS:

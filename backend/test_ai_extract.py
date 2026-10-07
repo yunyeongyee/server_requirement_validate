@@ -199,3 +199,16 @@ class AdaptiveExtractionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedactTests(unittest.TestCase):
+    def test_masks_credentials_and_ip_but_keeps_specs(self):
+        text = ("CPU : Intel Xeon Gold 6544Y 16C 3.6GHz\nID KF21TimsSdd admin\nPW TimsKF21@ Admin-N8gHcj5k52t.\n"
+                "iRMC IP 192.168.10.100\nX710-DA4 4port 10Gb SFP")
+        out = ai_extract.redact({"source_text": text, "cells": ["Admin-zP5Sh4kz1JmS", "DDR5-4800 64GB"]})
+        joined = out["source_text"] + " ".join(out["cells"])
+        for secret in ("KF21TimsSdd", "TimsKF21@", "Admin-N8gHcj5k52t.", "192.168.10.100", "Admin-zP5Sh4kz1JmS"):
+            self.assertNotIn(secret, joined)
+        for spec in ("Xeon Gold 6544Y", "X710-DA4", "DDR5-4800 64GB", "3.6GHz"):
+            self.assertIn(spec, joined)
+
