@@ -574,7 +574,8 @@ export default function ConfigSection({
               <p className="muted">부트 디스크는 BOSS(M.2)로 구성합니다. 디스크가 필요하면 모델 옆 "변경"에서 백플레인을 바꾸세요.</p>
             </> : <>
             <p><strong>{server.model} {view === "front" ? "전면" : "후면"} 실제 이미지가 없습니다.</strong></p>
-            <p>오른쪽 위 "⋯ 도구 → 서버 이미지 변경"에서 Dell PowerEdge 스텐실(VSSX/VSDX)을 올리면 자동으로 연결됩니다.</p>
+            <p>Dell PowerEdge 스텐실(VSSX/VSDX)이나 이미지를 올려 주세요. 올리면 이 모델에 자동으로 연결됩니다.</p>
+            <p><button type="button" className="btn small" onClick={onOpenImages}>실제 이미지 올리기</button></p>
             <p className="muted">{view === "front" ? "그림이 없어도 아래 막대의 '빈 베이 모두 선택'으로 디스크를 꽂고 검증할 수 있습니다." : "그림이 없어도 '⋯ 도구 → 슬롯 목록으로 보기'에서 부품을 꽂고 검증할 수 있습니다."}</p>
             </>}
           </div>
