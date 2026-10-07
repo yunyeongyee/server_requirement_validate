@@ -36,6 +36,7 @@ interface ServerProfile {
 }
 
 const DEFAULT_GROUP_ID = "server-1";
+const SHOW_QUOTE_DIFF = false;
 const emptyGroup = (id: string, name: string): RequirementGroup => ({ id, name, requirements: [], spec: [] });
 const stamp = () => formatSavedAt(new Date().toISOString());
 const newGroupId = () => `server-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -148,7 +149,8 @@ export default function App() {
   );
   const config = profile?.config || null;
   const validation = results[group.id] || null;
-  const diff = useMemo(() => group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
+  // '견적 대비 변경' 표시는 보류 (README 작업 목록 참고). 켜려면 SHOW_QUOTE_DIFF = true
+  const diff = useMemo(() => SHOW_QUOTE_DIFF && group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
 

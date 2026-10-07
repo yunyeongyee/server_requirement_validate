@@ -35,6 +35,12 @@ Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시�
 ## 작업 저장
 작업 화면 맨 아래 "저장하기"를 누르면 서버별 붙여넣은 내용·요구사항·구성이 이 PC의 `data/projects/`에 저장된다 (git에 올라가지 않음). 저장 이름은 헤더의 작업 이름이고, 같은 이름이면 덮어쓴다. 헤더의 "열기 ▾"에서 다시 연다.
 
+## 보류한 작업 (우선순위 순)
+1. **견적 대비 변경 표시**: 그림에서 직접 바꾼 슬롯·디스크·PSU를 견적 원본과 비교해 표시하고 "견적대로 복원".
+   계산은 구현됨(`frontend/src/configDiff.ts`), 화면 표시는 `App.tsx`의 `SHOW_QUOTE_DIFF`로 꺼 둠. 용어 확정 필요
+2. 결과물 내보내기 (구성도 이미지·비교표)
+3. Fujitsu 등 다른 모델·부품 카탈로그 추가
+
 ## 테스트
 ```bash
 python -m unittest backend.test_paste backend.test_doc_tables backend.test_images
