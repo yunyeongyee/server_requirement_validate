@@ -62,6 +62,16 @@ interface Rect {
 
 const BLOCK_REASON = "이 모델 데이터에 없는 영역이라 사용할 수 없습니다";
 
+/** 저장된 슬롯·PSU·가림 영역 좌표 → 편집용 맵 */
+function savedHotspots(server: Server | null): Record<string, Rect> {
+  const next: Record<string, Rect> = {};
+  [...(server?.slots || []), ...(server?.psu_slots || [])].forEach((slot) => {
+    if (slot.hotspot) next[slot.id] = { ...slot.hotspot };
+  });
+  (server?.rear_blocked || []).forEach((area, index) => { next[`blk:${index}`] = { ...area }; });
+  return next;
+}
+
 interface DragState {
   view: "front" | "rear";
   key: string;
@@ -102,6 +112,12 @@ export default function ConfigSection({
   const [calibrationBusy, setCalibrationBusy] = useState(false);
   const [calibrationMessage, setCalibrationMessage] = useState("");
   const drag = useRef<DragState | null>(null);
+  // 완료 메시지는 잠깐 보여주고 지운다 (오류는 남김)
+  useEffect(() => {
+    if (!calibrationMessage || calibrationMessage.includes("오류")) return;
+    const timer = window.setTimeout(() => setCalibrationMessage(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [calibrationMessage]);
   function openPanel(next: "disk" | "spec") {
     setSelectedSlot(null);
     if (next === "spec") setSelectedBays([]);
@@ -113,12 +129,7 @@ export default function ConfigSection({
     setFrontRects(images?.bays.rects || []);
   }, [server?.id, config?.backplane, images?.bays.rects]);
   useEffect(() => {
-    const next: Record<string, Rect> = {};
-    [...(server?.slots || []), ...(server?.psu_slots || [])].forEach((slot) => {
-      if (slot.hotspot) next[slot.id] = { ...slot.hotspot };
-    });
-    (server?.rear_blocked || []).forEach((area, index) => { next[`blk:${index}`] = { ...area }; });
-    setSlotHotspots(next);
+    setSlotHotspots(savedHotspots(server));
   }, [server]);
 
   useEffect(() => {
@@ -196,7 +207,7 @@ export default function ConfigSection({
     const last = rects.length > 1 ? rects[rects.length - 1] : { ...first, x: Math.min(100 - first.w, first.x + first.w * 1.1 * (n - 1)) };
     const step = n > 1 ? { x: (last.x - first.x) / (n - 1), y: (last.y - first.y) / (n - 1) } : { x: 0, y: 0 };
     setFrontRects(Array.from({ length: n }, (_, index) => ({ x: first.x + step.x * index, y: first.y + step.y * index, w: first.w, h: first.h })));
-    setCalibrationMessage(`Bay 0 크기로 ${n}개를 같은 간격으로 배치했습니다. 확인 후 '좌표 저장'을 누르세요.`);
+    setCalibrationMessage(`Bay 0 크기로 ${n}개를 같은 간격으로 배치했습니다. 확인 후 '저장하고 끝내기'를 누르세요.`);
   };
   const copyFirstSize = () => {
     const first = currentFrontRects[0];
@@ -207,7 +218,7 @@ export default function ConfigSection({
   const useCandidates = (from: "start" | "end") => {
     const ordered = sortRects(candidates);
     setFrontRects(from === "start" ? ordered.slice(0, backplane.bays) : ordered.slice(-backplane.bays));
-    setCalibrationMessage("사용할 베이를 바꿨습니다. '좌표 저장'을 눌러야 반영됩니다.");
+    setCalibrationMessage("사용할 베이를 바꿨습니다. '저장하고 끝내기'를 눌러야 반영됩니다.");
   };
   const startDrag = (view: "front" | "rear", event: PointerEvent<HTMLDivElement>) => {
     if (mode !== "calib") return;
@@ -255,7 +266,8 @@ export default function ConfigSection({
         .sort(([a], [b]) => Number(a.slice(4)) - Number(b.slice(4)))
         .map(([, area], index) => [`blk:${index}`, area] as const);
       await onSaveCalibration({ ...plain, ...Object.fromEntries(blocks) }, currentFrontRects);
-      setCalibrationMessage("좌표 저장 완료");
+      setCalibrationMessage("좌표를 저장했습니다");
+      setMode("edit");
     } catch (reason) {
       setCalibrationMessage(`저장 오류: ${reason instanceof Error ? reason.message : String(reason)}`);
     } finally {
@@ -297,6 +309,26 @@ export default function ConfigSection({
     return (
       <figure className="stage" key={view} hidden={!isVisible}>
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span></figcaption>
+        {mode === "calib" && rendered && (
+          <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
+            {view === "front" ? <>
+              <button type="button" data-tip="베이 자동 감지 다시" aria-label="베이 자동 감지 다시" disabled={calibrationBusy} onClick={() => void redetect()}>↻</button>
+              <button type="button" data-tip="Bay 0 크기를 전체에 적용" aria-label="Bay 0 크기를 전체에 적용" className="txt" onClick={copyFirstSize}>ALL</button>
+              <button type="button" data-tip="처음·끝 사이 균등 배치 — Bay 0과 마지막 베이만 맞추고 누르세요" aria-label="처음·끝 사이 균등 배치" onClick={distributeBays}>⇔</button>
+              {imageBayMismatch && <>
+                <i aria-hidden="true" />
+                <button type="button" data-tip={`왼쪽부터 ${backplane.bays}개 사용`} aria-label={`왼쪽부터 ${backplane.bays}개 사용`} onClick={() => useCandidates("start")}>◧</button>
+                <button type="button" data-tip={`오른쪽부터 ${backplane.bays}개 사용`} aria-label={`오른쪽부터 ${backplane.bays}개 사용`} onClick={() => useCandidates("end")}>◨</button>
+              </>}
+            </> : (
+              <button type="button" data-tip="가림 영역 추가 — 이 모델로 쓸 수 없는 자리를 검정 박스로 가립니다" aria-label="가림 영역 추가" onClick={() => {
+                const used = Object.keys(slotHotspots).filter((key) => key.startsWith("blk:")).map((key) => Number(key.slice(4)));
+                const next = used.length ? Math.max(...used) + 1 : 0;
+                setSlotHotspots((current) => ({ ...current, [`blk:${next}`]: { x: 42, y: 40, w: 14, h: 22, reason: BLOCK_REASON } }));
+              }}>⊘</button>
+            )}
+          </div>
+        )}
         {rendered ? (
           <div className={`chassis mode-${mode}`}>
             <img src={rendered} alt={`${server.vendor} ${server.model} ${view === "front" ? "전면" : "후면"}`} />
@@ -405,7 +437,7 @@ export default function ConfigSection({
         <div className="cardhead">
           {modelLine}
           <div className="tools">
-            {mode !== "edit" && <span className="tag">{mode === "calib" ? "좌표 보정 중" : "제안서 보기"} <button type="button" className="lnk" onClick={() => setMode("edit")}>끝내기</button></span>}
+            {mode === "clean" && <span className="tag">제안서 보기 <button type="button" className="lnk" onClick={() => setMode("edit")}>끝내기</button></span>}
             <button type="button" className="lnk" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>⋯ 도구</button>
             {toolsOpen && (
               <div className="menu" role="menu" onClick={() => setToolsOpen(false)}>
@@ -428,25 +460,23 @@ export default function ConfigSection({
             <span className="muted">내부</span> <b>CPU</b> {config.cpu_model} × {config.cpu_count} <span className="muted">·</span> <b>메모리</b> {config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB × ${row.qty}`).join(" + ") || "없음"} = {memoryTotal}GB
             <span className="lnk specline-act">바꾸기</span>
           </button>
-        {mode === "calib" && <div className="row">
-          <span className="muted">빠른 방법: Bay 0의 크기·위치와 마지막 베이 위치만 맞춘 뒤 '처음·끝 사이 균등 배치'를 누르세요. 점선(+) 칸은 이미지에서 찾았지만 쓰지 않는 베이로, 클릭하면 추가됩니다. 사용 중 베이는 ✕로 뺄 수 있습니다. ({currentFrontRects.length}/{backplane.bays}베이)</span>
-          <button className="btn ghost small" disabled={calibrationBusy} onClick={() => void redetect()}>베이 자동 감지 다시</button>
-          <button className="btn ghost small" onClick={copyFirstSize} title="Bay 0의 너비·높이·세로 위치를 모든 베이에 복사">Bay 0 크기를 전체에 적용</button>
-          <button className="btn ghost small" onClick={distributeBays} title="Bay 0과 마지막 베이 위치만 맞추면 사이를 같은 간격으로 채움">처음·끝 사이 균등 배치</button>
-          {imageBayMismatch && <>
-            <button className="btn ghost small" onClick={() => useCandidates("start")}>왼쪽부터 {backplane.bays}개 사용</button>
-            <button className="btn ghost small" onClick={() => useCandidates("end")}>오른쪽부터 {backplane.bays}개 사용</button>
-          </>}
-          <button className="btn ghost small" title="후면 그림에서 이 모델로 쓸 수 없는 자리를 검정 박스로 가립니다" onClick={() => {
-            const used = Object.keys(slotHotspots).filter((key) => key.startsWith("blk:")).map((key) => Number(key.slice(4)));
-            const next = used.length ? Math.max(...used) + 1 : 0;
-            setSlotHotspots((current) => ({ ...current, [`blk:${next}`]: { x: 42, y: 40, w: 14, h: 22, reason: BLOCK_REASON } }));
-            setCalibrationMessage("후면에 가림 영역을 추가했습니다. 옮기고 크기를 맞춘 뒤 '좌표 저장'을 누르세요.");
-          }}>후면 가림 영역 추가</button>
-          <button className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>좌표 저장</button>
-          {calibrationMessage && <span className={calibrationMessage.includes("오류") ? "warn" : "muted"} role={calibrationMessage.includes("오류") ? "alert" : undefined}>{calibrationMessage}</span>}
-        </div>}
-        {imageBayMismatch && (
+        {mode === "calib" && (
+          <div className="calibbar" role="toolbar" aria-label="좌표 보정">
+            <b>좌표 보정 중</b>
+            <span className="muted">영역을 끌어 옮기고, 오른쪽 아래 모서리로 크기 조절 · 베이 {currentFrontRects.length}/{backplane.bays}</span>
+            <span className="calibbar-act">
+              <button type="button" className="btn ghost small" disabled={calibrationBusy} onClick={() => {
+                setFrontRects(images?.bays.rects || []);
+                setSlotHotspots(savedHotspots(server));
+                setMode("edit");
+                setCalibrationMessage("");
+              }}>취소</button>
+              <button type="button" className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>저장하고 끝내기</button>
+            </span>
+          </div>
+        )}
+        {calibrationMessage && <p className={calibrationMessage.includes("오류") ? "warn small" : "muted small"} role={calibrationMessage.includes("오류") ? "alert" : "status"}>{calibrationMessage}</p>}
+        {imageBayMismatch && mode !== "calib" && (
           <div className="hint">
             전면 이미지에는 베이가 {candidates.length}개 보이는데 선택한 백플레인은 {backplane.bays}베이입니다.
             {matchingBackplane && <> <button className="btn small" onClick={() => onBackplaneChange(matchingBackplane.id)}>백플레인을 {matchingBackplane.name}(으)로 변경</button></>}
