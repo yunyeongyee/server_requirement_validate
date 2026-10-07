@@ -2,7 +2,7 @@
 # API Endpoint / 서버 실행
 import asyncio, json, logging
 from pathlib import Path
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -107,7 +107,9 @@ def _suggest_models(groups: list[dict], text: str):
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), ai: bool = Form(False)):
+    """ai: 화면의 'AI 분석' 토글. 켜고 올린 문서만, 그리고 키가 설정돼 있을 때만 외부 AI로 보낸다."""
+    use_ai = ai and ai_extract.enabled()
     ext = Path(file.filename).suffix.lower()
     if ext not in DOC_TYPES:
         raise HTTPException(400, f"지원 형식: {', '.join(sorted(DOC_TYPES))}")
@@ -126,7 +128,7 @@ async def upload(file: UploadFile = File(...)):
         doc = None
     # 견적서·구성도는 표를 규칙으로 정확히 읽으므로 그대로. 요구사항 문서는 AI가 켜져 있으면 AI로 확인한다.
     structured = doc and doc["groups"] and (doc["doc_role"] == "quote" or any(g.get("doc_role") == "config" for g in doc["groups"]))
-    if doc and doc["groups"] and (structured or not ai_extract.enabled()):
+    if doc and doc["groups"] and (structured or not use_ai):
         servers_list = load_servers()["servers"]
         for g in doc["groups"]:
             g["suggested_server"] = proposal.suggest_server(g.get("model_hint"), servers_list)
@@ -137,14 +139,14 @@ async def upload(file: UploadFile = File(...)):
                 "extraction": {"mode": "rules", "effort": None}}
     context = None
     context_error = None
-    if ai_extract.enabled():
+    if use_ai:
         try:
             context = await asyncio.to_thread(extract.extract_document_context, file.filename, data)
         except Exception:
             logger.exception("Could not preserve document structure for AI extraction")
             context_error = "문서 표/시트 맥락 추출에 실패해 평문 규칙 결과를 사용했습니다."
     hint = doc["groups"] if doc and doc["groups"] and len(doc["groups"]) > 1 else None
-    result = await asyncio.to_thread(_analyze_requirements, text, context, not bool(context_error), hint)
+    result = await asyncio.to_thread(_analyze_requirements, text, context, use_ai and not bool(context_error), hint)
     if hint and doc.get("inventory"):
         result["inventory"] = doc["inventory"]
     if context_error:
@@ -172,11 +174,12 @@ def apply_proposal(body: ProposalIn):
 
 class TextIn(BaseModel):
     text: str
+    ai: bool = False  # 화면의 'AI 분석' 토글
 
 
 @app.post("/api/extract")
 def extract_from_text(body: TextIn):
-    return _analyze_requirements(body.text)
+    return _analyze_requirements(body.text, None, body.ai and ai_extract.enabled())
 
 
 # ------------------------------------------------ 검증

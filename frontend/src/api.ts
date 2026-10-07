@@ -52,14 +52,15 @@ export function getComponents(): Promise<Component[]> {
   return request<Component[]>("/api/components");
 }
 
-export function uploadRequirement(file: File): Promise<UploadResponse> {
+export function uploadRequirement(file: File, useAi = false): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
+  form.append("ai", useAi ? "true" : "false");
   return request<UploadResponse & { groups?: RequirementGroup[] }>("/api/upload", { method: "POST", body: form });
 }
 
-export function extractRequirements(text: string): Promise<Pick<UploadResponse, "requirements" | "spec" | "extraction"> & { groups?: RequirementGroup[] }> {
-  return sendJson("/api/extract", { text });
+export function extractRequirements(text: string, useAi = false): Promise<Pick<UploadResponse, "requirements" | "spec" | "extraction"> & { groups?: RequirementGroup[] }> {
+  return sendJson("/api/extract", { text, ai: useAi });
 }
 
 export function validateServer(

@@ -481,3 +481,13 @@ figure.stage{position:relative}
 .ai-pop .ok-msg{color:var(--ok);margin:0}
 .ai-pop .warn{margin:0}
 .ai-pop code{background:color-mix(in srgb,var(--accent) 10%,transparent);padding:0 4px;border-radius:3px}
+.aitoggle{position:relative;order:3;margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#DCE3EA;cursor:pointer;user-select:none}
+.aitoggle input{position:absolute;opacity:0;width:1px;height:1px}
+.aitoggle .switch{width:34px;height:18px;border-radius:999px;background:#4A535E;position:relative;transition:background .15s}
+.aitoggle .switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+.aitoggle input:checked+.switch{background:#2EA44F}
+.aitoggle input:checked+.switch::after{transform:translateX(16px)}
+.aitoggle input:focus-visible+.switch{outline:2px solid #5A9BFF;outline-offset:2px}
+.aitoggle.disabled{opacity:.55;cursor:not-allowed}
+.aitoggle small{color:#9FD8B0}
+.aitoggle[data-tip]:hover::after{left:auto;right:0;transform:none;bottom:auto;top:calc(100% + 6px)}

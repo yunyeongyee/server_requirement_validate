@@ -253,6 +253,13 @@ def extract_groups(
             "effort": effort,
             "notice": f"{reason} — 규칙 기반 결과를 사용했습니다. 확인 필요 항목을 검토하세요.",
         }
+    except Exception:  # 예상하지 못한 응답·오류도 분석 전체를 멈추지 않고 규칙 결과로
+        logger.exception("Unexpected AI extraction failure; retaining rule extraction")
+        return rule_groups, {
+            "mode": "rules_fallback",
+            "effort": effort,
+            "notice": "AI 분석 중 예상하지 못한 오류가 나서 규칙 기반 결과를 사용했습니다. 확인 필요 항목을 검토하세요.",
+        }
 
 
 def _extract_at_effort(

@@ -36,10 +36,10 @@ Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시�
 | `SRV_AI_TIMEOUT` | 응답 대기 시간(초, 기본 90) |
 | `SRV_AI_BASE_URL` | 기본 `https://api.openai.com/v1` |
 
-견적서·구성도는 표를 규칙으로 읽고, AI에는 보내지 않는다. AI로 보내기 전에 계정·비밀번호·IP는 가린다. 화면 오른쪽 위 "AI 분석" 표시를 누르면 상태 확인과 연결 확인을 할 수 있다.
+견적서·구성도는 표를 규칙으로 읽고, AI에는 보내지 않는다. AI로 보내기 전에 계정·비밀번호·IP는 가린다. 화면 오른쪽 위 "AI 분석" 토글을 켠 상태로 올린 요구사항 문서만 AI로 보낸다 (기본 꺼짐, 키가 없으면 비활성).
 
 ## 테스트
 ```bash
-python -m unittest backend.test_ai_extract backend.test_doc_tables
+python -m unittest backend.test_ai_extract backend.test_doc_tables backend.test_images
 ```
 참고 견적서 테스트는 `samples/quote_kgict.xlsx`가 있을 때만 실행된다.

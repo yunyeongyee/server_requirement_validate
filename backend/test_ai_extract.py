@@ -267,3 +267,21 @@ class EnvFileTests(unittest.TestCase):
                 self.assertEqual(os.environ["SRV_TEST_A"], "hello")
                 self.assertEqual(os.environ["SRV_TEST_B"], "already")
             os.environ.pop("SRV_TEST_A", None)
+
+
+class ToggleTests(unittest.TestCase):
+    """화면 토글이 꺼져 있으면 키가 있어도 외부 AI 요청을 하지 않는다."""
+    def test_upload_and_extract_respect_toggle(self):
+        from fastapi.testclient import TestClient
+        from . import app as appmod
+        client = TestClient(appmod.app)
+        env = {"OPENAI_API_KEY": "sk-test-1234567890", "SRV_AI_ENABLED": "", "SRV_AI_MODE": "always"}
+        body = "서버 요구사항\nCPU 2소켓\n메모리 512GB 이상".encode("utf-8")
+        with patch.dict("os.environ", env, clear=False), patch("urllib.request.urlopen") as net:
+            r1 = client.post("/api/upload", files={"file": ("req.txt", body, "text/plain")})
+            r2 = client.post("/api/upload", files={"file": ("req.txt", body, "text/plain")}, data={"ai": "false"})
+            r3 = client.post("/api/extract", json={"text": "메모리 512GB 이상"})
+            self.assertEqual([r.status_code for r in (r1, r2, r3)], [200, 200, 200])
+            self.assertFalse(net.called)
+            client.post("/api/upload", files={"file": ("req.txt", body, "text/plain")}, data={"ai": "true"})
+            self.assertTrue(net.called)

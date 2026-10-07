@@ -20,7 +20,7 @@ import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
-import AiBadge from "./components/AiBadge";
+import AiToggle from "./components/AiBadge";
 
 export type ModelSource = "document" | "manual" | "default";
 
@@ -116,6 +116,7 @@ export default function App() {
   const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
   const [view, setView] = useState<"server" | "all">("server");
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
+  const [aiOn, setAiOn] = useState(() => { try { return localStorage.getItem("srv.ai") === "1"; } catch { return false; } });
   const [focus, setFocus] = useState<FocusRequest | null>(null);
   const [documentSignal, setDocumentSignal] = useState(0);
   const [pickFileSignal, setPickFileSignal] = useState(0);
@@ -280,7 +281,7 @@ export default function App() {
     setUploadError("");
     setExtractionInfo(null);
     try {
-      const response = await uploadRequirement(file);
+      const response = await uploadRequirement(file, aiOn);
       setDocumentName(response.filename);
       setDocumentText(response.text);
       setInventory(response.inventory || []);
@@ -303,7 +304,7 @@ export default function App() {
     setDocumentText(text);
     setUploadError("");
     try {
-      const response = await extractRequirements(text);
+      const response = await extractRequirements(text, aiOn);
       setExtractionInfo(response.extraction || { mode: "rules" });
       installGroups(response.groups?.length ? response.groups : [{
         id: DEFAULT_GROUP_ID,
@@ -414,7 +415,7 @@ export default function App() {
           <h1>Server Requirement Validator</h1>
           <p>고객 요구사항 문서 ↔ 실제 서버 구성 검증</p>
         </div>
-        <AiBadge lastMode={documentName ? extractionInfo?.mode : null} />
+        <AiToggle on={aiOn} onChange={(next) => { setAiOn(next); try { localStorage.setItem("srv.ai", next ? "1" : "0"); } catch { /* 저장 불가 환경 */ } }} usedOnDocument={!!documentName && extractionInfo?.mode === "ai"} />
         {documentName && (
           <div className="docline">
             <b>{documentName}</b>
