@@ -157,67 +157,8 @@ def front_item(server, bp_id) -> tuple[dict | None, bool]:
         return item(ov), False
     bp = next((b for b in server.get("backplanes", []) if b["id"] == bp_id), None)
     found = by_name(bp.get("stencil") if bp else None)
-    if found:
-        return found, True
-    # 실제 이미지가 없으면 서버 높이·베이 수·규격에 맞춘 기본 도면 (어느 모델이든 베이를 눌러 디스크를 꽂을 수 있게)
-    return (schematic_front(server, bp) if bp and bp.get("bays") else None), True
-
-
-SCHEMATIC = ROOT / "static" / "images" / "schematic"
-SCHEMATIC_PPI = 150
-_FACE_IN = {"2.5": [(0.603, 2.853), (2.853, 0.603)], "3.5": [(4.103, 1.028)], "E3.S": [(0.36, 3.0)]}
-
-
-def _schematic_layout(server, bp) -> tuple[float, float, list[dict]]:
-    """→ (폭 in, 높이 in, 베이 사각형[% 좌표]). 1U/2U 섀시 안에 베이를 한 줄 또는 여러 줄로 배치."""
-    W = 19.0
-    H = 1.72 if "1u" in str(server.get("form_factor", "")).lower() else 3.42
-    ax0, ax1, ay0, ay1 = 1.0, 18.0, 0.05, H - 0.05
-    n = bp["bays"]
-    for fw, fh in _FACE_IN.get(bp["ff"], _FACE_IN["2.5"]):
-        for rows in range(1, 5):
-            cols = -(-n // rows)
-            gx, gy = min(fw, fh) * 0.12, min(fw, fh) * 0.06
-            if cols * fw + (cols - 1) * gx <= ax1 - ax0 and rows * fh + (rows - 1) * gy <= ay1 - ay0:
-                total_w = cols * fw + (cols - 1) * gx
-                x0 = ax0 + (ax1 - ax0 - total_w) / 2
-                y0 = ay0 + (ay1 - ay0 - (rows * fh + (rows - 1) * gy)) / 2
-                rects = []
-                for i in range(n):
-                    r, c = divmod(i, cols)
-                    rects.append({"x": round((x0 + c * (fw + gx)) / W * 100, 3), "y": round((y0 + r * (fh + gy)) / H * 100, 3),
-                                  "w": round(fw / W * 100, 3), "h": round(fh / H * 100, 3)})
-                return W, H, rects
-    # 어떤 배치도 안 맞으면 크기를 줄여 한 줄
-    fw = (ax1 - ax0) / n * 0.9
-    return W, H, [{"x": round((ax0 + i * (ax1 - ax0) / n) / W * 100, 3), "y": round(ay0 / H * 100, 3),
-                   "w": round(fw / W * 100, 3), "h": round((ay1 - ay0) / H * 100, 3)} for i in range(n)]
-
-
-def schematic_front(server, bp) -> dict:
-    """기본 도면 PNG를 만들고(캐시) 라이브러리 항목과 같은 모양의 dict 를 돌려준다."""
-    W, H, rects = _schematic_layout(server, bp)
-    key = hashlib.sha1(json.dumps([server.get("form_factor"), bp["ff"], bp["bays"], rects, 4]).encode()).hexdigest()[:12]
-    SCHEMATIC.mkdir(parents=True, exist_ok=True)
-    out = SCHEMATIC / f"front_{key}.png"
-    if not out.exists():
-        pw, ph = round(W * SCHEMATIC_PPI), round(H * SCHEMATIC_PPI)
-        im = Image.new("RGBA", (pw, ph), (205, 210, 216, 255))
-        d = ImageDraw.Draw(im)
-        d.rectangle((0, 0, pw - 1, ph - 1), outline=(150, 156, 164, 255), width=3)
-        for x in (0, pw - round(0.9 * SCHEMATIC_PPI)):  # 랙 귀
-            d.rectangle((x, 0, x + round(0.9 * SCHEMATIC_PPI), ph - 1), fill=(178, 184, 192, 255), outline=(150, 156, 164, 255), width=2)
-        for r in rects:  # 빈 트레이
-            x, y = r["x"] / 100 * pw, r["y"] / 100 * ph
-            w, h = r["w"] / 100 * pw, r["h"] / 100 * ph
-            d.rectangle((x, y, x + w, y + h), fill=(70, 74, 80, 255), outline=(40, 43, 48, 255), width=2)
-            if h > w:  # 세로 트레이 손잡이
-                d.rectangle((x + w * 0.2, y + h * 0.78, x + w * 0.8, y + h * 0.94), fill=(95, 99, 106, 255))
-            else:
-                d.rectangle((x + w * 0.78, y + h * 0.2, x + w * 0.94, y + h * 0.8), fill=(95, 99, 106, 255))
-        im.save(out)
-    return {"id": f"schem-{key}", "name": f"기본 도면 · {bp['name']}", "category": "server_front",
-            "file": f"images/schematic/{out.name}", "w_in": W, "h_in": H, "schematic": True, "rects": rects}
+    # 실제 이미지(스텐실)만 쓴다. 없으면 그림 없이 — 그려 낸 도면으로 대신하지 않는다
+    return found, True
 
 
 def rear_item(server) -> tuple[dict | None, bool]:
@@ -225,82 +166,11 @@ def rear_item(server) -> tuple[dict | None, bool]:
     if ov and item(ov):
         return item(ov), False
     found = by_name(server.get("rear_stencil"))
-    return (found or schematic_rear(server)), True
-
-
-def _rear_layout(server) -> tuple[float, float, dict[str, dict]]:
-    """후면 기본 도면 배치(% 좌표): 위쪽 = Riser 별 PCIe 슬롯 묶음, 아래쪽 = PSU1 · I/O · OCP · … · PSU2."""
-    one_u = "1u" in str(server.get("form_factor", "")).lower()
-    W, H = 19.0, (1.72 if one_u else 3.42)
-    pct = lambda x0, y0, x1, y1: {"x": round(x0, 3), "y": round(y0, 3), "w": round(x1 - x0, 3), "h": round(y1 - y0, 3)}
-    out: dict[str, dict] = {}
-    top0, top1, bot0, bot1 = (6, 52, 56, 95) if not one_u else (8, 50, 54, 94)
-    pcie = [x for x in server.get("slots", []) if x.get("type") != "ocp"]
-    groups: list[list[dict]] = []
-    for sl in pcie:  # 같은 Riser 끼리 한 묶음 (순서 유지)
-        g = next((g for g in groups if sl.get("riser") and g[0].get("riser") == sl.get("riser")), None)
-        (g.append(sl) if g else groups.append([sl]))
-    if one_u:  # 1U: 높이가 낮아 모든 슬롯을 한 줄로
-        groups = [[sl] for g in groups for sl in g]
-    gx0, gx1, gap = 2.5, 97.5, 1.2
-    gw = (gx1 - gx0 - gap * (len(groups) - 1)) / max(1, len(groups))
-    for gi, g in enumerate(groups):
-        x0 = gx0 + gi * (gw + gap)
-        sh = (top1 - top0 - 1.5 * (len(g) - 1)) / len(g)
-        for si, sl in enumerate(g):
-            y0 = top0 + si * (sh + 1.5)
-            out[sl["id"]] = pct(x0, y0, x0 + gw, y0 + sh)
-    psus = server.get("psu_slots", [])
-    if psus:
-        out[psus[0]["id"]] = pct(1.5, bot0, 15.5, bot1)
-    if len(psus) > 1:
-        out[psus[1]["id"]] = pct(84.5, bot0, 98.5, bot1)
-    out["_io"] = pct(17, bot0 + 6, 37, bot1 - 4)
-    ocp = next((x for x in server.get("slots", []) if x.get("type") == "ocp"), None)
-    if ocp:
-        out[ocp["id"]] = pct(38.5, bot0 + 4, 60, bot1 - 2)
-    return W, H, out
-
-
-def schematic_rear(server) -> dict:
-    W, H, layout = _rear_layout(server)
-    key = hashlib.sha1(json.dumps([server.get("form_factor"), layout, 2]).encode()).hexdigest()[:12]
-    SCHEMATIC.mkdir(parents=True, exist_ok=True)
-    out = SCHEMATIC / f"rear_{key}.png"
-    if not out.exists():
-        pw, ph = round(W * SCHEMATIC_PPI), round(H * SCHEMATIC_PPI)
-        im = Image.new("RGBA", (pw, ph), (205, 210, 216, 255))
-        d = ImageDraw.Draw(im)
-        d.rectangle((0, 0, pw - 1, ph - 1), outline=(150, 156, 164, 255), width=3)
-        box = lambda r: (r["x"] / 100 * pw, r["y"] / 100 * ph, (r["x"] + r["w"]) / 100 * pw, (r["y"] + r["h"]) / 100 * ph)
-        for sid, r in layout.items():
-            x0, y0, x1, y1 = box(r)
-            if sid.startswith("PSU"):  # PSU 베이: 손잡이·팬·전원 입력
-                d.rectangle((x0, y0, x1, y1), fill=(178, 184, 192, 255), outline=(120, 126, 134, 255), width=2)
-                cx, cy, rr = x0 + (x1 - x0) * 0.3, (y0 + y1) / 2, (y1 - y0) * 0.3
-                d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=(90, 95, 102, 255))
-                d.rectangle((x0 + (x1 - x0) * 0.6, cy - rr * 0.8, x0 + (x1 - x0) * 0.85, cy + rr * 0.8), fill=(40, 43, 48, 255))
-            elif sid == "_io":  # VGA · USB · 관리 포트
-                d.rectangle((x0, y0, x1, y1), fill=(188, 193, 200, 255), outline=(140, 146, 154, 255), width=2)
-                w = x1 - x0
-                for k, (fx, col) in enumerate(((0.06, (60, 90, 160, 255)), (0.38, (40, 90, 200, 255)), (0.56, (40, 90, 200, 255)), (0.78, (50, 52, 56, 255)))):
-                    d.rectangle((x0 + w * fx, y0 + (y1 - y0) * 0.25, x0 + w * (fx + 0.15), y0 + (y1 - y0) * 0.75), fill=col)
-            else:  # 빈 슬롯 커버: 통풍 구멍
-                d.rectangle((x0, y0, x1, y1), fill=(222, 226, 231, 255), outline=(120, 126, 134, 255), width=2)
-                step = max(8, round(0.12 * SCHEMATIC_PPI))
-                for yy in range(round(y0) + step // 2, round(y1) - step // 3, step):
-                    for xx in range(round(x0) + step // 2, round(x1) - step // 3, step):
-                        d.rectangle((xx, yy, xx + step * 0.6, yy + step * 0.6), fill=(40, 43, 48, 255))
-        im.save(out)
-    return {"id": f"schem-rear-{key}", "name": "기본 도면 · 후면", "category": "server_rear",
-            "file": f"images/schematic/{out.name}", "w_in": W, "h_in": H, "schematic": True,
-            "layout": {k: v for k, v in layout.items() if not k.startswith("_")}}
+    return found, True
 
 
 def rear_spot(server, base_it: dict | None, sid: str, saved: dict | None) -> dict | None:
-    """슬롯·PSU 위치: 기본 도면이면 도면 배치, 실제 이미지면 저장된 좌표."""
-    if base_it and base_it.get("schematic"):
-        return base_it["layout"].get(sid)
+    """슬롯·PSU 위치: 실제 이미지에서 보정한(저장된) 좌표."""
     return saved
 
 
@@ -457,15 +327,12 @@ def bays(server, bp: dict, force=False) -> dict:
     if saved and saved.get("item") == fi["id"] and not force and (saved.get("source") == "manual" or saved.get("algo") == BAY_ALGO):
         return saved
     p = ROOT / "static" / fi["file"]
-    if fi.get("schematic"):
-        rects, ok = fi["rects"], True
-    else:
-        ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
-        rects, ok = detect_bays(p, bp["ff"], bp["bays"], ppi)
-        # 이미지 베이가 백플레인보다 적으면 그림에 없는 칸을 지어내지 않는다
-        found = len(bay_candidates(server, bp))
-        if found and found < bp["bays"]:
-            rects, ok = rects[:found], False
+    ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
+    rects, ok = detect_bays(p, bp["ff"], bp["bays"], ppi)
+    # 이미지 베이가 백플레인보다 적으면 그림에 없는 칸을 지어내지 않는다
+    found = len(bay_candidates(server, bp))
+    if found and found < bp["bays"]:
+        rects, ok = rects[:found], False
     if not rects:  # 감지 실패 → 보정용 기본 배치
         n = bp["bays"]
         rects = [{"x": 5 + i * 85 / n, "y": 10, "w": 85 / n * 0.9, "h": 80} for i in range(n)]
@@ -483,8 +350,6 @@ def bay_candidates(server, bp: dict) -> list[dict]:
     fi, _ = front_item(server, bp["id"])
     if not fi or not bp["bays"]:
         return []
-    if fi.get("schematic"):
-        return list(fi["rects"])
     key = (fi["id"], bp["ff"])
     if key not in _CANDIDATES:
         p = ROOT / "static" / fi["file"]
@@ -526,8 +391,7 @@ def status(server, comps: list[dict], bp_id: str) -> dict:
         it, auto, exact = psu_item(w)
         psus[str(w)] = {"item": _brief(it), "auto": auto, "exact": exact}
     return {"front": {"item": _brief(fi), "auto": fa, "stencil": bp.get("stencil")}, "psus": psus,
-            "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil"),
-                     "schematic": bool(ri and ri.get("schematic")), "layout": (ri or {}).get("layout")},
+            "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil")},
             "bays": {**by, "candidates": bay_candidates(server, bp)}, "components": comp_imgs, "drives": drv, "library_count": len(library())}
 
 

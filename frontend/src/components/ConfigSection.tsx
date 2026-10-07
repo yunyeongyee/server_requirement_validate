@@ -20,7 +20,7 @@ interface Props {
   /** 요구사항 행의 '추가/수정' 버튼이 보낸 요청. n 이 바뀔 때마다 처리 */
   focus: FocusRequest | null;
   onOpenImages: () => void;
-  /** 직접 고른 전면 이미지를 해제해 자동(스텐실 또는 기본 도면)으로 */
+  /** 직접 고른 전면 이미지를 해제해 자동(스텐실 이름 매칭)으로 */
   onUseAutoFront: () => Promise<void>;
   /** 카드 맨 위에 넣을 견적 붙여넣기·요약 */
   quotePanel?: ReactNode;
@@ -387,9 +387,8 @@ export default function ConfigSection({
     if (slot.riser && !config.risers.includes(slot.riser)) return `${slot.label}은 ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}가 있어야 쓸 수 있습니다. 클릭해서 Riser를 장착하세요.`;
     return `${slot.label}은 지금 구성에서 쓸 수 없습니다.`;
   };
-  // 후면이 기본 도면이면 도면이 정한 위치를, 실제 이미지면 저장된(보정한) 좌표를 쓴다
-  const rearLayout = images?.rear.schematic ? images.rear.layout || null : null;
-  const rearSpot = (id: string): Rect | undefined => rearLayout ? rearLayout[id] : slotHotspots[id];
+  // 후면 슬롯·PSU 위치는 실제 이미지에서 보정한(저장된) 좌표
+  const rearSpot = (id: string): Rect | undefined => slotHotspots[id];
   const psuIndex = (id: string) => psuSlots.findIndex((psu) => psu.id === id);
   const psuWarn = !!result?.general.some((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg));
 
@@ -419,7 +418,7 @@ export default function ConfigSection({
     return (
       <figure className="stage" key={view} hidden={!isVisible}>
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span></figcaption>
-        {mode === "calib" && rendered && !(view === "rear" && rearLayout) && (
+        {mode === "calib" && rendered && (
           <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
             {view === "front" ? <>
               <button type="button" data-tip="베이 자동 감지 다시" aria-label="베이 자동 감지 다시" disabled={calibrationBusy} onClick={() => void redetect()}>↻</button>
@@ -513,7 +512,7 @@ export default function ConfigSection({
                     type="button"
                     aria-label={`${slot.label} · ${off ? "사용 불가" : part}`}
                     aria-pressed={mode === "edit" ? selectedSlot === slot.id : undefined}
-                    data-calib-key={rearLayout ? undefined : slot.id}
+                    data-calib-key={slot.id}
                     data-tip={mode === "edit" ? `${tip}${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? " · 견적 대비 변경" : ""}` : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
                     onClick={() => {
@@ -524,11 +523,11 @@ export default function ConfigSection({
                   >
                     <span className="tag">{slot.label}</span>
                     {(status === "호환 불가" || status === "확인 필요") && <span className={`warnb ${status === "호환 불가" ? "bad" : ""}`} aria-hidden="true">!</span>}
-                    {mode === "calib" && !rearLayout && <span className="grip" />}
+                    {mode === "calib" && <span className="grip" />}
                   </button>
                 );
               })}
-              {view === "rear" && !rearLayout && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
+              {view === "rear" && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
                 <div
                   key={key}
                   className="hs blocked"
@@ -575,8 +574,8 @@ export default function ConfigSection({
               <p className="muted">부트 디스크는 BOSS(M.2)로 구성합니다. 디스크가 필요하면 모델 옆 "변경"에서 백플레인을 바꾸세요.</p>
             </> : <>
             <p><strong>{server.model} {view === "front" ? "전면" : "후면"} 실제 이미지가 없습니다.</strong></p>
-            <p>2단계에서 Dell PowerEdge Rack Servers 스텐실(VSSX) 또는 VSDX를 올리면 자동으로 연결됩니다.</p>
-            <p className="muted">이미지가 없어도 구성 목록에서 부품 및 디스크를 지정하고 검증할 수 있습니다.</p>
+            <p>오른쪽 위 "⋯ 도구 → 서버 이미지 변경"에서 Dell PowerEdge 스텐실(VSSX/VSDX)을 올리면 자동으로 연결됩니다.</p>
+            <p className="muted">{view === "front" ? "그림이 없어도 아래 막대의 '빈 베이 모두 선택'으로 디스크를 꽂고 검증할 수 있습니다." : "그림이 없어도 '⋯ 도구 → 슬롯 목록으로 보기'에서 부품을 꽂고 검증할 수 있습니다."}</p>
             </>}
           </div>
         )}
@@ -660,7 +659,7 @@ export default function ConfigSection({
           <div className="hint">
             이 전면 이미지에는 베이가 {candidates.length}개뿐이라 {backplane.name} 구성을 모두 표시할 수 없습니다.
             {" "}{images?.front.auto === false
-              ? <button className="btn small" onClick={() => void onUseAutoFront()}>기본 도면으로 보기</button>
+              ? <button className="btn small" onClick={() => void onUseAutoFront()}>자동 이미지로 되돌리기</button>
               : <button className="btn ghost small" onClick={onOpenImages}>다른 이미지 고르기</button>}
           </div>
         )}
