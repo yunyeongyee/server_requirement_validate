@@ -80,42 +80,76 @@ def _group_text(group: dict, text: str) -> str:
     return "\n".join(keep) or text
 
 
-def analyze(text: str, suggest) -> dict:
-    """→ {server: 붙여넣은 전체를 서버 1대로 본 결과, split: 서버가 여럿 보이면 서버별 결과 (아니면 [])}.
-    suggest(group, text) 는 추천 모델을 붙이는 콜백."""
-    try:
-        doc = doc_tables.analyze_document("붙여넣기.tsv", text.encode("utf-8"), text)
-    except Exception:  # 표 해석 실패해도 요구사항 규칙은 돌린다
-        doc = {"doc_role": "requirement", "groups": []}
-    groups = doc.get("groups") or []
-    split = []
-    common = ""
+def analyze(text: str, suggest, kind: str = "requirement") -> dict:
+    """kind = 어느 칸에 붙여넣었는지. 판정하지 않고 칸이 정한다 (요구사항을 견적으로, 견적을 요구사항으로 잘못 읽지 않게).
+      requirement: 요구사항 규칙으로 읽기. 서버 제목이 여럿이면 나누기 제안
+      quote      : 견적 표로 읽기(품목 → 제안 구성). 본체가 여럿이면 나누기 제안
+    → {server, split, common_lines}. suggest(group, text) 는 추천 모델을 붙이는 콜백."""
+    return _quote(text, suggest) if kind == "quote" else _requirement(text, suggest)
+
+
+def _requirement(text: str, suggest) -> dict:
+    groups = extract.extract_server_groups(text)
+    split, common = [], ""
     if len(groups) > 1:
-        if doc.get("doc_role") != "quote":
-            common = _common_text(text, groups)
+        common = _common_text(text, groups)
         for group in groups:
-            section = _group_text(group, text)
-            if common:
-                # 첫 서버 제목 앞의 공통 요구사항은 모든 서버에 넣는다
-                section = common + "\n" + section
-                group = {**group, "requirements": extract.extract_requirements(section), "spec": extract.spec_summary(section)}
+            section = (common + "\n" + group["text"]) if common else group["text"]
+            m = doc_tables.HEAD_QTY.search(group["name"])
+            group = {**group, "name": doc_tables.clean_name(group["name"]), "quantity": int(m.group(1)) if m else None,
+                     "doc_role": "requirement", "requirements": extract.extract_requirements(section),
+                     "spec": extract.spec_summary(section)}
             suggest(group, section)
             split.append(_server(group, section))
-
-    if doc.get("doc_role") == "quote" and groups:
-        whole = dict(groups[0])
-        if len(groups) > 1:
-            whole["notes"] = [*(whole.get("notes") or []), f"본체가 {len(groups)}대로 보여 첫 번째 본체 구성을 적용했습니다 — 서버별로 나누세요"]
-        # 한 서버로 볼 때도 모든 품목 줄이 표시되게 품목을 합친다
-        whole["items"] = [it for group in groups for it in group.get("items") or []]
-    else:
-        whole = {"id": "server-1", "name": "서버 1", "doc_role": "requirement",
-                 "requirements": extract.extract_requirements(text), "spec": extract.spec_summary(text)}
-        if groups and groups[0].get("quantity") and len(groups) == 1:
-            whole["quantity"] = groups[0]["quantity"]
+    whole = {"id": "server-1", "name": "서버 1", "doc_role": "requirement",
+             "requirements": extract.extract_requirements(text), "spec": extract.spec_summary(text)}
     suggest(whole, text)
-    return {"server": _server(whole, text), "split": split, "common_lines": len(common.splitlines()) if common else 0,
-            "inventory": doc.get("inventory", [])}
+    return {"server": _server(whole, text), "split": split, "common_lines": len(common.splitlines()) if common else 0}
+
+
+def _quote(text: str, suggest) -> dict:
+    try:
+        res = doc_tables.analyze("붙여넣기.tsv", text.encode("utf-8"))
+    except Exception:
+        res = {"groups": []}
+    groups = [{**g, "doc_role": "quote", "requirements": [], "spec": []} for g in res.get("groups") or [] if g.get("items")]
+    if not groups:
+        groups = _quote_by_lines(text)
+    if not groups:
+        return {"server": None, "split": [], "common_lines": 0,
+                "error": "견적 표로 읽지 못했습니다 — 품명과 수량이 있는 표를 엑셀에서 그대로 긁어 붙여넣으세요"}
+    split = []
+    if len(groups) > 1:
+        for group in groups:
+            section = _group_text(group, text)
+            suggest(group, section)
+            split.append(_server(group, section))
+    whole = dict(groups[0])
+    if len(groups) > 1:
+        whole["notes"] = [*(whole.get("notes") or []), f"본체가 {len(groups)}대로 보여 첫 번째 본체 구성을 적용했습니다 — 서버별로 나누세요"]
+    whole["items"] = [it for group in groups for it in group.get("items") or []]
+    suggest(whole, text)
+    return {"server": _server(whole, text), "split": split, "common_lines": 0}
+
+
+def _quote_by_lines(text: str) -> list[dict]:
+    """표 머리글을 못 찾은 짧은 목록: 줄마다 품명·품번·수량을 읽어 견적 1대로 (본체가 여럿이면 나눔)."""
+    blocks, items = [], []
+    for n, raw in enumerate(text.splitlines(), 1):
+        cells = re.split(r"\t|\s{2,}", raw.strip())
+        desc, code, qty = doc_tables._guess_row(cells)
+        if not desc and not code:
+            continue
+        it = doc_tables.Item(code, desc or code, qty, "", f"붙여넣기 {n}행", parts.interpret(code, desc or code))
+        if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in items):
+            blocks.append(items); items = []
+        items.append(it)
+    if items:
+        blocks.append(items)
+    hardware = [b for b in blocks if any(i.interp["category"] in doc_tables.HARDWARE | {"base"} for i in b)]
+    return [{**doc_tables._make_group(k, None, "", None, doc_tables.Block(None, "", b, "붙여넣기", False), 1.0,
+                                      ["붙여넣은 줄 단위로 읽음"], 0.6, None), "doc_role": "quote", "requirements": [], "spec": []}
+            for k, b in enumerate(hardware, 1)]
 
 
 def _common_text(text: str, groups: list[dict]) -> str:

@@ -1,7 +1,6 @@
 import { useState } from "react";
-import type { PasteLine, Requirement, RequirementGroup, Server, ValidationResult } from "../types";
+import type { PasteLine, Requirement, RequirementGroup, ValidationResult } from "../types";
 import type { FocusRequest } from "./ConfigSection";
-import ProposalPanel from "./ProposalPanel";
 
 const KEY_DEFS: Record<string, [string, string]> = {
   memory_gb: ["Memory", "GB"],
@@ -30,11 +29,6 @@ interface Props {
   group: RequirementGroup;
   busy: boolean;
   error: string;
-  servers: Server[];
-  activeServer: Server | null;
-  proposalNotes: string[] | undefined;
-  applying: boolean;
-  onApplyProposal: () => void;
   result: ValidationResult | null;
   onFocus: (request: Omit<FocusRequest, "n">) => void;
   onPaste: (text: string, mode: "replace" | "append") => void;
@@ -74,7 +68,7 @@ function formatRequirement(requirement: Requirement): string {
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 12);
 
 export default function RequirementSection({
-  group, busy, error, servers, activeServer, proposalNotes, applying, onApplyProposal,
+  group, busy, error,
   result, onFocus, onPaste, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -172,7 +166,7 @@ export default function RequirementSection({
         value={pasted}
         onChange={(event) => setPasted(event.target.value)}
         placeholder={mode === "append" ? "추가할 내용을 붙여넣으세요 — 지금 내용 뒤에 붙습니다"
-          : "요구사항 문장이나 견적 표를 긁어서 여기에 붙여넣으세요 (Ctrl+V)\n\nCPU: 2소켓, 코어 32개 이상\n메모리 512GB 이상\nPYBME64ST\t64GB (1x64GB) DDR5-6400 R ECC\t4"}
+          : "고객 요구사항을 긁어서 여기에 붙여넣으세요 (Ctrl+V)\n\nCPU: 2소켓, 코어 32개 이상\n메모리 512GB 이상\nSSD 1.92TB 4개 이상 RAID5\n10GbE 2포트 이상, FC 32Gb 2포트"}
         autoFocus={mode !== "first"}
       />
       <div className="row">
@@ -182,7 +176,7 @@ export default function RequirementSection({
           setPasteMode(null);
         }}>{busy ? "분석 중…" : mode === "append" ? "추가해서 분석" : "분석"}</button>
         {mode !== "first" && <button type="button" className="btn ghost" onClick={() => { setPasteMode(null); setPasted(""); }}>취소</button>}
-        <span className="muted small">엑셀 표는 그대로 붙여넣으면 품번·품명·수량을 나눕니다. 견적 품목이면 오른쪽 구성에 바로 적용 · 외부로 보내지 않습니다</span>
+        <span className="muted small">견적은 오른쪽 칸에 붙여넣으세요 · 외부로 보내지 않습니다</span>
       </div>
     </div>
   );
@@ -198,7 +192,7 @@ export default function RequirementSection({
     </div>
   );
 
-  if (!group.text && !requirements.length && !group.proposed) return (
+  if (!group.text && !requirements.length) return (
     <section id="s1" className="card reqcard">
       {head}
       <div className="pad">{pasteBox("first")}</div>
@@ -232,9 +226,6 @@ export default function RequirementSection({
           </div>
         </div>
       )}
-      {group.proposed && (group.doc_role === "quote" || group.doc_role === "config") && (
-        <ProposalPanel group={group} server={activeServer} servers={servers} notes={proposalNotes} busy={applying} onApply={onApplyProposal} />
-      )}
       <div className="pad srcbar">
         <b>붙여넣은 내용 {lines.length}줄</b>
         <span className="muted small">
@@ -248,8 +239,8 @@ export default function RequirementSection({
       {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
       {n("warn") > 0 && <p className="pad warnline" role="status">⚠ 자동으로 읽지 못한 줄이 {n("warn")}개 있습니다 — 아래에서 항목으로 추가하거나 '검증 대상 아님'으로 정하세요</p>}
       {/* 견적은 위 '견적 구성'이 요약이라 품목 줄은 접어 둔다 (읽지 못한 줄이 있으면 펼침) */}
-      <details className="linefold" open={!group.proposed || n("warn") > 0}>
-      <summary className="pad muted small">{group.proposed ? `품목 줄 보기 — 견적 품목 ${n("part")} · 부속품·검증 제외 ${n("skip")}${n("warn") ? ` · 확인 필요 ${n("warn")}` : ""}` : "붙여넣은 줄 보기"}</summary>
+      <details className="linefold" open>
+      <summary className="pad muted small">붙여넣은 줄 보기</summary>
       <ul className="plines">
         {lines.map((line, index) => {
           const state = states[index];
@@ -287,7 +278,7 @@ export default function RequirementSection({
           <b className="small">{lines.length ? "직접 추가한 항목" : "요구사항"}</b>
           <div className="pl-chips">{loose.map(chip)}</div>
           {loose.some((item) => item.id === editingId) && renderEdit(loose.find((item) => item.id === editingId)!)}
-          {!loose.length && <span className="muted small">{group.proposed ? "견적에는 검증할 요구사항이 없습니다. 고객 요구사항이 있으면 더 붙여넣거나 직접 추가하세요." : "인식된 요구사항이 없습니다."}</span>}
+          {!loose.length && <span className="muted small">인식된 요구사항이 없습니다.</span>}
         </div>
       )}
       <button className="addreq" onClick={() => addFor(null)}>+ 요구사항 직접 추가</button>

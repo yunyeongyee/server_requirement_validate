@@ -55,8 +55,8 @@ export function getComponents(): Promise<Component[]> {
 /** 견적·사양 표를 복사해 붙여넣은 글 → 업로드와 같은 형태의 결과 */
 
 
-export function pasteText(text: string): Promise<PasteResponse> {
-  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+export function pasteText(text: string, kind: "requirement" | "quote"): Promise<PasteResponse> {
+  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind }) });
 }
 
 export function validateServer(

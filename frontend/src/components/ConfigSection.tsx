@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
 import type { Component, ImageStatus, Server, ServerConfig, ValidationResult } from "../types";
+import type { ConfigDiff } from "../configDiff";
 
 interface Props {
   server: Server | null;
@@ -21,6 +22,10 @@ interface Props {
   onOpenImages: () => void;
   /** 직접 고른 전면 이미지를 해제해 자동(스텐실 또는 기본 도면)으로 */
   onUseAutoFront: () => Promise<void>;
+  /** 카드 맨 위에 넣을 견적 붙여넣기·요약 */
+  quotePanel?: ReactNode;
+  /** 견적과 다른 곳 (그림에서 직접 바꾼 곳) */
+  diff?: ConfigDiff | null;
 }
 
 /** 서버가 합성한 전면/후면 그림과, 그 그림을 만든 구성 (화면 미리보기와 비교용) */
@@ -107,6 +112,8 @@ export default function ConfigSection({
   focus,
   onOpenImages,
   onUseAutoFront,
+  quotePanel,
+  diff,
 }: Props) {
   const [imageView, setImageView] = useState<"both" | "front" | "rear">("both");
   const [mode, setMode] = useState<"edit" | "clean" | "calib">("edit");
@@ -453,12 +460,12 @@ export default function ConfigSection({
                   return (
                     <button
                       key={`bay-${index}`}
-                      className={`bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(index) ? "sel" : ""}`}
+                      className={`bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(index) ? "sel" : ""} ${diff?.bays.has(index) ? "diff" : ""}`}
                       type="button"
                       aria-label={`Bay ${index}${bay ? ` · ${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : " · 비어 있음"}`}
                       aria-pressed={mode === "edit" ? selectedBays.includes(index) : undefined}
                       data-calib-key={String(index)}
-                      data-tip={mode === "edit" ? `Bay ${index} · ${bay ? `${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : "비어 있음"}${issue ? ` — ${issue}` : ""}` : undefined}
+                      data-tip={mode === "edit" ? `Bay ${index} · ${bay ? `${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : "비어 있음"}${diff?.bays.has(index) ? " · 견적과 다름" : ""}${issue ? ` — ${issue}` : ""}` : undefined}
                       style={{ left: `${area.x - padL}%`, top: `${area.y}%`, width: `${width}%`, height: `${area.h}%` }}
                       onPointerDown={(event) => {
                         if (mode !== "edit" || event.button !== 0) return;
@@ -502,12 +509,12 @@ export default function ConfigSection({
                 return (
                   <button
                     key={slot.id}
-                    className={`hs ${isPsu ? `psu ${psuFilled ? "" : "empty"}` : ""} ${off ? "s-off" : ""} ${selectedSlot === slot.id ? "sel" : ""}`}
+                    className={`hs ${isPsu ? `psu ${psuFilled ? "" : "empty"}` : ""} ${off ? "s-off" : ""} ${selectedSlot === slot.id ? "sel" : ""} ${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? "diff" : ""}`}
                     type="button"
                     aria-label={`${slot.label} · ${off ? "사용 불가" : part}`}
                     aria-pressed={mode === "edit" ? selectedSlot === slot.id : undefined}
                     data-calib-key={rearLayout ? undefined : slot.id}
-                    data-tip={mode === "edit" ? tip : undefined}
+                    data-tip={mode === "edit" ? `${tip}${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? " · 견적과 다름" : ""}` : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
                     onClick={() => {
                       if (mode !== "edit") return;
@@ -602,7 +609,8 @@ export default function ConfigSection({
           </div>
         </div>
         <div className="cardbody">
-          <button type="button" className={`specline ${panel === "spec" ? "on" : ""}`} onClick={() => panel === "spec" ? setPanel(null) : openPanel("spec")}>
+          {quotePanel}
+          <button type="button" className={`specline ${diff?.spec ? "diff" : ""} ${panel === "spec" ? "on" : ""}`} onClick={() => panel === "spec" ? setPanel(null) : openPanel("spec")}>
             <span className="muted">내부</span> <b>CPU</b> {config.cpu_model} × {config.cpu_count} <span className="muted">·</span> <b>메모리</b> {config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB × ${row.qty}`).join(" + ") || "없음"} = {memoryTotal}GB
             <span className="lnk specline-act">바꾸기</span>
           </button>
@@ -709,6 +717,7 @@ export default function ConfigSection({
               <span><i className="l-sel" />선택</span>
               <span><i className="l-warn" />확인 필요</span>
               <span><i className="l-off" />사용할 수 없는 칸</span>
+              {diff && <span><i className="l-diff" />견적과 다름</span>}
             </span>
           </div>
         )}

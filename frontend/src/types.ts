@@ -95,10 +95,15 @@ export interface RequirementGroup {
   /** 붙여넣은 내용에 서버가 여럿 보일 때 나누기 제안 */
   split?: RequirementGroup[];
   common_lines?: number;
+  /** 오른쪽 칸에 붙여넣은 견적 (요구사항과 따로) */
+  quote?: RequirementGroup;
+  /** 견적대로 적용했을 때의 구성 — 그림에서 직접 바꾼 곳을 '견적과 다름'으로 표시하는 기준 */
+  quote_config?: ServerConfig;
 }
 
 export interface PasteResponse {
   server: RequirementGroup;
+  error?: string;
   split: RequirementGroup[];
   common_lines: number;
   inventory?: InventoryRow[];

@@ -133,6 +133,7 @@ def _suggest(group: dict, text: str):
 
 class PasteIn(BaseModel):
     text: str
+    kind: str = "requirement"  # requirement(왼쪽 칸) | quote(오른쪽 칸)
 
 
 @app.post("/api/paste")
@@ -142,7 +143,10 @@ def paste(body: PasteIn):
     text = body.text.replace("\r\n", "\n").strip("\n")
     if not text.strip():
         raise HTTPException(422, "붙여넣은 내용이 없습니다")
-    return P.analyze(text, _suggest)
+    result = P.analyze(text, _suggest, body.kind)
+    if result.get("error"):
+        raise HTTPException(422, result["error"])
+    return result
 
 
 class ProposalIn(BaseModel):

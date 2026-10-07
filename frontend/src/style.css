@@ -563,3 +563,24 @@ figure.stage{position:relative}
 .linefold>summary{cursor:pointer;padding-top:8px}
 .linefold[open]>summary{display:none}
 .reqcard .linefold:not([open])+.loose{padding-top:4px}
+
+/* ── 오른쪽 위: 견적 ── */
+.quotebox{border:2px dashed #9DB7D0;border-radius:8px;background:#FAFCFE;padding:10px 12px;display:grid;gap:6px;font-size:13.5px}
+.quotebox textarea{width:100%;font:13px/1.5 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical;tab-size:4}
+.quotebox .row{margin:0}
+.quotebox.on{border:1px solid var(--line);border-left:4px solid var(--accent);background:#fff}
+.quotehead{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.quotehead-act{margin-left:auto;display:flex;gap:12px}
+.q-warn{color:#A15C00;font-weight:600}
+.q-diff{color:#7A3FC0;font-weight:600}
+.quotefold>summary{cursor:pointer}
+.quotefold .proposal{margin:8px 0}
+.quotefold .plines{margin:8px 0 0}
+.quotebox .splitbar{margin:0}
+/* 그림에서 직접 바꿔 견적과 다른 곳: 보라 점선 */
+.bay.diff .bx{border:1px dashed #B48CFF}
+.hs.diff{border:1px dashed #B48CFF}
+.bay.diff::before,.hs.diff::before{content:"";position:absolute;left:2px;top:2px;width:7px;height:7px;border-radius:50%;background:#B48CFF;pointer-events:none}
+.mode-clean .bay.diff::before,.mode-clean .hs.diff::before{display:none}
+.specline.diff{border-color:#B48CFF;border-style:dashed}
+.legend .l-diff{background:#B48CFF;border-radius:50%}

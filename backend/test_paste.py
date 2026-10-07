@@ -43,7 +43,7 @@ class QuotePasteTests(unittest.TestCase):
 
     def test_uncoded_quote_is_read_as_quote_with_every_line_classified(self):
         client = TestClient(app)
-        sv = client.post("/api/paste", json={"text": self.TEXT}).json()["server"]
+        sv = client.post("/api/paste", json={"text": self.TEXT, "kind": "quote"}).json()["server"]
         self.assertEqual(sv["doc_role"], "quote")
         self.assertNotIn("warn", [l["status"] for l in sv["lines"]])
         self.assertNotIn("req", [l["status"] for l in sv["lines"]])  # 'Xeon 24C' 가 요구사항이 되면 안 됨
@@ -56,13 +56,29 @@ class QuotePasteTests(unittest.TestCase):
 
     def test_gpu_is_placed_in_a_double_width_slot(self):
         client = TestClient(app)
-        sv = client.post("/api/paste", json={"text": self.TEXT}).json()["server"]
+        sv = client.post("/api/paste", json={"text": self.TEXT, "kind": "quote"}).json()["server"]
         server = client.get("/api/servers").json()["servers"][0]
         base = {"cpu_model": server["cpu_options"][0], "cpu_count": 2, "memory": [], "backplane": server["backplanes"][0]["id"],
                 "bays": {}, "raid": {"boot": "", "data": ""}, "boss": False, "psu_watt": 1400, "psu_count": 2, "risers": [], "slots": {}}
         res = client.post("/api/proposal/apply", json={"server_id": server["id"], "proposed": sv["proposed"], "base_config": base}).json()
         self.assertIn("gpu_h100", res["config"]["slots"].values())
         self.assertTrue(any("H200" in note and "대체" in note for note in res["notes"]))
+
+
+class KindTests(unittest.TestCase):
+    """칸이 정한다: 견적 칸의 'Xeon 24C' 는 요구사항이 되지 않고, 요구사항 칸의 표는 견적이 되지 않는다."""
+    def test_kind_decides(self):
+        client = TestClient(app)
+        text = "Intel Xeon 6520P 24C 2.4 GHz\t2\n64GB DDR5 RDIMM\t8"
+        req = client.post("/api/paste", json={"text": text, "kind": "requirement"}).json()["server"]
+        self.assertEqual(req["doc_role"], "requirement")
+        quote = client.post("/api/paste", json={"text": text, "kind": "quote"}).json()["server"]
+        self.assertEqual(quote["doc_role"], "quote")
+        self.assertEqual(quote["requirements"], [])
+
+    def test_unreadable_quote_is_an_error_not_a_guess(self):
+        res = TestClient(app).post("/api/paste", json={"text": "견적 아님", "kind": "quote"})
+        self.assertEqual(res.status_code, 422)
 
 
 class ValidateTests(unittest.TestCase):
@@ -103,7 +119,7 @@ class PasteTests(unittest.TestCase):
 
     def test_quote_lines_are_parts_or_skipped(self):
         text = "PYBCP70X2\tIntel Xeon 6515P 16C 2.3 GHz\t1\nPYBME64ST\t64GB (1x64GB) 2Rx4 DDR5-6400 R ECC\t4\nPYBRR0C\tRack Mount Kit QRL\t1"
-        res = self.client.post("/api/paste", json={"text": text}).json()
+        res = self.client.post("/api/paste", json={"text": text, "kind": "quote"}).json()
         self.assertEqual(res["server"]["doc_role"], "quote")
         self.assertEqual([l["status"] for l in res["server"]["lines"]], ["part", "part", "skip"])  # 본체 행 없이 부품만 긁어 와도 견적으로
 

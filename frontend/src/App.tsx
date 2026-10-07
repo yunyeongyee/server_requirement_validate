@@ -23,6 +23,8 @@ import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
+import QuotePanel from "./components/QuotePanel";
+import { configDiff } from "./configDiff";
 
 export type ModelSource = "document" | "manual" | "default";
 
@@ -38,7 +40,7 @@ const emptyGroup = (id: string, name: string): RequirementGroup => ({ id, name, 
 const stamp = () => formatSavedAt(new Date().toISOString());
 const newGroupId = () => `server-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 /** 아직 아무것도 넣지 않은 탭 */
-const isBlank = (group: RequirementGroup) => !group.text && !group.requirements.length && !group.proposed;
+const isBlank = (group: RequirementGroup) => !group.text && !group.requirements.length && !group.quote;
 
 interface SavedState {
   workName?: string;
@@ -121,6 +123,8 @@ export default function App() {
   const [openMenu, setOpenMenu] = useState(false);
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState("");
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteError, setQuoteError] = useState("");
   const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null);
   const [imageError, setImageError] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -144,6 +148,7 @@ export default function App() {
   );
   const config = profile?.config || null;
   const validation = results[group.id] || null;
+  const diff = useMemo(() => group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
 
@@ -252,47 +257,46 @@ export default function App() {
     return existing || defaultProfile();
   };
 
-  /** 견적 품목이면 제안 구성을 그 서버 구성에 바로 적용 */
-  const applyQuote = async (target: RequirementGroup, targetProfile: ServerProfile | null) => {
-    if (!target.proposed || !targetProfile) return;
-    const base = target.items?.find((item) => item.category === "base");
+  /** 견적의 제안 구성을 그 서버 구성에 적용하고, 그 결과를 '견적 기준 구성'으로 기억 */
+  const applyQuote = async (groupId: string, quote: RequirementGroup | undefined, targetProfile: ServerProfile | null) => {
+    if (!quote?.proposed || !targetProfile) return;
+    const base = quote.items?.find((item) => item.category === "base");
     try {
-      const { config: nextConfig, notes } = await applyProposal(targetProfile.serverId, target.proposed, targetProfile.config, base?.attrs || null);
-      setProfiles((current) => ({ ...current, [target.id]: { ...(current[target.id] || targetProfile), config: nextConfig } }));
-      setProposalNotes((current) => ({ ...current, [target.id]: notes }));
-    } catch {
-      /* 적용 실패 시 견적 패널의 '다시 적용'으로 */
+      const { config: nextConfig, notes } = await applyProposal(targetProfile.serverId, quote.proposed, targetProfile.config, base?.attrs || null);
+      setProfiles((current) => ({ ...current, [groupId]: { ...(current[groupId] || targetProfile), config: nextConfig } }));
+      setGroups((current) => current.map((item) => item.id === groupId ? { ...item, quote_config: nextConfig } : item));
+      setProposalNotes((current) => ({ ...current, [groupId]: notes }));
+    } catch (reason) {
+      setQuoteError(reason instanceof Error ? reason.message : String(reason));
     }
   };
 
-  /** 이 서버 탭에 붙여넣기: replace = 내용 교체, append = 지금 내용 뒤에 붙여 다시 분석 */
+  /** 왼쪽 칸: 요구사항 붙여넣기. replace = 교체, append = 지금 내용 뒤에 붙여 다시 분석. 견적·구성은 건드리지 않는다 */
   const handlePaste = async (text: string, mode: "replace" | "append") => {
     const target = group;
     const fullText = mode === "append" && target.text ? `${target.text}\n${text}` : text;
     setPasteBusy(true);
     setPasteError("");
     try {
-      const response = await pasteText(fullText);
+      const response = await pasteText(fullText, "requirement");
       const analyzed = response.server;
       // 사용자가 직접 고치거나 추가한 항목은 남긴다 (줄 번호는 append 라 그대로 유효)
       const kept = mode === "append" ? target.requirements.filter((item) => item._user) : [];
       const next: RequirementGroup = {
-        ...analyzed,
-        id: target.id,
-        name: target.name,
-        quantity: target.quantity ?? analyzed.quantity ?? null,
+        ...target,
+        text: analyzed.text, lines: analyzed.lines, spec: analyzed.spec,
         requirements: [...analyzed.requirements, ...kept],
+        model_hint: target.model_hint || analyzed.model_hint, suggested_server: target.suggested_server || analyzed.suggested_server,
         line_marks: mode === "append" ? target.line_marks : {},
         split: response.split.length > 1 ? response.split : undefined,
         common_lines: response.common_lines,
       };
-      const nextProfile = profileFor(next, profiles[target.id]);
       setGroups((current) => current.map((item) => item.id === target.id ? next : item));
-      if (nextProfile) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
-      setProposalNotes((current) => { const copy = { ...current }; delete copy[target.id]; return copy; });
-      setRenderedImages({ front: null, rear: null });
-      setImageVersion((version) => version + 1);
-      await applyQuote(next, nextProfile);
+      // 견적이 아직 없을 때만 요구사항에 적힌 모델(R760 등)로 모델을 고른다
+      if (!target.quote) {
+        const nextProfile = profileFor(next, profiles[target.id]);
+        if (nextProfile && nextProfile.serverId !== profiles[target.id]?.serverId) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
+      }
     } catch (reason) {
       setPasteError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -300,19 +304,74 @@ export default function App() {
     }
   };
 
-  /** 나누기 제안 수락: 지금 탭을 서버별 탭으로 바꾼다 */
-  const handleSplit = async () => {
+  /** 오른쪽 칸: 견적 붙여넣기 → 견적 모델로 모델 선택 → 그림에 장착 */
+  const handleQuotePaste = async (text: string) => {
+    const target = group;
+    setQuoteBusy(true);
+    setQuoteError("");
+    try {
+      const response = await pasteText(text, "quote");
+      const quote: RequirementGroup = { ...response.server, split: response.split.length > 1 ? response.split : undefined, line_marks: {} };
+      const existing = profiles[target.id];
+      const nextProfile = profileFor(quote, existing?.source === "manual" ? existing : existing && { ...existing, source: "default" });
+      setGroups((current) => current.map((item) => item.id === target.id
+        ? { ...item, quote, quantity: item.quantity ?? quote.quantity ?? null } : item));
+      if (nextProfile) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
+      setRenderedImages({ front: null, rear: null });
+      setImageVersion((version) => version + 1);
+      await applyQuote(target.id, quote, nextProfile);
+    } catch (reason) {
+      setQuoteError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setQuoteBusy(false);
+    }
+  };
+  const handleClearQuote = () => {
+    setGroups((current) => current.map((item) => item.id === group.id ? { ...item, quote: undefined, quote_config: undefined } : item));
+    setProposalNotes((current) => { const copy = { ...current }; delete copy[group.id]; return copy; });
+  };
+  const handleQuoteMark = (line: number, mark: "skip" | null) =>
+    setGroups((current) => current.map((item) => {
+      if (item.id !== group.id || !item.quote) return item;
+      const marks = { ...(item.quote.line_marks || {}) };
+      if (mark) marks[line] = mark; else delete marks[line];
+      return { ...item, quote: { ...item.quote, line_marks: marks } };
+    }));
+
+  /** 요구사항 나누기 제안 수락: 지금 탭을 서버별 탭으로 (견적이 있었다면 첫 탭에 남긴다) */
+  const handleSplit = () => {
     const parts = group.split || [];
     if (!parts.length) return;
-    const made = parts.map((part) => ({ ...part, id: newGroupId(), split: undefined, line_marks: {} }));
-    const madeProfiles = Object.fromEntries(made.map((part) => [part.id, profileFor(part, undefined)]).filter(([, value]) => value)) as Record<string, ServerProfile>;
+    const made = parts.map((part, index) => ({
+      ...part, id: newGroupId(), split: undefined, line_marks: {},
+      ...(index === 0 && group.quote ? { quote: group.quote, quote_config: group.quote_config } : {}),
+    }));
+    const madeProfiles = Object.fromEntries(made.map((part, index) => [part.id,
+      index === 0 && group.quote && profile ? profile : profileFor(part, undefined)]).filter(([, value]) => value)) as Record<string, ServerProfile>;
+    setGroups((current) => current.flatMap((item) => item.id === group.id ? made : [item]));
+    setProfiles((current) => { const next = { ...current, ...madeProfiles }; delete next[group.id]; return next; });
+    if (group.quote && proposalNotes[group.id]) setProposalNotes((current) => ({ ...current, [made[0].id]: current[group.id] }));
+    setActiveGroupId(made[0].id);
+    setView("server");
+  };
+  const handleKeepOne = () => setGroups((current) => current.map((item) => item.id === group.id ? { ...item, split: undefined } : item));
+
+  /** 견적 나누기(본체가 여러 대): 본체마다 탭을 만들고 요구사항은 모두 복사 */
+  const handleQuoteSplit = async () => {
+    const parts = group.quote?.split || [];
+    if (!parts.length) return;
+    const made = parts.map((part, index) => ({
+      ...JSON.parse(JSON.stringify(group)) as RequirementGroup,
+      id: newGroupId(), name: index === 0 ? group.name : `${group.name} ${index + 1}`,
+      quote: { ...part, split: undefined, line_marks: {} }, quote_config: undefined,
+    }));
+    const madeProfiles = Object.fromEntries(made.map((part) => [part.id, profileFor(part.quote!, undefined)]).filter(([, value]) => value)) as Record<string, ServerProfile>;
     setGroups((current) => current.flatMap((item) => item.id === group.id ? made : [item]));
     setProfiles((current) => { const next = { ...current, ...madeProfiles }; delete next[group.id]; return next; });
     setActiveGroupId(made[0].id);
-    setView("server");
-    await Promise.all(made.map((part) => applyQuote(part, madeProfiles[part.id] || null)));
+    await Promise.all(made.map((part) => applyQuote(part.id, part.quote, madeProfiles[part.id] || null)));
   };
-  const handleKeepOne = () => setGroups((current) => current.map((item) => item.id === group.id ? { ...item, split: undefined } : item));
+  const handleQuoteKeepOne = () => setGroups((current) => current.map((item) => item.id === group.id && item.quote ? { ...item, quote: { ...item.quote, split: undefined } } : item));
 
   const handleAddServer = (copy: boolean) => {
     const id = newGroupId();
@@ -370,7 +429,11 @@ export default function App() {
   };
 
   const resetWork = (state: SavedState | null, name: string, at: string) => {
-    const nextGroups = state?.groups?.length ? state.groups : [emptyGroup(DEFAULT_GROUP_ID, "서버 1")];
+    // 예전 저장본: 견적이 요구사항과 한 칸에 있던 것(proposed)을 견적 칸으로 옮긴다
+    const nextGroups = (state?.groups?.length ? state.groups : [emptyGroup(DEFAULT_GROUP_ID, "서버 1")]).map((item) =>
+      item.proposed && !item.quote
+        ? { ...item, quote: { ...item, requirements: [], split: undefined, quote: undefined }, proposed: undefined, items: undefined, lines: item.doc_role === "quote" ? undefined : item.lines, text: item.doc_role === "quote" ? undefined : item.text }
+        : item);
     const nextProfiles = state?.profiles || {};
     nextGroups.forEach((item) => { if (!nextProfiles[item.id]) { const fallback = defaultProfile(); if (fallback) nextProfiles[item.id] = fallback; } });
     const nextActive = nextGroups.some((item) => item.id === state?.activeGroupId) ? state!.activeGroupId : nextGroups[0].id;
@@ -415,7 +478,7 @@ export default function App() {
 
   const handleApplyProposal = async () => {
     setApplyingGroupId(group.id);
-    await applyQuote(group, profile || null);
+    await applyQuote(group.id, group.quote, profile || null);
     setRenderedImages({ front: null, rear: null });
     setApplyingGroupId(null);
   };
@@ -427,7 +490,10 @@ export default function App() {
   const handleServerChange = (id: string) => {
     const nextServer = servers.find((item) => item.id === id);
     if (!nextServer) return;
-    setProfiles((current) => ({ ...current, [group.id]: { serverId: id, config: defaultConfig(nextServer), source: "manual" } }));
+    const nextProfile: ServerProfile = { serverId: id, config: defaultConfig(nextServer), source: "manual" };
+    setProfiles((current) => ({ ...current, [group.id]: nextProfile }));
+    // 견적이 있으면 새 모델에 견적을 다시 적용 (견적과 다름 기준도 새 모델 기준으로)
+    if (group.quote) void applyQuote(group.id, group.quote, nextProfile);
     setResults((current) => {
       const next = { ...current };
       delete next[group.id];
@@ -528,11 +594,6 @@ export default function App() {
             group={group}
             busy={pasteBusy}
             error={pasteError}
-            servers={servers}
-            activeServer={server}
-            proposalNotes={proposalNotes[group.id]}
-            applying={applyingGroupId === group.id}
-            onApplyProposal={() => void handleApplyProposal()}
             result={validation}
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             onPaste={(text, mode) => void handlePaste(text, mode)}
@@ -576,6 +637,24 @@ export default function App() {
             onBackplaneChange={handleBackplaneChange}
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
+            diff={diff}
+            quotePanel={<QuotePanel
+              key={`quote-${group.id}`}
+              quote={group.quote}
+              busy={quoteBusy}
+              error={quoteError}
+              servers={servers}
+              server={server}
+              notes={proposalNotes[group.id]}
+              applying={applyingGroupId === group.id}
+              diffCount={diff?.count || 0}
+              onPaste={(text) => void handleQuotePaste(text)}
+              onReapply={() => void handleApplyProposal()}
+              onClear={handleClearQuote}
+              onSplit={() => void handleQuoteSplit()}
+              onKeepOne={handleQuoteKeepOne}
+              onMarkLine={handleQuoteMark}
+            />}
           />}
           {view === "all" && <ResultSection
             server={server}

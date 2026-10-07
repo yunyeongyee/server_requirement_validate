@@ -30,7 +30,7 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
     <details className={`proposal ${lowConfidence ? "low" : ""}`} open>
       <summary className="pp-sum">
       <div className="pp-head">
-        <h3>{group.doc_role === "config" ? "구성도에서 읽은 구성" : "견적 구성"} <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 오른쪽 구성에 자동 적용됨</span></h3>
+        <h3>{group.doc_role === "config" ? "구성도에서 읽은 구성" : "견적 구성"} <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 아래 그림에 적용됨</span></h3>
         <span className="docstat">판단 신뢰도 {pct(group.confidence)}</span>
       </div>
       {!!notes?.length && <span className="pp-warn">⚠ 바뀐 항목 {notes.length}개</span>}
