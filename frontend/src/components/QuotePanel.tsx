@@ -70,8 +70,8 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
           </div>
         </div>
       )}
-      <details className="quotefold" open={warn > 0 || replaced > 0}>
-        <summary className="muted small">견적 상세 · 대체 안내 · 품목 줄</summary>
+      <details className="quotefold">
+        <summary className="muted small">견적 상세 보기{replaced ? ` — 대체 ${replaced}건 확인` : ""}</summary>
         <ProposalPanel group={quote} server={server} servers={servers} notes={notes} busy={applying} onApply={onReapply} />
         <ul className="plines">
           {lines.map((line) => {

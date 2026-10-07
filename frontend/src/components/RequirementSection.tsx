@@ -84,10 +84,6 @@ export default function RequirementSection({
     if (item.status === "review" || item._new || item.key === "manual") return "확인 필요";
     return result?.requirements.find((row) => row.id === item.id)?.status || "확인 필요";
   };
-  const actualOf = (item: Requirement) => {
-    const row = result?.requirements.find((entry) => entry.id === item.id);
-    return row ? `실제 ${row.actual}${row.note ? ` · ${row.note}` : ""}` : item.note || "";
-  };
   const count = (status: string) => requirements.filter((item) => statusOf(item) === status).length;
 
   const update = (id: string, values: Partial<Requirement>) =>
@@ -144,22 +140,6 @@ export default function RequirementSection({
     </form>
   );
 
-  const chip = (item: Requirement) => {
-    const status = statusOf(item);
-    const tone = STATUS_CLASS[status] || "review";
-    const fix = status !== "충족" ? fixFor(item.key) : null;
-    return (
-      <span key={item.id} className={`rchip c-${tone}`}>
-        <button type="button" className="rchip-main" title={`${status} · ${actualOf(item)} — 눌러서 고치기`}
-          onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>
-          {formatRequirement(item)}
-          {status !== "충족" && status !== "확인 필요" && <span className="rchip-act"> · {actualOf(item).replace(/^실제 /, "") || status}</span>}
-        </button>
-        {fix && <button type="button" className="rchip-fix" onClick={() => onFocus(fix.request)}>{fix.label}</button>}
-      </span>
-    );
-  };
-
   const pasteBox = (mode: "replace" | "append" | "first") => (
     <div className={`pastebox ${mode === "first" ? "first" : ""}`}>
       <textarea
@@ -212,7 +192,6 @@ export default function RequirementSection({
   };
   const states = lines.map(lineState);
   const n = (state: string) => states.filter((item) => item === state).length;
-  const loose = requirements.filter((item) => item.line == null || !lines.some((line) => line.n === item.line));
 
   return (
     <section id="s1" className="card reqcard">
@@ -228,62 +207,76 @@ export default function RequirementSection({
           </div>
         </div>
       )}
-      <div className="pad srcbar">
-        <b>붙여넣은 내용 {lines.length}줄</b>
-        <span className="muted small">
-          {[n("req") && `요구사항 ${n("req")}`, n("part") && `견적 품목 ${n("part")}`, n("warn") && `확인 필요 ${n("warn")}`, n("skip") && `검증 제외 ${n("skip")}`].filter(Boolean).join(" · ")}
-        </span>
-        <span className="srcbar-act">
+      {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
+      {n("warn") > 0 && (
+        <div className="warnlist" role="region" aria-label="읽지 못한 줄">
+          <b>⚠ 읽지 못한 줄 {n("warn")}개</b> <span className="muted small">— 항목으로 추가하거나 제외하세요</span>
+          {lines.filter((_, index) => states[index] === "warn").map((line) => (
+            <div key={line.n} className="wl">
+              <span className="wl-text" title={line.hint}>{line.text}</span>
+              <select aria-label="항목으로 추가" value="" onChange={(event) => { if (event.target.value) addFor(line, event.target.value); }}>
+                <option value="">항목 ▾</option>
+                {Object.entries(KEY_DEFS).filter(([key]) => key !== "manual").map(([key, [label, unit]]) => <option key={key} value={key}>{label}{unit ? ` (${unit})` : ""}</option>)}
+              </select>
+              <button type="button" className="lnk small" onClick={() => addFor(line, "manual", true)}>수기 검토</button>
+              <button type="button" className="lnk small" onClick={() => onMarkLine(line.n, "skip")}>제외</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <ul className="reqrows">
+        {[...requirements].sort((a, b) => (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
+          const status = statusOf(item);
+          const tone = STATUS_CLASS[status] || "review";
+          const fix = status !== "충족" ? fixFor(item.key) : null;
+          const row = result?.requirements.find((entry) => entry.id === item.id);
+          const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
+          return (
+            <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
+              {editingId === item.id ? renderEdit(item) : (
+                <>
+                  <span className="rq">{formatRequirement(item)}</span>
+                  <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
+                  <span className="rs">
+                    <span className={`pill p-${tone}`}>{status}</span>
+                    {fix && <button type="button" className="fix" onClick={() => onFocus(fix.request)}>{fix.label}</button>}
+                  </span>
+                  <span className="rtools">
+                    <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
+                    <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
+                  </span>
+                  {!!sources.length && <span className="rsrc" role="tooltip"><small>원문</small>{sources.map((source, index) => <span key={index}>“{source}”</span>)}</span>}
+                </>
+              )}
+            </li>
+          );
+        })}
+        {!requirements.length && <li className="reqempty muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</li>}
+      </ul>
+      <div className="reqfoot">
+        <details className="linefold">
+          <summary>원문 보기 ({lines.length}줄{n("skip") ? ` · 제외 ${n("skip")}` : ""})</summary>
+          <ul className="plines">
+            {lines.map((line, index) => {
+              const state = states[index];
+              return (
+                <li key={line.n} className={`pl pl-${state}`}>
+                  <span className="pl-ic" aria-hidden="true">{state === "req" || state === "part" ? "✓" : state === "warn" ? "⚠" : state === "head" ? "" : "–"}</span>
+                  <div className="pl-text">{line.text}
+                    {state === "skip" && <span className="pl-tag">{line.status === "skip" ? line.label?.split(" — ")[0] || "제외" : "제외"}</span>}
+                    {state === "skip" && marks[line.n] === "skip" && <button type="button" className="lnk small" onClick={() => onMarkLine(line.n, null)}>되돌리기</button>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+        <span className="reqfoot-act">
+          <button type="button" className="lnk" onClick={() => addFor(null)}>+ 직접 추가</button>
           <button type="button" className="lnk" onClick={() => { setPasted(""); setPasteMode("append"); }}>더 붙여넣기</button>
           <button type="button" className="lnk" onClick={() => { setPasted(group.text || ""); setPasteMode("replace"); }}>다시 붙여넣기</button>
         </span>
       </div>
-      {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
-      {n("warn") > 0 && <p className="pad warnline" role="status">⚠ 자동으로 읽지 못한 줄이 {n("warn")}개 있습니다 — 아래에서 항목으로 추가하거나 '검증 대상 아님'으로 정하세요</p>}
-      {/* 견적은 위 '견적 구성'이 요약이라 품목 줄은 접어 둔다 (읽지 못한 줄이 있으면 펼침) */}
-      <details className="linefold" open>
-      <summary className="pad muted small">붙여넣은 줄 보기</summary>
-      <ul className="plines">
-        {lines.map((line, index) => {
-          const state = states[index];
-          const reqs = requirements.filter((item) => item.line === line.n);
-          return (
-            <li key={line.n} className={`pl pl-${state}`}>
-              <span className="pl-ic" aria-hidden="true">{state === "req" || state === "part" ? "✓" : state === "warn" ? "⚠" : state === "head" ? "" : "–"}</span>
-              <div className="pl-body">
-                <div className="pl-text">{line.text}
-                  {state === "skip" && <span className="pl-tag">{line.status === "skip" ? line.label?.split(" · ")[0] || "검증 대상 아님" : "검증 대상 아님"}</span>}
-                  {state === "skip" && marks[line.n] === "skip" && <button type="button" className="lnk small" onClick={() => onMarkLine(line.n, null)}>되돌리기</button>}
-                </div>
-                {!!reqs.length && <div className="pl-chips">{reqs.map(chip)}</div>}
-                {state === "part" && <div className="pl-chips"><span className="rchip c-part">{line.label}</span></div>}
-                {state === "warn" && <>
-                  <div className="pl-hint">{line.hint || "자동으로 읽지 못한 줄입니다"} — 직접 정해 주세요</div>
-                  <div className="pl-acts">
-                    <select aria-label="항목으로 추가" value="" onChange={(event) => { if (event.target.value) addFor(line, event.target.value); }}>
-                      <option value="">항목으로 추가 ▾</option>
-                      {Object.entries(KEY_DEFS).filter(([key]) => key !== "manual").map(([key, [label, unit]]) => <option key={key} value={key}>{label}{unit ? ` (${unit})` : ""}</option>)}
-                    </select>
-                    <button type="button" className="btn ghost small" onClick={() => addFor(line, "manual", true)}>수기 검토로 남기기</button>
-                    <button type="button" className="btn ghost small" onClick={() => onMarkLine(line.n, "skip")}>검증 대상 아님</button>
-                  </div>
-                </>}
-                {reqs.some((item) => item.id === editingId) && renderEdit(reqs.find((item) => item.id === editingId)!)}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      </details>
-      {(loose.length > 0 || !lines.length) && (
-        <div className="pad loose">
-          <b className="small">{lines.length ? "직접 추가한 항목" : "요구사항"}</b>
-          <div className="pl-chips">{loose.map(chip)}</div>
-          {loose.some((item) => item.id === editingId) && renderEdit(loose.find((item) => item.id === editingId)!)}
-          {!loose.length && <span className="muted small">인식된 요구사항이 없습니다.</span>}
-        </div>
-      )}
-      <button className="addreq" onClick={() => addFor(null)}>+ 요구사항 직접 추가</button>
       {!!group.evidence?.length && !group.proposed && group.notes?.length ? (
         <p className="muted small pad">⚠ {group.notes.join(" · ")}</p>
       ) : null}

@@ -561,7 +561,6 @@ figure.stage{position:relative}
 .loose{display:grid;gap:4px;padding-top:10px}
 .btn.small.danger{color:var(--fail);border-color:#E3A29C}
 .linefold>summary{cursor:pointer;padding-top:8px}
-.linefold[open]>summary{display:none}
 .reqcard .linefold:not([open])+.loose{padding-top:4px}
 
 /* ── 오른쪽 위: 견적 ── */
@@ -584,3 +583,18 @@ figure.stage{position:relative}
 .mode-clean .bay.diff::before,.mode-clean .hs.diff::before{display:none}
 .specline.diff{border-color:#B48CFF;border-style:dashed}
 .legend .l-diff{background:#B48CFF;border-radius:50%}
+
+/* 왼쪽 정리: 읽지 못한 줄 모음 · 요구사항 목록 · 아래 원문/붙여넣기 */
+.warnlist{margin:10px 16px 0;padding:8px 10px;background:#FFF8E6;border:1px solid #F0D08A;border-radius:6px;display:grid;gap:4px;font-size:13px}
+.wl{display:flex;align-items:center;gap:8px}
+.wl-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5A3D00}
+.wl select{font:inherit;font-size:12px;border:1px solid var(--line);border-radius:4px;padding:1px 4px;background:#fff}
+.reqfoot{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 14px;padding:8px 16px 12px;border-top:1px solid var(--line);font-size:13px}
+.reqfoot .linefold{flex:1 1 200px}
+.reqfoot .linefold>summary{cursor:pointer;color:var(--mute)}
+.reqfoot .linefold[open]>summary{display:list-item}
+.reqfoot .plines{margin:6px 0 0}
+.reqfoot-act{margin-left:auto;display:flex;gap:12px}
+.pl{grid-template-columns:16px 1fr;padding:4px 8px}
+.pl-text{font-size:12.5px}
+main.work{padding-bottom:72px}
