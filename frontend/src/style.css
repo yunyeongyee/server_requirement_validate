@@ -99,23 +99,6 @@ figure.stage .lnk{color:#9CC8F2}
 .note{color:#FFC86B;font-size:13px;margin:8px 0 0}
 .note:empty{display:none}
 
-.hs,.bay{position:absolute;cursor:pointer;line-height:1.1;padding:0;font:inherit}
-.bay{background:transparent}  /* 버튼 기본 배경이 서버 그림의 디스크/빈 트레이를 가리지 않게 */
-.hs{border:2px solid rgba(90,175,255,.85);border-radius:3px;background:rgba(90,175,255,.06)}
-.hs:hover,.hs:focus-visible{background:rgba(90,175,255,.25);outline:none}
-.hs .tag,.bay .bn{position:absolute;left:2px;top:2px;font-size:11px;font-weight:700;color:#fff;background:rgba(10,30,50,.85);padding:0 4px;border-radius:2px}
-.hs.s-ok{border-color:#3DDC84} .hs.s-incomp{border-color:#D46BFF;background:rgba(212,107,255,.2)} .hs.s-review{border-color:#FFB020}
-.hs.s-off{border-style:dashed;border-color:rgba(200,200,200,.6);background:rgba(0,0,0,.35)}
-.bay{border:1px solid rgba(120,190,255,.5)}
-.bay:hover,.bay:focus-visible{background:rgba(120,190,255,.25);outline:none}
-.bay.sel{border:3px solid var(--sel);background:rgba(255,194,26,.28)}
-.bay.boot .bn{background:#8A6100}
-.bay.s-incomp{border:2px solid #D46BFF} .bay.s-review{border:2px solid #FFB020}
-.grip{position:absolute;right:1px;bottom:1px;width:12px;height:12px;z-index:2;background:#fff;border:2px solid var(--accent);cursor:nwse-resize;display:none}
-.mode-calib .hs,.mode-calib .bay{cursor:move;border-color:#FFE14D;background:rgba(255,225,77,.15)}
-.mode-calib .grip{display:block}
-.mode-clean .hs,.mode-clean .bay{border-color:transparent!important;background:transparent!important}
-.mode-clean .tag,.mode-clean .bn{display:none}
 .diskbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;background:#FFF8E1;border:1px solid #F0D98A;border-radius:0 0 6px 6px;margin:0 0 6px;font-size:14px}
 .diskbar.off{opacity:.5;pointer-events:none}
 .diskbar .selinfo{flex:1 1 280px}
@@ -169,7 +152,7 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 
 @media (max-width:900px){.layout{grid-template-columns:1fr}.rail{display:none}.req{grid-template-columns:1fr auto}.req .rsrc{grid-column:1}}
 @media print{.top,.rail,.btn,#s1 .drop,.seg,.diskbar,details.sub,.imgsrc,.lnk{display:none!important}.layout{display:block;padding:0}.panel{break-inside:avoid;border:0}
-  .hs,.bay{border-color:transparent!important;background:transparent!important}.tag,.bn{display:none}}
+  .hs,.bay,.bx{border-color:transparent!important;background:transparent!important;box-shadow:none!important}.tag,.bn,.warnb,.actbar,.legend{display:none!important}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .stale{background:#B42318;color:#fff;padding:10px 28px;font-size:14px}
 .specgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:8px 0 6px}
@@ -257,7 +240,6 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .group-evidence{margin:8px 0}
 .group-evidence.low{color:var(--review)}
 
-.hs.sel{border:3px solid var(--sel);background:rgba(255,194,26,.25)}
 .storage{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:0 0 12px;font-size:13px}
 .storage .chip{background:#EEF4FA;border:1px solid #CFE0F0;border-radius:4px;padding:2px 8px}
 .storage .chip-bad{background:#FDECEC;border-color:#F2B8B8}
@@ -424,11 +406,6 @@ details.fold .issues{margin:8px 0 0}
 .invlink{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding-top:10px;font-size:13.5px}
 .invlink label{font-weight:600}
 .invlink select{font:inherit;font-size:13.5px}
-.hs.psu{border-style:solid;border-color:rgba(255,170,60,.85);background:rgba(255,170,60,.08)}
-.hs.psu.empty{border-style:dashed;border-color:rgba(200,200,200,.7);background:rgba(0,0,0,.35)}
-.hs.psu.s-ok{border-color:#3DDC84}
-.hs .psu-w{position:absolute;left:2px;bottom:2px;font-size:11px;font-weight:700;color:#fff;background:rgba(10,30,50,.85);padding:0 4px;border-radius:2px}
-.mode-clean .psu-w{display:none}
 .slotpanel .opts{display:flex;flex-wrap:wrap;gap:6px}
 .slotpanel .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
 .slotpanel .opt:hover{border-color:var(--accent)}
@@ -439,21 +416,8 @@ details.fold .issues{margin:8px 0 0}
 .specline b{font-weight:600}
 .specline-act{margin-left:auto;font-size:12.5px}
 .slotpanel{border:2px solid var(--accent)}
-.hs.blocked{background:rgba(8,10,14,.92);border:1px solid rgba(255,255,255,.18);cursor:not-allowed;display:flex;align-items:center;justify-content:center}
-.hs.blocked .blk-ico{color:#8E99A6;font-size:18px;line-height:1}
-.mode-calib .hs.blocked{cursor:move}
-.hs.s-off{background:rgba(8,10,14,.82)!important;border:1px solid rgba(255,255,255,.18)!important}
-.hs.s-off .tag{background:#3A424C}
-.mode-clean .hs.blocked{border-color:transparent!important}
 [data-tip]:hover::after,[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:280px;white-space:normal;background:#11161C;color:#EEF2F6;font-size:12.5px;font-weight:500;line-height:1.45;padding:6px 9px;border-radius:5px;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:20;pointer-events:none;text-align:left}
 
-/* 베이 번호: 칸 위 가운데에 작게 → 좁은 E3.S 베이에서도 옆 칸으로 넘치지 않음. 선택은 inset 그림자로 (테두리 두께가 바뀌면 내용이 밀림) */
-.bay{border:1px solid rgba(120,190,255,.55)}
-.bay .bn{left:50%;top:2px;transform:translateX(-50%);font-size:10px;line-height:14px;padding:0 3px;min-width:14px;text-align:center}
-.bay.narrow .bn{top:auto;bottom:calc(100% + 1px);background:rgba(10,30,50,.9)}
-.bay.sel{border:1px solid var(--sel);box-shadow:inset 0 0 0 2px var(--sel);background:rgba(255,194,26,.22)}
-.bay.s-incomp{border:1px solid #D46BFF;box-shadow:inset 0 0 0 1px #D46BFF}
-.bay.s-review{border:1px solid #FFB020;box-shadow:inset 0 0 0 1px #FFB020}
 .chassis{margin-top:14px}
 .calibbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;background:#FFF4CC;border:1px solid #F0D98A;border-radius:8px;padding:8px 12px;font-size:13px}
 .calibbar-act{margin-left:auto;display:flex;gap:6px}
@@ -465,9 +429,6 @@ figure.stage{position:relative}
 .ptools button:disabled{opacity:.4;cursor:default}
 .ptools i{width:1px;background:#39424D;margin:3px 2px}
 .ptools [data-tip]:hover::after{bottom:auto;top:calc(100% + 6px);left:auto;right:0;transform:none}
-.bay.filled::after{content:"";position:absolute;left:1px;right:1px;bottom:1px;height:4px;background:#3DDC84;border-radius:1px}
-.bay.filled.boot::after{background:#F5B942}
-.mode-clean .bay.filled::after,.mode-calib .bay.filled::after{display:none}
 .slotpanel .opts{display:inline-flex;gap:4px}
 .aibadge{position:relative;order:3;margin-left:auto}
 .ai-chip{font:inherit;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#DCE3EA;border-radius:999px;padding:2px 10px;cursor:pointer}
@@ -494,3 +455,65 @@ figure.stage{position:relative}
 .pastebox{display:grid;gap:8px;margin-top:16px}
 .pastebox label{display:grid;gap:2px}
 .pastebox textarea{font:13px/1.5 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical;tab-size:4;min-height:110px}
+
+/* ── 전면 베이 · 후면 슬롯/PSU 선택 영역 ──
+   평소: 선 없음(그림만). 마우스를 올리면 테두리+이름, 선택은 노랑, 문제는 ⚠ 배지 하나.
+   전면 베이 버튼은 이웃 칸과의 틈까지 넓혀 클릭 영역을 키우고(.bay), 실제 칸 표시는 안쪽 .bx */
+.hs,.bay{position:absolute;cursor:pointer;line-height:1.1;padding:0;font:inherit;background:transparent;border:0;border-radius:3px;color:inherit}
+.bay .bx{position:absolute;top:0;bottom:0;border:1px solid transparent;border-radius:2px;pointer-events:none}
+.hs{border:1px solid transparent}
+.mode-edit .bay:hover .bx,.mode-edit .bay:focus-visible .bx{border-color:rgba(140,200,255,.95);background:rgba(120,190,255,.18)}
+.mode-edit .hs:hover,.mode-edit .hs:focus-visible{border-color:rgba(140,200,255,.95);background:rgba(120,190,255,.18)}
+.bay:focus-visible,.hs:focus-visible{outline:none}
+.bay.sel .bx,.mode-edit .bay.sel:hover .bx{border-color:var(--sel);box-shadow:inset 0 0 0 2px var(--sel);background:rgba(255,194,26,.24)}
+.hs.sel,.mode-edit .hs.sel:hover{border-color:var(--sel);box-shadow:inset 0 0 0 2px var(--sel);background:rgba(255,194,26,.2)}
+.hs .tag,.bay .bn{position:absolute;font-size:10.5px;font-weight:700;line-height:14px;color:#fff;background:rgba(10,30,50,.9);padding:0 4px;border-radius:2px;display:none;white-space:nowrap;pointer-events:none}
+.hs .tag{left:2px;top:2px}
+.bay .bn{left:50%;top:3px;transform:translateX(-50%);min-width:14px;text-align:center}
+.bay.narrow .bn{top:auto;bottom:calc(100% + 2px)}  /* 좁은 칸은 번호를 칸 위에 */
+.bay.sel .bn{background:var(--sel);color:#1A1300}
+.bay.sel .bn{display:block}  /* 번호는 고른 칸에만. 마우스를 올리면 말풍선에 이름이 나온다 */
+.warnb{position:absolute;right:1px;top:1px;width:15px;height:15px;border-radius:50%;background:#FFB020;color:#1A1300;font-size:11px;font-weight:800;line-height:15px;text-align:center;pointer-events:none;z-index:1}
+.warnb.bad{background:#D46BFF;color:#fff}
+.bay .warnb{right:50%;transform:translateX(50%);top:2px}
+.hs.s-off{background:rgba(8,10,14,.78);border-color:rgba(255,255,255,.14)}
+.hs.psu.empty{background:rgba(8,10,14,.45)}
+.hs.blocked{background:rgba(8,10,14,.92);border:1px solid rgba(255,255,255,.18);cursor:not-allowed;display:flex;align-items:center;justify-content:center}
+.hs.blocked .blk-ico{color:#8E99A6;font-size:18px;line-height:1}
+/* 꽂기/빼기 직후 서버 그림이 오기 전까지 화면에서 먼저 보여주는 미리보기 */
+.bay .pv{position:absolute;inset:4% 0;border-radius:2px;pointer-events:none}
+.bay .pv.in{background:repeating-linear-gradient(90deg,#4A5561 0 3px,#2B333C 3px 6px);border:1px solid #8996A3;opacity:.92}
+.bay .pv.in.boot{border-color:#F5B942}
+.bay .pv.out{background:#0F1318;opacity:.95}
+.grip{position:absolute;right:1px;bottom:1px;width:12px;height:12px;z-index:2;background:#fff;border:2px solid var(--accent);cursor:nwse-resize;display:none}
+.mode-calib .grip{display:block}
+.mode-calib .hs,.mode-calib .bay .bx{cursor:move;border-color:#FFE14D;background:rgba(255,225,77,.15)}
+.mode-calib .bay{cursor:move}
+.mode-calib .bay .bn{display:block;bottom:auto;top:2px}
+.mode-calib .hs .tag{display:block}
+.mode-calib .hs.blocked{cursor:move}
+.mode-clean .hs,.mode-clean .bay .bx{border-color:transparent!important;background:transparent!important;box-shadow:none!important}
+.mode-clean .tag,.mode-clean .bn,.mode-clean .warnb,.mode-clean .psu-w{display:none!important}
+.mode-edit .hot{touch-action:none}
+
+/* 작업 막대: 그림 바로 아래 자리를 늘 비워 둬서 선택해도 그림이 밀리지 않는다 */
+.actbar{border:1px solid var(--line);border-radius:6px;background:#F7FAFD;padding:8px 12px;min-height:76px;display:grid;align-content:start;gap:6px;font-size:13.5px}
+.actbar.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,#fff)}
+.actbar .ar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:34px}
+.actbar .ar.sub{font-size:12.5px;color:var(--mute);min-height:24px}
+.actbar .who{font-weight:700}
+.actbar select{font:inherit;font-size:13.5px;max-width:100%;height:30px;padding:0 6px}
+.actbar .opts{display:inline-flex;gap:4px}
+.actbar .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
+.actbar .opt:hover{border-color:var(--accent)}
+.actbar .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
+.actbar .btn.danger{background:#fff;color:var(--fail);border-color:#E3A29C}
+.actbar .btn.danger:hover:not(:disabled){background:#FDECEC}
+.actbar .keys{margin-left:auto;display:inline-flex;gap:4px;align-items:center}
+.actbar .keys kbd{font:600 11px/1 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:2px 4px;background:#fff;color:var(--ink)}
+.actbar .ico{font-size:18px;line-height:1;padding:2px 6px}
+.actbar .issues{margin:0;padding-left:18px;font-size:12.5px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:12px;color:var(--mute)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+.legend .l-sel{background:var(--sel)} .legend .l-warn{background:#FFB020;border-radius:50%} .legend .l-off{background:#11161C}
+.ico:disabled{opacity:.35;cursor:default;background:none}

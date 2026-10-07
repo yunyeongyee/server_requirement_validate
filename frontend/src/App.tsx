@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyProposal,
   extractRequirements,
@@ -16,7 +16,7 @@ import {
 } from "./api";
 import type { Component, ExtractionInfo, InventoryRow, UploadResponse, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import ConfigSection from "./components/ConfigSection";
-import type { FocusRequest } from "./components/ConfigSection";
+import type { FocusRequest, RenderedImages } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
@@ -24,6 +24,11 @@ import ServerBar from "./components/ServerBar";
 import AiToggle from "./components/AiBadge";
 
 export type ModelSource = "document" | "manual" | "default";
+
+interface HistoryEntry {
+  serverId: string;
+  config: ServerConfig;
+}
 
 interface ServerProfile {
   serverId: string;
@@ -108,7 +113,10 @@ export default function App() {
   const [imageError, setImageError] = useState("");
   const [validationError, setValidationError] = useState("");
   const [validationBusy, setValidationBusy] = useState(false);
-  const [renderedImages, setRenderedImages] = useState<{ front: string | null; rear: string | null }>({ front: null, rear: null });
+  const [renderedImages, setRenderedImages] = useState<RenderedImages>({ front: null, rear: null });
+  /** 서버별 구성 변경 기록 (Ctrl+Z / Ctrl+Y). 모델이 바뀌면 그 서버의 기록은 버린다 */
+  const history = useRef<Record<string, { past: HistoryEntry[]; future: HistoryEntry[] }>>({});
+  const [, setHistoryTick] = useState(0);
   const [imageVersion, setImageVersion] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [apiReady, setApiReady] = useState<boolean | null>(null);
@@ -206,7 +214,16 @@ export default function App() {
         renderServer(server.id, "front", config),
         renderServer(server.id, "rear", config),
       ]).then(([front, rear]) => {
-        if (active) setRenderedImages({ front: front.url, rear: rear.url });
+        // 새 그림을 미리 받아 둔 뒤 바꿔야 깜빡이지 않는다
+        const preload = (url: string | null) => new Promise<void>((resolve) => {
+          if (!url) return resolve();
+          const img = new Image();
+          img.onload = img.onerror = () => resolve();
+          img.src = url;
+        });
+        return Promise.all([preload(front.url), preload(rear.url)]).then(() => {
+          if (active) setRenderedImages({ front: front.url, rear: rear.url, config });
+        });
       }).catch((reason: unknown) => {
         if (active) setImageError(reason instanceof Error ? reason.message : String(reason));
       });
@@ -366,12 +383,41 @@ export default function App() {
     setRenderedImages({ front: null, rear: null });
   };
 
+  const groupHistory = () => (history.current[activeGroupId] ||= { past: [], future: [] });
   const handleConfigChange = (nextConfig: ServerConfig) => {
+    const profile = profiles[activeGroupId];
+    if (profile && profile.config !== nextConfig) {
+      const record = groupHistory();
+      record.past.push({ serverId: profile.serverId, config: profile.config });
+      if (record.past.length > 100) record.past.shift();
+      record.future = [];
+      setHistoryTick((tick) => tick + 1);
+    }
     setProfiles((current) => {
       const currentProfile = current[activeGroupId];
       return currentProfile ? { ...current, [activeGroupId]: { ...currentProfile, config: nextConfig } } : current;
     });
   };
+
+  /** 되돌리기(-1) / 다시 하기(+1). 다른 모델의 기록이면 버린다 */
+  const stepHistory = (direction: -1 | 1) => {
+    const profile = profiles[activeGroupId];
+    const record = groupHistory();
+    const from = direction < 0 ? record.past : record.future;
+    const to = direction < 0 ? record.future : record.past;
+    const entry = from.pop();
+    if (!profile || !entry) return;
+    if (entry.serverId !== profile.serverId) {
+      history.current[activeGroupId] = { past: [], future: [] };
+      setHistoryTick((tick) => tick + 1);
+      return;
+    }
+    to.push({ serverId: profile.serverId, config: profile.config });
+    setProfiles((current) => ({ ...current, [activeGroupId]: { ...profile, config: entry.config } }));
+    setHistoryTick((tick) => tick + 1);
+  };
+  const canUndo = !!history.current[activeGroupId]?.past.length;
+  const canRedo = !!history.current[activeGroupId]?.future.length;
 
   const handleBackplaneChange = (id: string) => {
     if (!config || !server) return;
@@ -501,6 +547,8 @@ export default function App() {
             images={imageStatus}
             renderedImages={renderedImages}
             onChange={handleConfigChange}
+            onUndo={canUndo ? () => stepHistory(-1) : undefined}
+            onRedo={canRedo ? () => stepHistory(1) : undefined}
             onBackplaneChange={handleBackplaneChange}
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}

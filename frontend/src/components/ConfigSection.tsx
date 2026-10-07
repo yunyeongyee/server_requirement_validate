@@ -9,8 +9,11 @@ interface Props {
   config: ServerConfig | null;
   result: ValidationResult | null;
   images: ImageStatus | null;
-  renderedImages: { front: string | null; rear: string | null };
+  renderedImages: RenderedImages;
   onChange: (config: ServerConfig) => void;
+  /** 되돌릴/다시 할 기록이 있을 때만 */
+  onUndo?: () => void;
+  onRedo?: () => void;
   onBackplaneChange: (id: string) => void;
   onSaveCalibration: (hotspots: Record<string, Rect>, rects: Rect[]) => Promise<void>;
   onRedetectBays: () => Promise<void>;
@@ -21,6 +24,13 @@ interface Props {
   onOpenImages: () => void;
   /** 직접 고른 전면 이미지를 해제해 자동(스텐실 또는 기본 도면)으로 */
   onUseAutoFront: () => Promise<void>;
+}
+
+/** 서버가 합성한 전면/후면 그림과, 그 그림을 만든 구성 (화면 미리보기와 비교용) */
+export interface RenderedImages {
+  front: string | null;
+  rear: string | null;
+  config?: ServerConfig;
 }
 
 export interface FocusRequest {
@@ -93,6 +103,8 @@ export default function ConfigSection({
   images,
   renderedImages,
   onChange,
+  onUndo,
+  onRedo,
   onBackplaneChange,
   onSaveCalibration,
   onRedetectBays,
@@ -107,12 +119,19 @@ export default function ConfigSection({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [showSlotList, setShowSlotList] = useState(false);
-  /** 그림 아래 설정 자리에 띄울 것: 디스크(선택 베이·RAID) / CPU·메모리. 슬롯·PSU는 selectedSlot */
-  const [panel, setPanel] = useState<"disk" | "spec" | null>(null);
-  /** 빈 베이를 클릭하면 바로 꽂을 디스크 종류·용도 (마지막에 고른 값) */
+  /** 펼침 설정: RAID·BOSS(전면 막대 아래) / CPU·메모리(내부 줄 아래) */
+  const [panel, setPanel] = useState<"raid" | "spec" | null>(null);
+  /** 작업 막대에서 고른 꽂을 디스크 종류·용도 (마지막에 고른 값 유지) */
   const [diskChoice, setDiskChoice] = useState("");
   const [roleChoice, setRoleChoice] = useState<"data" | "boot">("data");
   const slotPanelRef = useRef<HTMLDivElement>(null);
+  const frontBarRef = useRef<HTMLDivElement>(null);
+  const rearBarRef = useRef<HTMLDivElement>(null);
+  /** Shift+클릭 기준 베이, 드래그로 여러 칸 고르기 */
+  const anchorBay = useRef<number | null>(null);
+  const bayDrag = useRef<{ anchor: number; base: number[] } | null>(null);
+  /** 드래그가 끝나면 브라우저가 공통 부모(빈 곳)에 click 을 보낸다 → 선택 해제로 오인하지 않게 */
+  const dragged = useRef(false);
   const [frontRects, setFrontRects] = useState<Rect[]>([]);
   const [slotHotspots, setSlotHotspots] = useState<Record<string, Rect>>({});
   const [calibrationBusy, setCalibrationBusy] = useState(false);
@@ -124,12 +143,32 @@ export default function ConfigSection({
     const timer = window.setTimeout(() => setCalibrationMessage(""), 2500);
     return () => window.clearTimeout(timer);
   }, [calibrationMessage]);
-  function openPanel(next: "disk" | "spec") {
-    setSelectedSlot(null);
-    if (next === "spec") setSelectedBays([]);
+  const reveal = (ref: { current: HTMLElement | null }) =>
+    window.setTimeout(() => ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+  function openPanel(next: "raid" | "spec") {
     setPanel(next);
-    window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+    reveal(next === "spec" ? slotPanelRef : frontBarRef);
   }
+  const clearSelection = () => {
+    setSelectedBays([]);
+    setSelectedSlot(null);
+    anchorBay.current = null;
+  };
+  // 모델·백플레인이 바뀌면 이전 선택은 의미가 없다
+  useEffect(() => { clearSelection(); }, [server?.id, config?.backplane]);
+  /** 키보드: Esc 해제 · Delete 빼기 · Ctrl+Z/Ctrl+Y. 최신 구성을 보도록 매 렌더마다 갈아 끼운다 */
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => keyHandler.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+  useEffect(() => {
+    const stop = () => { bayDrag.current = null; };
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => { window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); };
+  }, []);
 
   useEffect(() => {
     setFrontRects(images?.bays.rects || []);
@@ -141,16 +180,20 @@ export default function ConfigSection({
   useEffect(() => {
     if (!focus || !server) return;
     if (focus.kind === "bays") {
-      openPanel("disk");
+      // 디스크 추가 요청: 빈 베이를 모두 골라 두고 '꽂기'만 누르면 되게
+      const total = server.backplanes.find((item) => item.id === config?.backplane)?.bays || 0;
+      setSelectedSlot(null);
+      setSelectedBays(Array.from({ length: total }, (_, index) => index).filter((index) => !config?.bays[String(index)]));
+      reveal(frontBarRef);
     } else if (focus.kind === "spec") {
       openPanel("spec");
     } else if (focus.kind === "slot" && focus.part === "psu") {
       const psuSlots = server.psu_slots || [];
       const target = psuSlots[Math.min(config?.psu_count || 0, psuSlots.length - 1)];
       if (target) {
-        setPanel(null);
+        setSelectedBays([]);
         setSelectedSlot(target.id);
-        window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+        reveal(rearBarRef);
       } else {
         openPanel("spec");
       }
@@ -158,9 +201,9 @@ export default function ConfigSection({
       const free = server.slots.find((slot) => slot.type !== "ocp" && !config?.slots[slot.id]
         && (result?.slots.find((item) => item.slot === slot.id)?.usable ?? true));
       if (free) {
-        setPanel(null);
+        setSelectedBays([]);
         setSelectedSlot(free.id);
-        window.setTimeout(() => slotPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+        reveal(rearBarRef);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,26 +225,56 @@ export default function ConfigSection({
 
   const driveOptions = server.drive_options.filter((drive) => drive.ff === backplane.ff);
   const currentDrive = driveOptions.find((drive) => drive.id === diskChoice)?.id || driveOptions[0]?.id || "";
-  /** 빈 베이: 바로 꽂고 그 베이를 선택 / 꽂힌 베이: 선택 토글 (종류·용도 변경, 빼기) */
-  const toggleBay = (bay: number) => {
+  const range = (a: number, b: number) => Array.from({ length: Math.abs(a - b) + 1 }, (_, index) => Math.min(a, b) + index);
+  const union = (a: number[], b: number[]) => [...new Set([...a, ...b])].sort((x, y) => x - y);
+  /** 클릭 = 선택만. Shift = 기준 칸부터 범위, Ctrl/⌘ = 한 칸 더하기/빼기, 드래그 = 여러 칸 */
+  const pressBay = (bay: number, event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
     setSelectedSlot(null);
-    setPanel("disk");
-    if (!config.bays[String(bay)] && currentDrive) {
-      patch({ bays: { ...config.bays, [String(bay)]: { drive: currentDrive, role: roleChoice } } });
-      setSelectedBays([bay]);
+    dragged.current = false;
+    const additive = event.ctrlKey || event.metaKey;
+    if (event.shiftKey && anchorBay.current !== null) {
+      const next = union(additive ? selectedBays : [], range(anchorBay.current, bay));
+      setSelectedBays(next);
+      bayDrag.current = { anchor: anchorBay.current, base: additive ? selectedBays : [] };
       return;
     }
-    setSelectedBays((selected) => selected.includes(bay)
-      ? selected.filter((item) => item !== bay)
-      : [...selected, bay]);
+    anchorBay.current = bay;
+    if (additive) {
+      const next = selectedBays.includes(bay) ? selectedBays.filter((item) => item !== bay) : union(selectedBays, [bay]);
+      setSelectedBays(next);
+      bayDrag.current = { anchor: bay, base: next };
+      return;
+    }
+    const only = selectedBays.length === 1 && selectedBays[0] === bay;
+    setSelectedBays(only ? [] : [bay]);
+    bayDrag.current = { anchor: bay, base: [] };
   };
-  const applyToSelected = (values: Partial<{ drive: string; role: "data" | "boot" }>) => {
-    if (!selectedBays.length) return;
+  const dragOverBay = (bay: number) => {
+    const active = bayDrag.current;
+    if (!active) return;
+    dragged.current = true;
+    setSelectedBays(union(active.base, range(active.anchor, bay)));
+  };
+  const selectedSorted = [...selectedBays].sort((a, b) => a - b);
+  const filledSel = selectedSorted.filter((index) => config.bays[String(index)]);
+  const emptySel = selectedSorted.filter((index) => !config.bays[String(index)]);
+  /** 꽂힌 칸의 종류·용도를 바로 바꾼다 (빈 칸은 '꽂기'를 눌러야) */
+  const changeFilled = (values: Partial<{ drive: string; role: "data" | "boot" }>) => {
+    if (!filledSel.length) return;
     const bays = { ...config.bays };
-    selectedBays.forEach((index) => {
-      const old = bays[String(index)];
-      bays[String(index)] = { drive: values.drive || old?.drive || currentDrive, role: values.role || old?.role || roleChoice };
-    });
+    filledSel.forEach((index) => { bays[String(index)] = { ...bays[String(index)], ...values }; });
+    patch({ bays });
+  };
+  const installSelected = () => {
+    if (!emptySel.length || !currentDrive) return;
+    const bays = { ...config.bays };
+    emptySel.forEach((index) => { bays[String(index)] = { drive: currentDrive, role: roleChoice }; });
+    patch({ bays });
+  };
+  const removeBays = () => {
+    if (!filledSel.length) return;
+    const bays = { ...config.bays };
+    filledSel.forEach((index) => delete bays[String(index)]);
     patch({ bays });
   };
 
@@ -325,6 +398,47 @@ export default function ConfigSection({
   const psuIndex = (id: string) => psuSlots.findIndex((psu) => psu.id === id);
   const psuWarn = !!result?.general.some((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg));
 
+  /** 좁은 베이(E3.S 등)는 옆 칸과의 틈 절반까지 클릭 영역을 넓힌다. 보정 중에는 실제 크기 그대로 */
+  const bayPads = currentFrontRects.map((rect) => {
+    if (mode !== "edit") return { padL: 0, padR: 0 };
+    const sameRow = currentFrontRects.filter((other) => other !== rect
+      && Math.min(other.y + other.h, rect.y + rect.h) - Math.max(other.y, rect.y) > Math.min(other.h, rect.h) / 2);
+    const gapLeft = Math.min(...sameRow.map((other) => rect.x - (other.x + other.w)).filter((gap) => gap >= 0));
+    const gapRight = Math.min(...sameRow.map((other) => other.x - (rect.x + rect.w)).filter((gap) => gap >= 0));
+    const cap = rect.w * 0.5;
+    return {
+      padL: Number.isFinite(gapLeft) ? Math.min(gapLeft / 2, cap) : 0,
+      padR: Number.isFinite(gapRight) ? Math.min(gapRight / 2, cap) : 0,
+    };
+  });
+
+  const selectedPsu = selectedSlot ? psuIndex(selectedSlot) : -1;
+  /** Delete: 고른 디스크 빼기 / 슬롯 비우기 / 그 PSU부터 빼기 */
+  const removeSelected = () => {
+    if (selectedBays.length) removeBays();
+    else if (selectedSlot && selectedPsu >= 0) { if (selectedPsu < config.psu_count) patch({ psu_count: selectedPsu }); }
+    else if (selectedSlot && config.slots[selectedSlot]) {
+      const slots = { ...config.slots };
+      delete slots[selectedSlot];
+      patch({ slots });
+    }
+  };
+  keyHandler.current = (event: KeyboardEvent) => {
+    if (mode !== "edit") return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
+    if (document.querySelector(".modal-back, .document-dialog[open]")) return;
+    const mod = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (mod && key === "z" && !event.shiftKey) { if (onUndo) { event.preventDefault(); onUndo(); } return; }
+    if (mod && (key === "y" || (key === "z" && event.shiftKey))) { if (onRedo) { event.preventDefault(); onRedo(); } return; }
+    if (event.key === "Escape" && (selectedBays.length || selectedSlot)) { event.preventDefault(); clearSelection(); return; }
+    if ((event.key === "Delete" || event.key === "Backspace") && (selectedBays.length || selectedSlot)) {
+      event.preventDefault();
+      removeSelected();
+    }
+  };
+
   const renderStage = (view: "front" | "rear") => {
     const info = images?.[view];
     const rendered = renderedImages[view] || info?.item?.url || null;
@@ -358,51 +472,89 @@ export default function ConfigSection({
         {rendered ? (
           <div className={`chassis mode-${mode}`}>
             <img src={rendered} alt={`${server.vendor} ${server.model} ${view === "front" ? "전면" : "후면"}`} />
-            <div className="hot" onPointerDown={(event) => startDrag(view, event)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
+            <div className="hot" onClick={(event) => {
+              if (dragged.current) { dragged.current = false; return; }
+              if (mode === "edit" && event.target === event.currentTarget) clearSelection();
+            }} onPointerDown={(event) => startDrag(view, event)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
               {areas.map(({ area, slot, index }) => {
-                const bayIndex = index;
-                const bay = config.bays[String(bayIndex)];
-                const status = view === "front" ? getBayResult(bayIndex)?.status : slot ? getSlotResult(slot.id)?.status : null;
-                const className = view === "front"
-                  ? `bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
-                  : slot?.type === "psu"
-                  ? `hs psu ${selectedSlot === slot.id ? "sel" : ""} ${psuIndex(slot.id) < config.psu_count ? (psuWarn ? "s-review" : "s-ok") : "empty"}`
-                  : slot && getSlotResult(slot.id)?.usable === false
-                  ? `hs s-off ${selectedSlot === slot.id ? "sel" : ""}`
-                  : `hs ${selectedSlot === slot?.id ? "sel" : ""} ${status === "충족" ? "s-ok" : status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`;
+                if (view === "front") {
+                  const bay = config.bays[String(index)];
+                  const status = getBayResult(index)?.status;
+                  const issue = getBayResult(index)?.issues.map((item) => item.msg).join(" / ");
+                  const { padL, padR } = bayPads[index] || { padL: 0, padR: 0 };
+                  const width = area.w + padL + padR;
+                  const before = renderedImages.config?.backplane === config.backplane ? renderedImages.config.bays[String(index)] : undefined;
+                  const preview = !renderedImages.config || renderedImages.config.backplane !== config.backplane ? null
+                    : bay && (!before || before.drive !== bay.drive) ? "in" : !bay && before ? "out" : null;
+                  const name = bay ? server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive : "";
+                  return (
+                    <button
+                      key={`bay-${index}`}
+                      className={`bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(index) ? "sel" : ""}`}
+                      type="button"
+                      aria-label={`Bay ${index}${bay ? ` · ${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : " · 비어 있음"}`}
+                      aria-pressed={mode === "edit" ? selectedBays.includes(index) : undefined}
+                      data-calib-key={String(index)}
+                      data-tip={mode === "edit" ? `Bay ${index} · ${bay ? `${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : "비어 있음"}${issue ? ` — ${issue}` : ""}` : undefined}
+                      style={{ left: `${area.x - padL}%`, top: `${area.y}%`, width: `${width}%`, height: `${area.h}%` }}
+                      onPointerDown={(event) => {
+                        if (mode !== "edit" || event.button !== 0) return;
+                        event.preventDefault();
+                        pressBay(index, event);
+                      }}
+                      onPointerEnter={(event) => { if (mode === "edit" && event.buttons & 1) dragOverBay(index); }}
+                      onClick={(event) => { if (mode === "edit" && event.detail === 0) pressBay(index, event); }}
+                    >
+                      <span className="bx" style={{ left: `${padL / width * 100}%`, width: `${area.w / width * 100}%` }}>
+                        {preview && <span className={`pv ${preview} ${bay?.role === "boot" ? "boot" : ""}`} />}
+                      </span>
+                      <span className="bn">{index}</span>
+                      {(status === "호환 불가" || status === "확인 필요") && <span className={`warnb ${status === "호환 불가" ? "bad" : ""}`} aria-hidden="true">!</span>}
+                      {mode === "calib" && <span className="grip" />}
+                      {mode === "calib" && (
+                        <span
+                          className="bay-x"
+                          role="button"
+                          aria-label={`Bay ${index} 빼기`}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setFrontRects(currentFrontRects.filter((_, rectIndex) => rectIndex !== index));
+                          }}
+                        >✕</span>
+                      )}
+                    </button>
+                  );
+                }
+                if (!slot) return null;
+                const isPsu = slot.type === "psu";
+                const psuFilled = isPsu && psuIndex(slot.id) < config.psu_count;
+                const slotResult = getSlotResult(slot.id);
+                const off = !isPsu && slotResult?.usable === false;
+                const status = isPsu ? (psuFilled && psuWarn ? "확인 필요" : null) : slotResult?.status;
+                const part = isPsu ? (psuFilled ? `${config.psu_watt}W` : "비어 있음")
+                  : components.find((item) => item.id === config.slots[slot.id])?.name || (config.slots[slot.id] ? config.slots[slot.id] : "비어 있음");
+                const tip = off ? unusableReason(slot)
+                  : `${slot.label} · ${part}${slotResult?.issues.length ? ` — ${slotResult.issues.map((item) => item.msg).join(" / ")}` : ""}`;
                 return (
                   <button
-                    key={view === "front" ? `bay-${index}` : slot?.id || index}
-                    className={className}
+                    key={slot.id}
+                    className={`hs ${isPsu ? `psu ${psuFilled ? "" : "empty"}` : ""} ${off ? "s-off" : ""} ${selectedSlot === slot.id ? "sel" : ""}`}
                     type="button"
-                    title={view === "front" ? `Bay ${index} · ${bay ? `${server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive} (${bay.role === "boot" ? "Boot" : "Data"})` : "비어 있음"}` : slot?.label}
-                    aria-label={view === "front" ? `Bay ${index}${bay ? " 사용 중" : " 비어 있음"}` : slot?.label}
-                    data-calib-key={view === "front" ? String(index) : rearLayout ? undefined : slot?.id}
-                    data-tip={view === "rear" && slot && getSlotResult(slot.id)?.usable === false
-                      ? unusableReason(slot) : undefined}
+                    aria-label={`${slot.label} · ${off ? "사용 불가" : part}`}
+                    aria-pressed={mode === "edit" ? selectedSlot === slot.id : undefined}
+                    data-calib-key={rearLayout ? undefined : slot.id}
+                    data-tip={mode === "edit" ? tip : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
                     onClick={() => {
                       if (mode !== "edit") return;
-                      if (view === "front") toggleBay(index);
-                      else if (slot) { setPanel(null); setSelectedBays([]); setSelectedSlot((current) => current === slot.id ? null : slot.id); }
+                      setSelectedBays([]);
+                      setSelectedSlot((current) => current === slot.id ? null : slot.id);
                     }}
                   >
-                    {view === "front" ? <span className="bn">{index}</span> : slot?.type === "psu"
-                      ? <><span className="tag">{slot.label}</span><span className="psu-w">{psuIndex(slot.id) < config.psu_count ? `${config.psu_watt}W` : "비어 있음"}</span></>
-                      : <span className="tag">{slot?.label}</span>}
-                    {mode === "calib" && !(view === "rear" && rearLayout) && <span className="grip" />}
-                    {mode === "calib" && view === "front" && (
-                      <span
-                        className="bay-x"
-                        role="button"
-                        aria-label={`Bay ${index} 빼기`}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setFrontRects(currentFrontRects.filter((_, rectIndex) => rectIndex !== index));
-                        }}
-                      >✕</span>
-                    )}
+                    <span className="tag">{slot.label}</span>
+                    {(status === "호환 불가" || status === "확인 필요") && <span className={`warnb ${status === "호환 불가" ? "bad" : ""}`} aria-hidden="true">!</span>}
+                    {mode === "calib" && !rearLayout && <span className="grip" />}
                   </button>
                 );
               })}
@@ -491,6 +643,32 @@ export default function ConfigSection({
             <span className="muted">내부</span> <b>CPU</b> {config.cpu_model} × {config.cpu_count} <span className="muted">·</span> <b>메모리</b> {config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB × ${row.qty}`).join(" + ") || "없음"} = {memoryTotal}GB
             <span className="lnk specline-act">바꾸기</span>
           </button>
+        {panel === "spec" && (
+          <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="CPU · 메모리">
+            <div className="row between">
+              <b>CPU · 메모리</b>
+              <button className="ico" aria-label="닫기" onClick={() => setPanel(null)}>✕</button>
+            </div>
+            <div className="row">
+              CPU <select value={config.cpu_model} onChange={(event) => patch({ cpu_model: event.target.value })} aria-label="CPU 모델">
+                {server.cpu_options.map((option) => <option key={option}>{option}</option>)}
+              </select>
+              × <select value={config.cpu_count} onChange={(event) => patch({ cpu_count: Number(event.target.value) })} aria-label="CPU 수량">
+                {Array.from({ length: server.cpu_sockets }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
+              </select>
+            </div>
+            {config.memory.map((row, index) => (
+              <div className="row" key={index}>
+                메모리 <select value={row.size_gb} onChange={(event) => updateMemory(index, { size_gb: Number(event.target.value) })} aria-label="DIMM 용량">
+                  {server.memory.dimm_sizes_gb.map((size) => <option key={size} value={size}>{size}GB RDIMM</option>)}
+                </select>
+                × <input type="number" min="0" max={server.memory.dimm_slots} value={row.qty} style={{ width: 70 }} onChange={(event) => updateMemory(index, { qty: Number(event.target.value) })} aria-label="DIMM 수량" />
+                {config.memory.length > 1 && <button className="ico" aria-label="DIMM 행 삭제" onClick={() => patch({ memory: config.memory.filter((_, rowIndex) => rowIndex !== index) })}>✕</button>}
+              </div>
+            ))}
+            <div className="row"><span className="muted">합계 {memoryTotal}GB · DIMM {memoryCount}/{server.memory.dimm_slots}</span><button type="button" className="lnk" onClick={() => patch({ memory: [...config.memory, { size_gb: 64, qty: 0 }] })}>+ 다른 DIMM</button></div>
+          </div>
+        )}
         {mode === "calib" && (
           <div className="calibbar" role="toolbar" aria-label="좌표 보정">
             <b>좌표 보정 중</b>
@@ -523,153 +701,141 @@ export default function ConfigSection({
           </div>
         )}
         {renderStage("front")}
-        <div className="storage-row">
-          <StorageSummary server={server} config={config} bayCount={backplane.bays} />
-          {backplane.bays > 0 && <span className="muted small">빈 베이를 누르면 디스크가 꽂힙니다</span>}
-        </div>
-        {panel === "disk" && (() => {
-          const chosen = selectedBays.map((index) => config.bays[String(index)]).filter(Boolean);
-          const shownDrive = chosen.length && chosen.every((bay) => bay.drive === chosen[0].drive) ? chosen[0].drive : currentDrive;
-          const shownRole = chosen.length && chosen.every((bay) => bay.role === chosen[0].role) ? chosen[0].role : roleChoice;
-          const empty = Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]);
+        {imageView !== "rear" && (() => {
+          const shared = filledSel.map((index) => config.bays[String(index)]);
+          const shownDrive = shared.length && shared.every((bay) => bay.drive === shared[0].drive) ? shared[0].drive : currentDrive;
+          const shownRole = shared.length && !emptySel.length && shared.every((bay) => bay.role === shared[0].role) ? shared[0].role : roleChoice;
+          const emptyAll = Array.from({ length: backplane.bays }, (_, index) => index).filter((index) => !config.bays[String(index)]);
+          const state = !filledSel.length ? "비어 있음"
+            : !emptySel.length ? `사용 중${shared.every((bay) => bay.drive === shared[0].drive) ? ` · ${server.drive_options.find((drive) => drive.id === shared[0].drive)?.name || shared[0].drive}` : ""}`
+            : `사용 중 ${filledSel.length} · 비어 있음 ${emptySel.length}`;
           return (
-            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="디스크 · RAID">
-              <div className="row between">
-                <b>{selectedBays.length ? `Bay ${[...selectedBays].sort((a, b) => a - b).join(", ")} 선택됨` : "디스크 · RAID"}</b>
-                <span className="muted small">빈 베이를 누르면 바로 꽂힙니다 · 꽂힌 베이를 누르면 선택</span>
-                <button className="ico" aria-label="닫기" onClick={() => { setPanel(null); setSelectedBays([]); }}>✕</button>
-              </div>
-              <div className="row">
-                디스크 <select aria-label="디스크 종류" value={shownDrive} onChange={(event) => { setDiskChoice(event.target.value); applyToSelected({ drive: event.target.value }); }}>
-                  {driveOptions.map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
-                </select>
-                <span role="group" aria-label="용도" className="opts">
-                  {(["data", "boot"] as const).map((role) => (
-                    <button type="button" key={role} className="opt" aria-pressed={shownRole === role} onClick={() => { setRoleChoice(role); applyToSelected({ role }); }}>{role === "data" ? "Data" : "Boot"}</button>
-                  ))}
-                </span>
-                {chosen.length > 0 && <button type="button" className="btn ghost small" onClick={() => {
-                  const bays = { ...config.bays };
-                  selectedBays.forEach((index) => delete bays[String(index)]);
-                  patch({ bays });
-                  setSelectedBays([]);
-                }}>선택한 디스크 빼기</button>}
-              </div>
-              <div className="row">
-                {empty.length > 0 && <button type="button" className="lnk" onClick={() => {
-                  const bays = { ...config.bays };
-                  empty.forEach((index) => { bays[String(index)] = { drive: currentDrive, role: roleChoice }; });
-                  patch({ bays });
-                  setSelectedBays(empty);
-                }}>빈 베이 {empty.length}개 모두 채우기</button>}
-                {Object.keys(config.bays).length > 0 && <button type="button" className="lnk" onClick={() => { patch({ bays: {} }); setSelectedBays([]); }}>전체 빼기</button>}
-              </div>
-              <div className="row" role="group" aria-label="Data RAID">
-                Data RAID {RAID_LEVELS.map((level) => (
-                  <button type="button" key={level || "none"} className="opt" aria-pressed={config.raid.data === level} onClick={() => patch({ raid: { ...config.raid, data: level } })}>{level || "No RAID"}</button>
-                ))}
-              </div>
-              <div className="row">
-                Boot RAID <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })} aria-label="Boot RAID">
-                  {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
-                </select>
-                <label><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
+            <div className={`actbar ${selectedBays.length ? "on" : ""}`} ref={frontBarRef} role="region" aria-label="디스크 작업">
+              {selectedBays.length ? (
+                <div className="ar">
+                  <span className="who">Bay {formatList(selectedSorted)}</span>
+                  <span className="muted">{state}</span>
+                  <select aria-label="디스크 종류" value={shownDrive} onChange={(event) => { setDiskChoice(event.target.value); changeFilled({ drive: event.target.value }); }}>
+                    {driveOptions.map((drive) => <option key={drive.id} value={drive.id}>{drive.name}</option>)}
+                  </select>
+                  <span role="group" aria-label="용도" className="opts">
+                    {(["data", "boot"] as const).map((role) => (
+                      <button type="button" key={role} className="opt" aria-pressed={shownRole === role} onClick={() => { setRoleChoice(role); changeFilled({ role }); }}>{role === "data" ? "Data" : "Boot"}</button>
+                    ))}
+                  </span>
+                  <button type="button" className="btn small" disabled={!emptySel.length || !currentDrive} onClick={installSelected}>꽂기{emptySel.length > 1 ? ` ${emptySel.length}개` : ""}</button>
+                  <button type="button" className="btn small danger" disabled={!filledSel.length} onClick={removeBays}>빼기{filledSel.length > 1 ? ` ${filledSel.length}개` : ""}</button>
+                </div>
+              ) : (
+                <div className="ar"><span className="muted">{backplane.bays
+                  ? "베이를 클릭해 고르세요 · Shift+클릭이나 드래그로 여러 칸"
+                  : `${backplane.name} — 전면 드라이브 베이가 없는 구성입니다`}</span></div>
+              )}
+              <div className="ar sub">
+                {backplane.bays > 0 && emptyAll.length > 0 && <button type="button" className="lnk" onClick={() => { setSelectedSlot(null); setSelectedBays(emptyAll); }}>빈 베이 모두 선택 ({emptyAll.length})</button>}
+                {backplane.bays > 0 && <button type="button" className="lnk" onClick={() => { setSelectedSlot(null); setSelectedBays(Array.from({ length: backplane.bays }, (_, index) => index)); }}>전체 선택</button>}
+                <button type="button" className="lnk" aria-expanded={panel === "raid"} onClick={() => panel === "raid" ? setPanel(null) : openPanel("raid")}>RAID · BOSS 설정</button>
+                <KeyHints onUndo={onUndo} onRedo={onRedo} selecting={selectedBays.length > 0} />
               </div>
             </div>
           );
         })()}
-        {renderStage("rear")}
-        {panel === "spec" && (
-          <div className="slotpanel" ref={slotPanelRef} role="region" aria-label="CPU · 메모리">
-            <div className="row between">
-              <b>CPU · 메모리</b>
-              <button className="ico" aria-label="닫기" onClick={() => setPanel(null)}>✕</button>
-            </div>
-            <div className="row">
-              CPU <select value={config.cpu_model} onChange={(event) => patch({ cpu_model: event.target.value })} aria-label="CPU 모델">
-                {server.cpu_options.map((option) => <option key={option}>{option}</option>)}
-              </select>
-              × <select value={config.cpu_count} onChange={(event) => patch({ cpu_count: Number(event.target.value) })} aria-label="CPU 수량">
-                {Array.from({ length: server.cpu_sockets }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
-              </select>
-            </div>
-            {config.memory.map((row, index) => (
-              <div className="row" key={index}>
-                메모리 <select value={row.size_gb} onChange={(event) => updateMemory(index, { size_gb: Number(event.target.value) })} aria-label="DIMM 용량">
-                  {server.memory.dimm_sizes_gb.map((size) => <option key={size} value={size}>{size}GB RDIMM</option>)}
-                </select>
-                × <input type="number" min="0" max={server.memory.dimm_slots} value={row.qty} style={{ width: 70 }} onChange={(event) => updateMemory(index, { qty: Number(event.target.value) })} aria-label="DIMM 수량" />
-                {config.memory.length > 1 && <button className="ico" aria-label="DIMM 행 삭제" onClick={() => patch({ memory: config.memory.filter((_, rowIndex) => rowIndex !== index) })}>✕</button>}
-              </div>
-            ))}
-            <div className="row"><span className="muted">합계 {memoryTotal}GB · DIMM {memoryCount}/{server.memory.dimm_slots}</span><button type="button" className="lnk" onClick={() => patch({ memory: [...config.memory, { size_gb: 64, qty: 0 }] })}>+ 다른 DIMM</button></div>
+        {imageView !== "rear" && (
+          <div className="storage-row">
+            <StorageSummary server={server} config={config} bayCount={backplane.bays} />
+            <span className="legend" aria-label="표시 설명">
+              <span><i className="l-sel" />선택</span>
+              <span><i className="l-warn" />확인 필요</span>
+              <span><i className="l-off" />사용할 수 없는 칸</span>
+            </span>
           </div>
         )}
-        {selectedSlot && psuIndex(selectedSlot) >= 0 && (() => {
-          const index = psuIndex(selectedSlot);
-          const filled = index < config.psu_count;
-          return (
-            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label={`${psuSlots[index].label} 구성`}>
-              <div className="row between">
-                <b>{psuSlots[index].label}</b>
-                <span className="muted">{filled ? `${config.psu_watt}W 장착` : "비어 있음"} · 전원 공급 장치 {config.psu_count}/{psuSlots.length}개</span>
-                <button className="ico" aria-label="PSU 패널 닫기" onClick={() => setSelectedSlot(null)}>✕</button>
-              </div>
-              <div className="opts" role="group" aria-label="PSU 용량">
-                {server.psu_options.map((watt) => (
-                  <button type="button" key={watt} className="opt" aria-pressed={filled && config.psu_watt === watt}
-                    onClick={() => patch({ psu_watt: watt, psu_count: Math.max(config.psu_count, index + 1) })}>{watt}W</button>
-                ))}
-                {filled && <button type="button" className="opt" onClick={() => patch({ psu_count: index })}>빼기</button>}
-              </div>
-              {filled && images?.psus?.[String(config.psu_watt)] && !images.psus[String(config.psu_watt)].exact && (
-                <p className="warn small">{config.psu_watt}W PSU 이미지가 라이브러리에 없어 {images.psus[String(config.psu_watt)].item?.name || "다른 PSU"} 그림에 용량을 표시했습니다. Dell 스텐실에서 해당 PSU 이미지를 올리면 자동으로 바뀝니다.</p>
-              )}
-              <p className="muted small">한 서버의 PSU는 같은 용량으로 장착합니다. 용량을 바꾸면 장착된 PSU 모두 바뀝니다. 예상 최대 소비전력 {result ? `${Math.round(result.summary.power_est_w)}W` : "-"}.</p>
-              {psuWarn && <ul className="issues">{result?.general.filter((item) => /PSU|전원|소비전력/.test(item.msg)).map((item, i) => <li key={i}><StatusBadge status={item.status} /> {item.msg}</li>)}</ul>}
+        {panel === "raid" && (
+          <div className="slotpanel" role="region" aria-label="RAID · BOSS">
+            <div className="row between">
+              <b>RAID · BOSS</b>
+              <button className="ico" aria-label="닫기" onClick={() => setPanel(null)}>✕</button>
             </div>
-          );
-        })()}
-        {selectedSlot && psuIndex(selectedSlot) < 0 && (() => {
-          const slot = server.slots.find((item) => item.id === selectedSlot);
-          if (!slot) return null;
-          const slotResult = getSlotResult(slot.id);
-          const fits = components.filter((item) => slot.type === "ocp" ? item.form === "ocp" : item.form !== "ocp");
-          return (
-            <div className="slotpanel" ref={slotPanelRef} role="region" aria-label={`${slot.label} 구성`}>
-              <div className="row between">
-                <b>{slot.label}</b>
-                <span className="muted">{slot.type === "ocp" ? `OCP 3.0 SFF x${slot.lanes}` : `PCIe Gen${slot.gen} x${slot.lanes} · ${slot.height}${slot.double_width_ok ? " · 더블 폭 가능" : ""}`} · CPU{slot.cpu}{slot.riser ? ` · ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}` : ""}</span>
-                <button className="ico" aria-label="슬롯 패널 닫기" onClick={() => setSelectedSlot(null)}>✕</button>
-              </div>
-              <div className="row">
-                <select aria-label={`${slot.label} 장착 부품`} value={config.slots[slot.id] || ""} onChange={(event) => {
-                  const slots = { ...config.slots };
-                  if (event.target.value) slots[slot.id] = event.target.value;
-                  else delete slots[slot.id];
-                  patch({ slots });
-                }}>
-                  <option value="">(비움)</option>
-                  {fits.map((component) => <option key={component.id} value={component.id}>{component.name}</option>)}
-                </select>
-                {slotResult?.status ? <StatusBadge status={slotResult.status} /> : <span className="muted">{slotResult && !slotResult.usable ? "사용 불가 (CPU 수 또는 Riser 미장착)" : "빈 슬롯"}</span>}
-              </div>
-              {slot.riser && (() => {
-                const riser = server.risers.find((item) => item.id === slot.riser);
-                const on = config.risers.includes(slot.riser);
-                return (
-                  <div className="row" role="group" aria-label={`${riser?.name || slot.riser} 장착`}>
-                    {riser?.name || slot.riser}
-                    <button type="button" className="opt" aria-pressed={on} onClick={() => { if (!on) patch({ risers: [...config.risers, slot.riser as string] }); }}>장착</button>
-                    <button type="button" className="opt" aria-pressed={!on} onClick={() => { if (on) patch({ risers: config.risers.filter((id) => id !== slot.riser) }); }}>없음</button>
-                    {!on && <span className="muted small">Riser가 없으면 이 슬롯을 쓸 수 없습니다</span>}
-                  </div>
-                );
-              })()}
-              {!!slotResult?.issues.length && <ul className="issues">{slotResult.issues.map((issue, index) => <li key={index}><StatusBadge status={issue.status} /> {issue.msg}</li>)}</ul>}
+            <div className="row" role="group" aria-label="Data RAID">
+              Data RAID <span className="opts">{RAID_LEVELS.map((level) => (
+                <button type="button" key={level || "none"} className="opt" aria-pressed={config.raid.data === level} onClick={() => patch({ raid: { ...config.raid, data: level } })}>{level || "No RAID"}</button>
+              ))}</span>
             </div>
-          );
-        })()}
+            <div className="row">
+              Boot RAID <select value={config.raid.boot} onChange={(event) => patch({ raid: { ...config.raid, boot: event.target.value } })} aria-label="Boot RAID">
+                {RAID_LEVELS.map((level) => <option key={level} value={level}>{level || "No RAID"}</option>)}
+              </select>
+              <label><input type="checkbox" checked={config.boss} onChange={(event) => patch({ boss: event.target.checked })} /> BOSS-N1 (M.2 × 2, RAID1 부트)</label>
+            </div>
+          </div>
+        )}
+        {renderStage("rear")}
+        {imageView !== "front" && (
+          <div className={`actbar ${selectedSlot ? "on" : ""}`} ref={rearBarRef} role="region" aria-label="슬롯 · PSU 작업">
+            {selectedSlot && selectedPsu >= 0 ? (() => {
+              const filled = selectedPsu < config.psu_count;
+              const psuImage = images?.psus?.[String(config.psu_watt)];
+              return <>
+                <div className="ar">
+                  <span className="who">{psuSlots[selectedPsu].label}</span>
+                  <span className="muted">{filled ? `${config.psu_watt}W 장착` : "비어 있음"} · PSU {config.psu_count}/{psuSlots.length}개</span>
+                  <span className="opts" role="group" aria-label="PSU 용량">
+                    {server.psu_options.map((watt) => (
+                      <button type="button" key={watt} className="opt" aria-pressed={filled && config.psu_watt === watt}
+                        onClick={() => patch({ psu_watt: watt, psu_count: Math.max(config.psu_count, selectedPsu + 1) })}>{watt}W</button>
+                    ))}
+                  </span>
+                  <button type="button" className="btn small danger" disabled={!filled} onClick={() => patch({ psu_count: selectedPsu })}>빼기</button>
+                </div>
+                <div className="ar sub">
+                  <span>같은 용량으로 장착합니다 (바꾸면 모두 바뀜) · 예상 최대 소비전력 {result ? `${Math.round(result.summary.power_est_w)}W` : "-"}</span>
+                  <KeyHints onUndo={onUndo} onRedo={onRedo} selecting />
+                </div>
+                {filled && psuImage && !psuImage.exact && <p className="warn small" style={{ margin: 0 }}>{config.psu_watt}W PSU 그림이 라이브러리에 없어 {psuImage.item?.name || "다른 PSU"} 그림에 용량을 표시했습니다.</p>}
+                {psuWarn && <ul className="issues">{result?.general.filter((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg)).map((item, i) => <li key={i}><StatusBadge status={item.status} /> {item.msg}</li>)}</ul>}
+              </>;
+            })() : selectedSlot ? (() => {
+              const slot = server.slots.find((item) => item.id === selectedSlot);
+              if (!slot) return null;
+              const slotResult = getSlotResult(slot.id);
+              const fits = components.filter((item) => slot.type === "ocp" ? item.form === "ocp" : item.form !== "ocp");
+              const riser = slot.riser ? server.risers.find((item) => item.id === slot.riser) : undefined;
+              const riserOn = !!slot.riser && config.risers.includes(slot.riser);
+              const setPart = (id: string) => {
+                const slots = { ...config.slots };
+                if (id) slots[slot.id] = id;
+                else delete slots[slot.id];
+                patch({ slots });
+              };
+              return <>
+                <div className="ar">
+                  <span className="who">{slot.label}</span>
+                  <select aria-label={`${slot.label} 장착 부품`} value={config.slots[slot.id] || ""} onChange={(event) => setPart(event.target.value)}>
+                    <option value="">(비움)</option>
+                    {fits.map((component) => <option key={component.id} value={component.id}>{component.name}</option>)}
+                  </select>
+                  {slot.riser && (
+                    <span className="opts" role="group" aria-label={`${riser?.name || slot.riser} 장착`}>
+                      <button type="button" className="opt" aria-pressed={riserOn} onClick={() => { if (!riserOn) patch({ risers: [...config.risers, slot.riser as string] }); }}>{riser?.name || slot.riser} 장착</button>
+                      <button type="button" className="opt" aria-pressed={!riserOn} onClick={() => { if (riserOn) patch({ risers: config.risers.filter((id) => id !== slot.riser) }); }}>없음</button>
+                    </span>
+                  )}
+                  <button type="button" className="btn small danger" disabled={!config.slots[slot.id]} onClick={() => setPart("")}>빼기</button>
+                  {slotResult?.status && <StatusBadge status={slotResult.status} />}
+                </div>
+                <div className="ar sub">
+                  <span>{slot.type === "ocp" ? `OCP 3.0 SFF x${slot.lanes}` : `PCIe Gen${slot.gen} x${slot.lanes} · ${slot.height}${slot.double_width_ok ? " · 더블 폭 가능" : ""}`} · CPU{slot.cpu}
+                    {slotResult && !slotResult.usable ? ` · 지금은 사용 불가 (${slot.cpu > config.cpu_count ? `CPU ${slot.cpu}개 필요` : "Riser 필요"})` : ""}</span>
+                  <KeyHints onUndo={onUndo} onRedo={onRedo} selecting />
+                </div>
+                {!!slotResult?.issues.length && <ul className="issues">{slotResult.issues.map((issue, index) => <li key={index}><StatusBadge status={issue.status} /> {issue.msg}</li>)}</ul>}
+              </>;
+            })() : <>
+              <div className="ar"><span className="muted">후면의 슬롯이나 PSU를 클릭하면 여기에서 바꿉니다</span></div>
+              <div className="ar sub"><KeyHints onUndo={onUndo} onRedo={onRedo} selecting={false} /></div>
+            </>}
+          </div>
+        )}
         {showSlotList && <details className="sub" open>
           <summary>슬롯 목록</summary>
           <div className="scroll">
@@ -719,6 +885,28 @@ export default function ConfigSection({
         </div>
       </section>
     </>
+  );
+}
+
+/** [0,1,2,3,7] → "0–3, 7" */
+function formatList(items: number[]): string {
+  const parts: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    let j = i;
+    while (j + 1 < items.length && items[j + 1] === items[j] + 1) j++;
+    parts.push(j - i >= 2 ? `${items[i]}–${items[j]}` : items.slice(i, j + 1).join(", "));
+    i = j;
+  }
+  return parts.join(", ");
+}
+
+function KeyHints({ onUndo, onRedo, selecting }: { onUndo?: () => void; onRedo?: () => void; selecting: boolean }) {
+  return (
+    <span className="keys">
+      {selecting && <><kbd>Esc</kbd> 해제 <kbd>Del</kbd> 빼기</>}
+      <button type="button" className="ico" disabled={!onUndo} onClick={onUndo} aria-label="되돌리기 (Ctrl+Z)" title="되돌리기 (Ctrl+Z)">↶</button>
+      <button type="button" className="ico" disabled={!onRedo} onClick={onRedo} aria-label="다시 하기 (Ctrl+Y)" title="다시 하기 (Ctrl+Y)">↷</button>
+    </span>
   );
 }
 
