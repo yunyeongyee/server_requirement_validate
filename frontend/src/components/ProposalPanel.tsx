@@ -19,10 +19,15 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
   const unknown = (group.items || []).filter((item) => item.category === "unknown");
   if (!p) return null;
   const line = (label: string, value: string | null | undefined) => value ? <div className="pp-row"><dt>{label}</dt><dd>{value}</dd></div> : null;
-  const list = (items: Array<{ desc: string; qty: number }>) => items.map((item) => `${item.desc} × ${item.qty}`).join(" / ");
+  // 같은 품목이 여러 줄로 나뉘어 있으면 수량을 합쳐 한 번만
+  const list = (items: Array<{ desc: string; qty: number }>) => {
+    const merged = new Map<string, number>();
+    items.forEach((item) => merged.set(item.desc, (merged.get(item.desc) || 0) + (item.qty || 0)));
+    return [...merged].map(([desc, qty]) => `${desc} × ${qty}`).join(" / ");
+  };
 
   return (
-    <details className={`proposal ${lowConfidence ? "low" : ""}`} open={!!notes?.length}>
+    <details className={`proposal ${lowConfidence ? "low" : ""}`} open>
       <summary className="pp-sum">
       <div className="pp-head">
         <h3>{group.doc_role === "config" ? "구성도에서 읽은 구성" : "견적 구성"} <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 오른쪽 구성에 자동 적용됨</span></h3>
@@ -40,6 +45,7 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
         {line("NIC", p.nic.length ? list(p.nic) : null)}
         {line("FC HBA", p.fc.length ? list(p.fc) : null)}
         {line("GPU", p.gpu.length ? list(p.gpu) : null)}
+        {line("Riser", p.riser?.length ? list(p.riser) : null)}
         {line("PSU", p.psu.count ? `${p.psu.watt ?? "-"}W × ${p.psu.count}` : null)}
       </dl>
       <details className="sub">

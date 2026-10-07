@@ -31,6 +31,40 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(ports, [(4, 1.0), (2, 10.0)])
 
 
+class QuotePasteTests(unittest.TestCase):
+    """품번 없이 긁어 온 GPU 서버 견적 (머리글 없음, 줄마다 칸 수가 다름)."""
+    TEXT = "\n".join([
+        "HW 서버\tRX2540M8\tPY RX2540 M8 16x 2.5' for Graphics\t1",
+        "\t\tConfiguration Thermal Design 25°C\t1", "\t\tIntel Xeon 6520P 24C 2.4 GHz\t2", "\t\tCooler Kit 2nd CPU\t1",
+        "\t\t64GB (1x64GB) 2Rx4 DDR5-6400 R ECC\t8", "\t\tGPU Fan Kit\t1", "\t\tNVIDIA H200 NVL\t1",
+        "\t\tSSD SATA 6G 480GB MU 2.5' H-P\t2", "\t\tPRAID CP700i LP\t1", "\t\t16x 2.5 Single RAID Cable Kit\t1",
+        "\t\tGPU power cable\t1", "\t\tModular PSU 2400W titanium hp\t2", "\t\tGFX/GPU Riser Left\t1",
+    ])
+
+    def test_uncoded_quote_is_read_as_quote_with_every_line_classified(self):
+        client = TestClient(app)
+        sv = client.post("/api/paste", json={"text": self.TEXT}).json()["server"]
+        self.assertEqual(sv["doc_role"], "quote")
+        self.assertNotIn("warn", [l["status"] for l in sv["lines"]])
+        self.assertNotIn("req", [l["status"] for l in sv["lines"]])  # 'Xeon 24C' 가 요구사항이 되면 안 됨
+        p = sv["proposed"]
+        self.assertEqual((p["cpu"]["count"], p["psu"]["watt"], len(p["gpu"])), (2, 2400, 1))
+        # GPU Fan Kit · GPU power cable · RAID Cable Kit 은 부속품
+        skipped = [l["text"] for l in sv["lines"] if l["status"] == "skip"]
+        for word in ("GPU Fan Kit", "GPU power cable", "RAID Cable Kit"):
+            self.assertTrue(any(word in text for text in skipped), word)
+
+    def test_gpu_is_placed_in_a_double_width_slot(self):
+        client = TestClient(app)
+        sv = client.post("/api/paste", json={"text": self.TEXT}).json()["server"]
+        server = client.get("/api/servers").json()["servers"][0]
+        base = {"cpu_model": server["cpu_options"][0], "cpu_count": 2, "memory": [], "backplane": server["backplanes"][0]["id"],
+                "bays": {}, "raid": {"boot": "", "data": ""}, "boss": False, "psu_watt": 1400, "psu_count": 2, "risers": [], "slots": {}}
+        res = client.post("/api/proposal/apply", json={"server_id": server["id"], "proposed": sv["proposed"], "base_config": base}).json()
+        self.assertIn("gpu_h100", res["config"]["slots"].values())
+        self.assertTrue(any("H200" in note and "대체" in note for note in res["notes"]))
+
+
 class ValidateTests(unittest.TestCase):
     def test_cores_and_disks_are_checked(self):
         client = TestClient(app)

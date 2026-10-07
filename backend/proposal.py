@@ -40,6 +40,31 @@ def _pick_component(catalog: dict, category: str, item: dict) -> dict | None:
     return {**best, "_exact": exact}
 
 
+GPU_FAMILY = [  # 품명 표현 → 카탈로그에서 찾을 이름 (같은 급 대체 순서)
+    (r"\bh\d{3}|gh200|b200|a100", ["H100", "L40S"]),
+    (r"\bl40s?\b|a40|a6000|rtx\s*6000", ["L40S", "H100"]),
+    (r"\bl4\b|a2\b|a16|t4\b", ["L4"]),
+]
+
+
+def _pick_gpu(catalog: dict, desc: str) -> tuple[dict | None, bool]:
+    gpus = [c for c in catalog.values() if c["category"] == "GPU"]
+    if not gpus:
+        return None, False
+    low = desc.lower()
+    exact = next((c for c in gpus if c.get("short")
+                  and re.search(r"\b" + re.escape(c["short"].lower().replace("nvidia ", "")) + r"\b", low)), None)
+    if exact:
+        return exact, True
+    for pattern, names in GPU_FAMILY:
+        if re.search(pattern, low):
+            for name in names:
+                hit = next((c for c in gpus if name.lower() in c["name"].lower()), None)
+                if hit:
+                    return hit, False
+    return max(gpus, key=lambda c: c.get("power_w", 0)), False
+
+
 def _fits(slot, comp, cpu_count):
     if slot["type"] == "ocp":
         return comp["form"] == "ocp"
@@ -48,6 +73,8 @@ def _fits(slot, comp, cpu_count):
     if comp["lanes"] > slot["lanes"]:
         return False
     if comp["height"] == "FH" and slot["height"] == "LP":
+        return False
+    if comp.get("double_width") and not slot.get("double_width_ok"):
         return False
     return slot["cpu"] <= cpu_count
 
@@ -152,7 +179,17 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
                 if not c["_exact"]:
                     notes.append(f"'{it['desc']}' → 가장 가까운 '{c['name']}' 로 대체(사양 확인)")
                 cards.append((it, c))
-    cards.sort(key=lambda x: (x[1]["form"] != "ocp", x[1]["height"] != "FH"))
+    # GPU: 품명의 모델로 카탈로그 GPU를 고르고, 없으면 가장 가까운 것(같은 급)으로 대체
+    for it in proposed.get("gpu") or []:
+        for _ in range(it.get("qty") or 1):
+            c, exact = _pick_gpu(catalog, it.get("desc", ""))
+            if not c:
+                notes.append(f"'{it['desc']}' 에 해당하는 카탈로그 GPU 없음"); continue
+            if not exact:
+                notes.append(f"'{it['desc']}' → 카탈로그에 같은 GPU가 없어 '{c['name']}' 로 대체 — 전원·쿨링·슬롯 확인")
+            cards.append((it, c))
+    # GPU(더블 폭)처럼 제약이 큰 카드부터 자리를 잡는다
+    cards.sort(key=lambda x: (x[1]["form"] != "ocp", not x[1].get("double_width"), x[1]["height"] != "FH"))
     cfg["risers"] = [r["id"] for r in server["risers"]]   # 카드 배치를 위해 일단 전체 라이저, 이후 사용 라이저만 남김
     used_risers = set()
     for it, c in cards:
@@ -163,4 +200,4 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
         if slot.get("riser"):
             used_risers.add(slot["riser"])
     cfg["risers"] = sorted(used_risers | {r["id"] for r in server["risers"] if r.get("default")})
-    return {"config": cfg, "notes": notes}
+    return {"config": cfg, "notes": list(dict.fromkeys(notes))}  # 같은 품목 여러 개의 같은 안내는 한 번만

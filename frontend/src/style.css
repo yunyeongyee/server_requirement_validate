@@ -560,3 +560,6 @@ figure.stage{position:relative}
 .pl .reqedit,.loose .reqedit{margin-top:6px}
 .loose{display:grid;gap:4px;padding-top:10px}
 .btn.small.danger{color:var(--fail);border-color:#E3A29C}
+.linefold>summary{cursor:pointer;padding-top:8px}
+.linefold[open]>summary{display:none}
+.reqcard .linefold:not([open])+.loose{padding-top:4px}

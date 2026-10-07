@@ -260,6 +260,23 @@ def _is_title(cells) -> str | None:
     return t or None
 
 
+def _guess_row(cells: list[str]) -> tuple[str, str, float | None]:
+    """한 줄의 칸들 → (품명, 품번, 수량). 수량 = 끝의 작은 정수, 품번 = 품번처럼 생긴 칸, 품명 = 가장 긴 글."""
+    vals = [c.strip() for c in cells if c and c.strip()]
+    qty = None
+    if len(vals) > 1 and _cell_kind(vals[-1]) == "int_small":
+        qty = float(vals[-1].replace(",", ""))
+        vals = vals[:-1]
+    codes = [v for v in vals if _cell_kind(v) == "code"]
+    texts = [v for v in vals if v not in codes]
+    desc = max(texts, key=len) if texts else ""
+    code = codes[0] if codes else ""
+    # '서버 RX2540M8' 처럼 품번 칸에 모델명만 있는 경우 품명에 붙여 본체를 알아보게
+    if code and parts.BASE_UNIT.search(code) and not parts.BASE_UNIT.search(desc):
+        desc = f"{code} {desc}".strip()
+    return desc, code, qty
+
+
 def table_blocks(t: Table) -> list[Block]:
     rows = t.rows
     hdr = find_header(rows)
@@ -284,6 +301,18 @@ def table_blocks(t: Table) -> list[Block]:
         if REMARK_ROW.search(txt) or META_ROW.search(txt):
             continue
         get = lambda r: cells[col[r]] if r in col and col[r] < len(cells) else ""
+        if hi < 0:
+            # 머리글 없는 표(긁어 붙인 견적 등): 줄마다 칸 수가 달라 열 위치를 믿을 수 없어 줄 단위로 판단
+            desc, code, qty = _guess_row(cells)
+            grp = ""
+            if not desc and not code:
+                continue
+            it = Item(code, desc or code, qty, grp, f"{t.source} {n}행", parts.interpret(code, desc or code))
+            if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in cur.items):
+                blocks.append(cur)
+                cur = Block(None, "", [], t.source, has_price)
+            cur.items.append(it)
+            continue
         desc, code, qtys, grp = get("desc"), get("code"), get("qty"), get("group")
         qty = parts._num(qtys.replace(",", "")) if qtys else None
         sec = _is_title(cells)
@@ -327,6 +356,11 @@ def _is_parts_list(groups: list[dict]) -> bool:
         items = g.get("items") or []
         coded = sum(1 for i in items if i.get("code"))
         if items and any(i["category"] == "base" for i in items) and coded >= max(2, len(items) * 0.5):
+            return True
+        # 품번 칸이 비어 있어도: 본체 행이 있고, 대부분 수량이 있고, 하드웨어 품목이 3종류 이상이면 부품 목록
+        with_qty = sum(1 for i in items if i.get("qty"))
+        hw = {i["category"] for i in items if i["category"] in HARDWARE}
+        if any(i["category"] == "base" for i in items) and len(hw) >= 3 and with_qty >= len(items) * 0.7:
             return True
         # 본체 행 없이 부품만 긁어 온 경우: 품번 붙은 하드웨어 품목이 2종류 이상이면 부품 목록
         kinds = {i["category"] for i in items if i.get("code") and i["category"] in HARDWARE}

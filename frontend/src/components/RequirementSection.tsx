@@ -247,6 +247,9 @@ export default function RequirementSection({
       </div>
       {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
       {n("warn") > 0 && <p className="pad warnline" role="status">⚠ 자동으로 읽지 못한 줄이 {n("warn")}개 있습니다 — 아래에서 항목으로 추가하거나 '검증 대상 아님'으로 정하세요</p>}
+      {/* 견적은 위 '견적 구성'이 요약이라 품목 줄은 접어 둔다 (읽지 못한 줄이 있으면 펼침) */}
+      <details className="linefold" open={!group.proposed || n("warn") > 0}>
+      <summary className="pad muted small">{group.proposed ? `품목 줄 보기 — 견적 품목 ${n("part")} · 부속품·검증 제외 ${n("skip")}${n("warn") ? ` · 확인 필요 ${n("warn")}` : ""}` : "붙여넣은 줄 보기"}</summary>
       <ul className="plines">
         {lines.map((line, index) => {
           const state = states[index];
@@ -278,6 +281,7 @@ export default function RequirementSection({
           );
         })}
       </ul>
+      </details>
       {(loose.length > 0 || !lines.length) && (
         <div className="pad loose">
           <b className="small">{lines.length ? "직접 추가한 항목" : "요구사항"}</b>

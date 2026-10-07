@@ -88,6 +88,10 @@ def parse_desc(desc: str) -> dict:
     if m:
         speed = _num(m.group(1))
 
+    # 케이블·팬·쿨러·키트처럼 'GPU', 'RAID' 같은 단어가 들어가도 부속품인 것 (예: 'GPU Fan Kit', 'RAID Cable Kit')
+    if re.search(r"cable|케이블|\bfan\b|cooler|쿨러|heat\s*sink|thermal|bracket|blank(?:ing)?\b|filler|bezel|cord\b|powercord", L) \
+            or (re.search(r"\bkit\b", L) and not re.search(r"riser|라이저|boss|m\.2|upgrade", L)):
+        return out("accessory", 0.85)
     if BASE_UNIT.search(t) and not re.search(r"riser|raid|\bnic\b|\bhba\b|\bpsu\b|power\s*supply|\d{3,4}\s*w\b", L):
         bays = re.search(r"(\d+)\s*x\s*(2\.5|3\.5)|(\d+)\s*(?:bay|베이|d\b)", L)
         return out("base", 0.8, model=model_of(t),
@@ -134,7 +138,7 @@ def parse_desc(desc: str) -> dict:
         lanes = re.search(r"x\s*(16|8|4)\b", L)
         slots = re.search(r"x\s*(\d)\s*riser|\bx(\d)\b(?!\d)", L)
         return out("riser", 0.8, lanes=int(lanes.group(1)) if lanes else None, height=height)
-    if re.search(r"\b(gpu|nvidia|tesla|a100|h100|l40s?|l4\b|radeon|instinct)\b", L):
+    if re.search(r"\b(gpu|nvidia|tesla|a100|a40|a30|a16|a2|h100|h200|h20|b200|gh200|l40s?|l4|rtx|quadro|radeon|instinct|mi\d{3}x?)\b", L):
         return out("gpu", 0.85)
     if re.search(r"m\.2\s*(carrier|module|boot)|boss", L):
         return out("boot_module", 0.8)
