@@ -319,6 +319,9 @@ export default function ConfigSection({
     if (slot.riser && !config.risers.includes(slot.riser)) return `${slot.label}은 ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}가 있어야 쓸 수 있습니다. 클릭해서 Riser를 장착하세요.`;
     return `${slot.label}은 지금 구성에서 쓸 수 없습니다.`;
   };
+  // 후면이 기본 도면이면 도면이 정한 위치를, 실제 이미지면 저장된(보정한) 좌표를 쓴다
+  const rearLayout = images?.rear.schematic ? images.rear.layout || null : null;
+  const rearSpot = (id: string): Rect | undefined => rearLayout ? rearLayout[id] : slotHotspots[id];
   const psuIndex = (id: string) => psuSlots.findIndex((psu) => psu.id === id);
   const psuWarn = !!result?.general.some((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg));
 
@@ -328,11 +331,11 @@ export default function ConfigSection({
     const isVisible = imageView === "both" || imageView === view;
     const areas = view === "front"
       ? currentFrontRects.map((area, index) => ({ area, slot: undefined, index }))
-      : [...server.slots, ...psuSlots].flatMap((slot, index) => slotHotspots[slot.id] ? [{ area: slotHotspots[slot.id], slot, index }] : []);
+      : [...server.slots, ...psuSlots].flatMap((slot, index) => rearSpot(slot.id) ? [{ area: rearSpot(slot.id) as Rect, slot, index }] : []);
     return (
       <figure className="stage" key={view} hidden={!isVisible}>
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span></figcaption>
-        {mode === "calib" && rendered && (
+        {mode === "calib" && rendered && !(view === "rear" && rearLayout) && (
           <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
             {view === "front" ? <>
               <button type="button" data-tip="베이 자동 감지 다시" aria-label="베이 자동 감지 다시" disabled={calibrationBusy} onClick={() => void redetect()}>↻</button>
@@ -374,7 +377,7 @@ export default function ConfigSection({
                     type="button"
                     title={view === "front" ? `Bay ${index} · ${bay ? `${server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive} (${bay.role === "boot" ? "Boot" : "Data"})` : "비어 있음"}` : slot?.label}
                     aria-label={view === "front" ? `Bay ${index}${bay ? " 사용 중" : " 비어 있음"}` : slot?.label}
-                    data-calib-key={view === "front" ? String(index) : slot?.id}
+                    data-calib-key={view === "front" ? String(index) : rearLayout ? undefined : slot?.id}
                     data-tip={view === "rear" && slot && getSlotResult(slot.id)?.usable === false
                       ? unusableReason(slot) : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
@@ -387,7 +390,7 @@ export default function ConfigSection({
                     {view === "front" ? <span className="bn">{index}</span> : slot?.type === "psu"
                       ? <><span className="tag">{slot.label}</span><span className="psu-w">{psuIndex(slot.id) < config.psu_count ? `${config.psu_watt}W` : "비어 있음"}</span></>
                       : <span className="tag">{slot?.label}</span>}
-                    {mode === "calib" && <span className="grip" />}
+                    {mode === "calib" && !(view === "rear" && rearLayout) && <span className="grip" />}
                     {mode === "calib" && view === "front" && (
                       <span
                         className="bay-x"
@@ -403,7 +406,7 @@ export default function ConfigSection({
                   </button>
                 );
               })}
-              {view === "rear" && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
+              {view === "rear" && !rearLayout && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
                 <div
                   key={key}
                   className="hs blocked"

@@ -224,7 +224,84 @@ def rear_item(server) -> tuple[dict | None, bool]:
     ov = _map()["servers"].get(server["id"], {}).get("rear")
     if ov and item(ov):
         return item(ov), False
-    return by_name(server.get("rear_stencil")), True
+    found = by_name(server.get("rear_stencil"))
+    return (found or schematic_rear(server)), True
+
+
+def _rear_layout(server) -> tuple[float, float, dict[str, dict]]:
+    """후면 기본 도면 배치(% 좌표): 위쪽 = Riser 별 PCIe 슬롯 묶음, 아래쪽 = PSU1 · I/O · OCP · … · PSU2."""
+    one_u = "1u" in str(server.get("form_factor", "")).lower()
+    W, H = 19.0, (1.72 if one_u else 3.42)
+    pct = lambda x0, y0, x1, y1: {"x": round(x0, 3), "y": round(y0, 3), "w": round(x1 - x0, 3), "h": round(y1 - y0, 3)}
+    out: dict[str, dict] = {}
+    top0, top1, bot0, bot1 = (6, 52, 56, 95) if not one_u else (8, 50, 54, 94)
+    pcie = [x for x in server.get("slots", []) if x.get("type") != "ocp"]
+    groups: list[list[dict]] = []
+    for sl in pcie:  # 같은 Riser 끼리 한 묶음 (순서 유지)
+        g = next((g for g in groups if sl.get("riser") and g[0].get("riser") == sl.get("riser")), None)
+        (g.append(sl) if g else groups.append([sl]))
+    if one_u:  # 1U: 높이가 낮아 모든 슬롯을 한 줄로
+        groups = [[sl] for g in groups for sl in g]
+    gx0, gx1, gap = 2.5, 97.5, 1.2
+    gw = (gx1 - gx0 - gap * (len(groups) - 1)) / max(1, len(groups))
+    for gi, g in enumerate(groups):
+        x0 = gx0 + gi * (gw + gap)
+        sh = (top1 - top0 - 1.5 * (len(g) - 1)) / len(g)
+        for si, sl in enumerate(g):
+            y0 = top0 + si * (sh + 1.5)
+            out[sl["id"]] = pct(x0, y0, x0 + gw, y0 + sh)
+    psus = server.get("psu_slots", [])
+    if psus:
+        out[psus[0]["id"]] = pct(1.5, bot0, 15.5, bot1)
+    if len(psus) > 1:
+        out[psus[1]["id"]] = pct(84.5, bot0, 98.5, bot1)
+    out["_io"] = pct(17, bot0 + 6, 37, bot1 - 4)
+    ocp = next((x for x in server.get("slots", []) if x.get("type") == "ocp"), None)
+    if ocp:
+        out[ocp["id"]] = pct(38.5, bot0 + 4, 60, bot1 - 2)
+    return W, H, out
+
+
+def schematic_rear(server) -> dict:
+    W, H, layout = _rear_layout(server)
+    key = hashlib.sha1(json.dumps([server.get("form_factor"), layout, 2]).encode()).hexdigest()[:12]
+    SCHEMATIC.mkdir(parents=True, exist_ok=True)
+    out = SCHEMATIC / f"rear_{key}.png"
+    if not out.exists():
+        pw, ph = round(W * SCHEMATIC_PPI), round(H * SCHEMATIC_PPI)
+        im = Image.new("RGBA", (pw, ph), (205, 210, 216, 255))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 0, pw - 1, ph - 1), outline=(150, 156, 164, 255), width=3)
+        box = lambda r: (r["x"] / 100 * pw, r["y"] / 100 * ph, (r["x"] + r["w"]) / 100 * pw, (r["y"] + r["h"]) / 100 * ph)
+        for sid, r in layout.items():
+            x0, y0, x1, y1 = box(r)
+            if sid.startswith("PSU"):  # PSU 베이: 손잡이·팬·전원 입력
+                d.rectangle((x0, y0, x1, y1), fill=(178, 184, 192, 255), outline=(120, 126, 134, 255), width=2)
+                cx, cy, rr = x0 + (x1 - x0) * 0.3, (y0 + y1) / 2, (y1 - y0) * 0.3
+                d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=(90, 95, 102, 255))
+                d.rectangle((x0 + (x1 - x0) * 0.6, cy - rr * 0.8, x0 + (x1 - x0) * 0.85, cy + rr * 0.8), fill=(40, 43, 48, 255))
+            elif sid == "_io":  # VGA · USB · 관리 포트
+                d.rectangle((x0, y0, x1, y1), fill=(188, 193, 200, 255), outline=(140, 146, 154, 255), width=2)
+                w = x1 - x0
+                for k, (fx, col) in enumerate(((0.06, (60, 90, 160, 255)), (0.38, (40, 90, 200, 255)), (0.56, (40, 90, 200, 255)), (0.78, (50, 52, 56, 255)))):
+                    d.rectangle((x0 + w * fx, y0 + (y1 - y0) * 0.25, x0 + w * (fx + 0.15), y0 + (y1 - y0) * 0.75), fill=col)
+            else:  # 빈 슬롯 커버: 통풍 구멍
+                d.rectangle((x0, y0, x1, y1), fill=(222, 226, 231, 255), outline=(120, 126, 134, 255), width=2)
+                step = max(8, round(0.12 * SCHEMATIC_PPI))
+                for yy in range(round(y0) + step // 2, round(y1) - step // 3, step):
+                    for xx in range(round(x0) + step // 2, round(x1) - step // 3, step):
+                        d.rectangle((xx, yy, xx + step * 0.6, yy + step * 0.6), fill=(40, 43, 48, 255))
+        im.save(out)
+    return {"id": f"schem-rear-{key}", "name": "기본 도면 · 후면", "category": "server_rear",
+            "file": f"images/schematic/{out.name}", "w_in": W, "h_in": H, "schematic": True,
+            "layout": {k: v for k, v in layout.items() if not k.startswith("_")}}
+
+
+def rear_spot(server, base_it: dict | None, sid: str, saved: dict | None) -> dict | None:
+    """슬롯·PSU 위치: 기본 도면이면 도면 배치, 실제 이미지면 저장된 좌표."""
+    if base_it and base_it.get("schematic"):
+        return base_it["layout"].get(sid)
+    return saved
 
 
 def comp_item(comp: dict) -> tuple[dict | None, bool]:
@@ -449,7 +526,8 @@ def status(server, comps: list[dict], bp_id: str) -> dict:
         it, auto, exact = psu_item(w)
         psus[str(w)] = {"item": _brief(it), "auto": auto, "exact": exact}
     return {"front": {"item": _brief(fi), "auto": fa, "stencil": bp.get("stencil")}, "psus": psus,
-            "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil")},
+            "rear": {"item": _brief(ri), "auto": ra, "stencil": server.get("rear_stencil"),
+                     "schematic": bool(ri and ri.get("schematic")), "layout": (ri or {}).get("layout")},
             "bays": {**by, "candidates": bay_candidates(server, bp)}, "components": comp_imgs, "drives": drv, "library_count": len(library())}
 
 
@@ -535,22 +613,27 @@ def render(server, cfg, view, catalog: dict) -> dict:
             cid = (cfg.get("slots") or {}).get(slot["id"])
             if not cid or cid not in catalog:
                 continue
+            spot = rear_spot(server, base_it, slot["id"], slot.get("hotspot"))
+            if not spot:
+                continue
             it, _ = comp_item(catalog[cid])
             if it:
-                layers.append((ROOT / "static" / it["file"], slot["hotspot"]))
+                layers.append((ROOT / "static" / it["file"], spot))
             else:
-                labels.append((catalog[cid].get("short") or catalog[cid]["name"], slot["hotspot"]))
+                labels.append((catalog[cid].get("short") or catalog[cid]["name"], spot))
         # 장착된 PSU: PSU1부터 psu_count 개. 같은 용량 이미지가 없으면 대체 이미지 + 용량 라벨
         watt = cfg.get("psu_watt")
         it, _, exact = psu_item(watt)
-        empties = [p["hotspot"] for p in server.get("psu_slots", [])[int(cfg.get("psu_count") or 0):] if p.get("hotspot")]
-        for psu in server.get("psu_slots", [])[:int(cfg.get("psu_count") or 0)]:
-            if not psu.get("hotspot"):
+        spots = [rear_spot(server, base_it, p["id"], p.get("hotspot")) for p in server.get("psu_slots", [])]
+        n_psu = int(cfg.get("psu_count") or 0)
+        empties = [sp for sp in spots[n_psu:] if sp]
+        for spot in spots[:n_psu]:
+            if not spot:
                 continue
             if it:
-                layers.append((ROOT / "static" / it["file"], psu["hotspot"]))
+                layers.append((ROOT / "static" / it["file"], spot))
             if not it or not exact:
-                labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), psu["hotspot"]))
+                labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), spot))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
                       [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
                       [(str(p), r) for p, r in stretch], blanks], sort_keys=True, default=str)

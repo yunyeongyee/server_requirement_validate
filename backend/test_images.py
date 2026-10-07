@@ -27,3 +27,18 @@ class SchematicTests(unittest.TestCase):
         bp = next(b for b in s["backplanes"] if b["ff"] == "3.5")
         W, H, rects = I._schematic_layout(s, bp)
         self.assertGreater(rects[0]["w"] / 100 * W, rects[0]["h"] / 100 * H)
+
+
+class RearSchematicTests(unittest.TestCase):
+    def test_every_slot_and_psu_has_a_place_without_overlap(self):
+        for s in SERVERS:
+            _, _, layout = I._rear_layout(s)
+            ids = [x["id"] for x in s["slots"]] + [p["id"] for p in s.get("psu_slots", [])]
+            with self.subTest(server=s["id"]):
+                self.assertTrue(set(ids) <= set(layout))
+                rects = [layout[i] for i in ids]
+                for r in rects:
+                    self.assertTrue(0 <= r["x"] and r["x"] + r["w"] <= 100 and 0 <= r["y"] and r["y"] + r["h"] <= 100)
+                for i, a in enumerate(rects):
+                    for b in rects[i + 1:]:
+                        self.assertFalse(a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"])
