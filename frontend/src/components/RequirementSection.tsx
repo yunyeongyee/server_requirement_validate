@@ -265,7 +265,7 @@ export default function RequirementSection({
       </div>
       {error && <p className="warn pad" role="alert">{error}</p>}
       {extractionInfo?.notice && <p className="warn pad" role="status">{extractionInfo.notice}</p>}
-      {activeGroup?.doc_role === "quote" && (
+      {activeGroup?.proposed && (activeGroup.doc_role === "quote" || activeGroup.doc_role === "config") && (
         <ProposalPanel
           group={activeGroup}
           server={activeServer}
@@ -300,7 +300,7 @@ export default function RequirementSection({
             </li>
           );
         })}
-        {!rows.length && <li className="reqempty muted">{activeGroup?.doc_role === "quote" ? "견적서에는 검증할 요구사항이 없습니다. 위 견적 구성이 오른쪽에 적용되어 있습니다. 고객 요구사항이 있으면 추가하세요." : "자동으로 인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요."}</li>}
+        {!rows.length && <li className="reqempty muted">{activeGroup?.proposed ? `${activeGroup.doc_role === "config" ? "구성도" : "견적서"}에는 검증할 요구사항이 없습니다. 위 구성이 오른쪽에 적용되어 있습니다. 고객 요구사항이 있으면 추가하세요.` : "자동으로 인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요."}</li>}
       </ul>
       <button className="addreq" onClick={addRequirement}>+ 요구사항 추가</button>
       {specCount > 0 && (
@@ -316,7 +316,7 @@ export default function RequirementSection({
           </div>
         </details>
       )}
-      {!!activeGroup?.evidence?.length && activeGroup.doc_role !== "quote" && (
+      {!!activeGroup?.evidence?.length && !activeGroup.proposed && (
         <p className={`muted small pad group-evidence ${(activeGroup.confidence ?? 1) < 0.75 ? "low" : ""}`}>
           서버 구분 근거: {activeGroup.evidence.join(" · ")}{activeGroup.notes?.length ? ` · ⚠ ${activeGroup.notes.join(" · ")}` : ""}
         </p>

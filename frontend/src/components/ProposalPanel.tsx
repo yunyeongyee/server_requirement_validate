@@ -25,7 +25,7 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
     <details className={`proposal ${lowConfidence ? "low" : ""}`} open={!!notes?.length}>
       <summary className="pp-sum">
       <div className="pp-head">
-        <h3>견적 구성 <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 오른쪽 구성에 자동 적용됨</span></h3>
+        <h3>{group.doc_role === "config" ? "구성도에서 읽은 구성" : "견적 구성"} <span className="muted">· 대당{group.quantity ? ` × ${group.quantity}대` : ""} · 오른쪽 구성에 자동 적용됨</span></h3>
         <span className="docstat">판단 신뢰도 {pct(group.confidence)}</span>
       </div>
       {!!notes?.length && <span className="pp-warn">⚠ 바뀐 항목 {notes.length}개</span>}
@@ -52,7 +52,7 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
       </details>
       <div className="row">
         <button className="btn ghost small" disabled={busy || !server} onClick={onApply}>
-          {busy ? "적용 중…" : `견적대로 다시 적용 (${server ? server.model : "모델 선택 필요"})`}
+          {busy ? "적용 중…" : `${group.doc_role === "config" ? "구성도" : "견적"}대로 다시 적용 (${server ? server.model : "모델 선택 필요"})`}
         </button>
         {group.model_hint && !suggested && (
           <span className="muted small">견적 모델 '{group.model_hint}' 은 서버 카탈로그에 없습니다 — 선택한 모델로 가장 가까운 부품을 배치합니다.</span>

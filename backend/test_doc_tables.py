@@ -83,7 +83,14 @@ class SheetPerServerTests(unittest.TestCase):
         self.assertEqual([g["name"] for g in r["groups"]], ["WAS 서버", "DB 서버"])
         cats = {s["category"] for s in r["groups"][0]["spec"]}
         self.assertTrue({"CPU", "Memory", "Disk"} <= cats)
-        self.assertIn("RAID1", [q["value"] for q in r["groups"][0]["requirements"]])
+        # 구성도 → 요구사항이 아니라 적용할 구성
+        g = r["groups"][0]
+        self.assertEqual(g["doc_role"], "config")
+        self.assertEqual(g["requirements"], [])
+        self.assertEqual(g["proposed"]["cpu"]["model"], "Xeon Gold 6544Y")
+        self.assertEqual(g["proposed"]["drives"][0]["qty"], 2)
+        self.assertEqual(sorted(n.get("ports") for n in g["proposed"]["nic"]), [4, 4])
+        self.assertTrue(any("RAID1" in r for r in g["proposed"]["raid"]))
         # 디스크 칸 이름(HDD7 등)이 서버로 잡히지 않아야 한다
         self.assertFalse(any("HDD" in g["name"] for g in r["groups"]))
 

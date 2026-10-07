@@ -400,7 +400,7 @@ export default function App() {
           <div className="docline">
             <b>{documentName}</b>
             <span>서버 {groups.length}종 · {groups.reduce((total, group) => total + (group.quantity || 1), 0)}대</span>
-            {groups.some((group) => group.doc_role === "quote") && <span className="muted-on-dark">견적 구성 자동 적용</span>}
+            {groups.some((group) => group.proposed) && <span className="muted-on-dark">{groups.some((group) => group.doc_role === "config") ? "구성도" : "견적"} 구성 자동 적용</span>}
             <button type="button" className="ghost-on-dark" onClick={() => setDocumentSignal((n) => n + 1)}>원문</button>
             <button type="button" className="ghost-on-dark" onClick={() => setPickFileSignal((n) => n + 1)}>다른 문서</button>
           </div>

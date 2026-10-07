@@ -58,7 +58,7 @@ export interface RequirementGroup {
   requirements: Requirement[];
   spec: SpecGroup[];
   /** quote: 견적서(제안 구성) / requirement: 요구사항 문서 */
-  doc_role?: "quote" | "requirement" | "spec_table";
+  doc_role?: "quote" | "config" | "requirement" | "spec_table";
   evidence?: string[];
   confidence?: number;
   notes?: string[];
@@ -225,6 +225,6 @@ export interface UploadResponse {
   spec: SpecGroup[];
   groups?: RequirementGroup[];
   extraction?: ExtractionInfo;
-  doc_role?: "quote" | "requirement" | "spec_table";
+  doc_role?: "quote" | "config" | "requirement" | "spec_table";
   common_items?: QuoteItem[];
 }

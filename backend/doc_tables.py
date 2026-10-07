@@ -487,7 +487,13 @@ def _sheet_lines(ws) -> list[str]:
     for row in ws.iter_rows(values_only=True):
         block: list[str] = []
         for v in list(row) + [None]:
-            t = _s(v).replace("\n", " ").strip() if v is not None else ""
+            raw = str(v) if v is not None else ""
+            if len([x for x in raw.splitlines() if x.strip()]) > 1:  # 한 칸 안의 줄바꿈은 서로 다른 항목
+                if block:
+                    out.append(" ".join(block)); block = []
+                out.extend(_s(x) for x in raw.splitlines() if x.strip())
+                continue
+            t = _s(v)
             if t:
                 block.append(t)
             elif block:
@@ -519,13 +525,56 @@ def sheet_groups(filename: str, data: bytes) -> list[dict] | None:
     groups = []
     for i, (sheet, title, body) in enumerate(cands, 1):
         name = title if title and SERVER_WORD.search(title) else (SHEET_PREFIX.sub("", sheet).strip() or sheet)
+        items, notes = _config_items(body, sheet)
         groups.append({
-            "id": f"server-{i}", "name": name, "quantity": None, "doc_role": "requirement",
-            "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body),
+            "id": f"server-{i}", "name": name, "quantity": None,
+            # 사양이 읽히면 '구성도'로 보고 구성에 적용한다. 이미 갖춘 구성이라 요구사항으로 판정하지 않는다.
+            "doc_role": "config" if items else "requirement",
+            "requirements": [] if items else extract.extract_requirements(body),
+            "spec": extract.spec_summary(body),
             "model_hint": parts.model_of(body),
-            "evidence": [f"시트 '{sheet}'를 서버 1대로 해석"], "confidence": 0.8, "notes": [],
+            "items": items, "proposed": proposal(items) if items else None,
+            "evidence": [f"시트 '{sheet}'를 서버 1대로 해석"] + ([f"사양 {len(items)}개를 구성으로 읽음"] if items else []),
+            "confidence": 0.8, "notes": notes,
         })
     return groups
+
+
+CFG_LABEL = re.compile(r"^\s*(?:cpu|프로세서|mem(?:ory)?|메모리|ram|hdd|ssd|disk|디스크|storage|nic|lan|psu|전원|raid|gpu)\s*[:：]\s*", re.I)
+CFG_QTY = re.compile(r"[*×]\s*(\d+)|\b(\d+)\s*(?:ea|개)\b|\bx\s+(\d+)\b", re.I)
+CFG_SKIP = re.compile(r"포트\s*\d|\bport\s+\d|계정|password|\bpw\b|\bid\b|hostname|ip\b|시리얼|serial|s/n|모델명|용량|영역|제조사", re.I)
+
+
+def _config_items(body: str, sheet: str) -> tuple[list[dict], list[str]]:
+    """구성도 한 시트의 줄들 → 부품 품목(proposal 입력 형식). 수량이 없으면 1로 두고 알린다."""
+    items, seen, notes = [], set(), []
+    for n, line in enumerate(body.splitlines(), 1):
+        if len(line) > 90 or CFG_SKIP.search(line):
+            continue
+        desc = CFG_LABEL.sub("", line).strip()
+        if not desc or desc.lower() in seen:
+            continue
+        r = parts.parse_desc(desc)
+        cat = r["category"]
+        if cat == "license" and re.search(r"raid\s*\d", desc, re.I):
+            cat = "raid"
+        if cat not in ("cpu", "memory", "drive", "nic", "ocp", "fc", "gpu", "psu", "riser", "raid"):
+            continue
+        if cat in ("nic", "fc") and not r["attrs"]:  # 'NIC port 용도' 같은 표 머리글
+            continue
+        m = CFG_QTY.search(desc)
+        qty = float(next(g for g in m.groups() if g)) if m else None
+        if qty is None and cat in ("cpu", "memory"):
+            notes.append(f"{'CPU' if cat == 'cpu' else '메모리'} 수량이 문서에 없어 1개로 가정 — '{desc}'")
+        seen.add(desc.lower())
+        items.append({"code": "", "desc": desc, "qty": qty, "category": cat, "category_ko": parts.CATEGORY_KO.get(cat, cat),
+                      "attrs": r["attrs"], "confidence": r["confidence"], "how": "rule", "where": f"시트 '{sheet}' {n}번째 줄"})
+    if not any(i["category"] == "raid" for i in items):
+        m = re.search(r"\bRAID\s*-?\s*(10|0|1|5|6)\b", body, re.I)
+        if m:
+            items.append({"code": "", "desc": f"RAID{m.group(1)}", "qty": None, "category": "raid", "category_ko": "RAID",
+                          "attrs": {"level": f"RAID{m.group(1)}"}, "confidence": 0.7, "how": "rule", "where": f"시트 '{sheet}'"})
+    return items, notes
 
 
 def analyze_document(filename: str, data: bytes, text: str) -> dict:
