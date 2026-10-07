@@ -503,7 +503,7 @@ def _sheet_lines(ws) -> list[str]:
     return out
 
 
-def sheet_groups(filename: str, data: bytes) -> list[dict] | None:
+def sheet_groups(filename: str, data: bytes) -> dict | None:
     """엑셀에서 시트 하나가 서버 1대를 설명하는 문서(서버 구성도·사양서). 서버 시트가 2개 이상일 때만."""
     if Path(filename).suffix.lower() not in (".xlsx", ".xlsm"):
         return None
@@ -522,6 +522,7 @@ def sheet_groups(filename: str, data: bytes) -> list[dict] | None:
             cands.append((ws.title, title, body))
     if len(cands) < 2:
         return None
+    inventory = _inventory(wb)
     groups = []
     for i, (sheet, title, body) in enumerate(cands, 1):
         name = title if title and SERVER_WORD.search(title) else (SHEET_PREFIX.sub("", sheet).strip() or sheet)
@@ -537,7 +538,37 @@ def sheet_groups(filename: str, data: bytes) -> list[dict] | None:
             "evidence": [f"시트 '{sheet}'를 서버 1대로 해석"] + ([f"사양 {len(items)}개를 구성으로 읽음"] if items else []),
             "confidence": 0.8, "notes": notes,
         })
-    return groups
+    for g in groups:
+        hit = next((row for row in inventory if _key(row["name"]) and (_key(row["name"]) in _key(g["name"]) or _key(g["name"]) in _key(row["name"]))), None)
+        if hit:
+            g["quantity"] = hit["qty"]
+            g["inventory_link"] = hit["name"]
+            g["evidence"].append(f"납품 목록 '{hit['name']}' 수량 {hit['qty']}대와 연결")
+    return {"groups": groups, "inventory": inventory}
+
+
+def _inventory(wb) -> list[dict]:
+    """'용도/모델명/수량' 머리글이 있는 납품·장비 목록 시트 → [{name, model, qty, where}]. 서버 시트와 이름이 달라도 화면에서 연결할 수 있게."""
+    rows_out = []
+    for ws in wb.worksheets:
+        header = None
+        for r, row in enumerate(ws.iter_rows(values_only=True), 1):
+            cells = [_s(v) for v in row]
+            if header is None:
+                low = [c.lower() for c in cells]
+                qi = next((i for i, c in enumerate(low) if c in ("수량", "qty", "quantity", "대수")), None)
+                ni = next((i for i, c in enumerate(low) if c in ("용도", "서버명", "장비명", "구분명", "hostname", "name")), None)
+                if qi is not None and ni is not None:
+                    mi = next((i for i, c in enumerate(low) if c in ("모델명", "모델", "model")), None)
+                    header = (ni, mi, qi)
+                continue
+            ni, mi, qi = header
+            name = cells[ni] if ni < len(cells) else ""
+            qty = cells[qi] if qi < len(cells) else ""
+            if name and re.fullmatch(r"\d+", qty or ""):
+                rows_out.append({"name": name, "model": cells[mi] if mi is not None and mi < len(cells) else "",
+                                 "qty": int(qty), "where": f"시트 '{ws.title}' {r}행"})
+    return rows_out
 
 
 CFG_LABEL = re.compile(r"^\s*(?:cpu|프로세서|mem(?:ory)?|메모리|ram|hdd|ssd|disk|디스크|storage|nic|lan|psu|전원|raid|gpu)\s*[:：]\s*", re.I)
@@ -611,7 +642,7 @@ def analyze_document(filename: str, data: bytes, text: str) -> dict:
     except Exception:
         sg = None
     if sg:
-        return {"doc_role": "requirement", "groups": sg, "common_items": [], "tables": res["tables"]}
+        return {"doc_role": "requirement", "groups": sg["groups"], "inventory": sg["inventory"], "common_items": [], "tables": res["tables"]}
     rule = extract.extract_server_groups(text)
     for g in rule:
         m = HEAD_QTY.search(g["name"]) or None

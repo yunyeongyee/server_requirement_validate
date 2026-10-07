@@ -114,7 +114,8 @@ async def upload(file: UploadFile = File(...)):
         _suggest_models(doc["groups"], text)
         return {"filename": file.filename, "chars": len(text), "text": text,
                 "requirements": [], "spec": [], "groups": doc["groups"], "doc_role": doc["doc_role"],
-                "common_items": doc["common_items"], "extraction": {"mode": "rules", "effort": None}}
+                "common_items": doc["common_items"], "inventory": doc.get("inventory", []),
+                "extraction": {"mode": "rules", "effort": None}}
     context = None
     context_error = None
     if ai_extract.enabled():

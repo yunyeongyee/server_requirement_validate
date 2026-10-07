@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import type { ReactNode } from "react";
-import type { ExtractionInfo, Requirement, RequirementGroup, Server, ValidationResult } from "../types";
+import type { ExtractionInfo, InventoryRow, Requirement, RequirementGroup, Server, ValidationResult } from "../types";
 import type { FocusRequest } from "./ConfigSection";
 import ProposalPanel from "./ProposalPanel";
 
@@ -48,6 +48,8 @@ interface Props {
   /** 헤더의 '원문' / '다른 문서' 버튼이 바꾸는 값 */
   showDocumentSignal: number;
   pickFileSignal: number;
+  inventory: InventoryRow[];
+  onInventoryLink: (groupId: string, row: InventoryRow | null) => void;
 }
 
 const STATUS_CLASS: Record<string, string> = { "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
@@ -123,6 +125,8 @@ export default function RequirementSection({
   onFocus,
   showDocumentSignal,
   pickFileSignal,
+  inventory,
+  onInventoryLink,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
@@ -263,6 +267,19 @@ export default function RequirementSection({
           {count("미충족") + count("호환 불가") > 0 && <span className="pill p-fail">미충족 {count("미충족") + count("호환 불가")}</span>}
         </div>
       </div>
+      {!!inventory.length && activeGroup && (
+        <div className="invlink pad">
+          <label htmlFor="invlink">납품 목록 연결</label>
+          <select id="invlink" value={activeGroup.inventory_link || ""} onChange={(event) => onInventoryLink(activeGroup.id, inventory.find((row) => row.name === event.target.value) || null)}>
+            <option value="">연결 안 함 (수량 모름)</option>
+            {inventory.map((row) => {
+              const usedBy = groups.find((group) => group.id !== activeGroup.id && group.inventory_link === row.name);
+              return <option key={`${row.name}-${row.where}`} value={row.name}>{row.name}{row.model ? ` · ${row.model}` : ""} × {row.qty}{usedBy ? ` (${usedBy.name}에 연결됨)` : ""}</option>;
+            })}
+          </select>
+          {!activeGroup.inventory_link && <span className="muted small">문서의 장비 목록과 이름이 달라 자동으로 연결하지 못했습니다. 이 서버에 해당하는 항목을 고르면 수량이 반영됩니다.</span>}
+        </div>
+      )}
       {error && <p className="warn pad" role="alert">{error}</p>}
       {extractionInfo?.notice && <p className="warn pad" role="status">{extractionInfo.notice}</p>}
       {activeGroup?.proposed && (activeGroup.doc_role === "quote" || activeGroup.doc_role === "config") && (

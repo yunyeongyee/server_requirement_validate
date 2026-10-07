@@ -66,6 +66,8 @@ export interface RequirementGroup {
   model_hint?: string | null;
   base_desc?: string | null;
   suggested_server?: string | null;
+  /** 납품·장비 목록에서 연결한 항목 이름 */
+  inventory_link?: string | null;
   items?: QuoteItem[];
   proposed?: ProposedConfig;
 }
@@ -227,4 +229,12 @@ export interface UploadResponse {
   extraction?: ExtractionInfo;
   doc_role?: "quote" | "config" | "requirement" | "spec_table";
   common_items?: QuoteItem[];
+  inventory?: InventoryRow[];
+}
+
+export interface InventoryRow {
+  name: string;
+  model: string;
+  qty: number;
+  where: string;
 }

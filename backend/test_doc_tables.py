@@ -94,3 +94,11 @@ class SheetPerServerTests(unittest.TestCase):
         # 디스크 칸 이름(HDD7 등)이 서버로 잡히지 않아야 한다
         self.assertFalse(any("HDD" in g["name"] for g in r["groups"]))
 
+    def test_inventory_links_quantity_when_names_match(self):
+        sheet = lambda name: [[f"{name} 서버"], ["CPU : Intel Xeon Gold 6430 / MEM : 64GB / HDD : SSD 960GB * 2EA"]]
+        data = xlsx([("장비목록", [["구분", "용도", "모델명", "수량"], ["서버", "WAS 서버", "PowerEdge R760", 3], ["서버", "백업", "PowerEdge R660", 1]]),
+                     ("WAS", sheet("WAS")), ("DB", sheet("DB"))])
+        r = D.analyze_document("구성도.xlsx", data, "")
+        self.assertEqual([row["name"] for row in r["inventory"]], ["WAS 서버", "백업"])
+        self.assertEqual([(g["name"], g["quantity"]) for g in r["groups"]], [("WAS 서버", 3), ("DB 서버", None)])
+

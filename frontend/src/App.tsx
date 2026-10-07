@@ -12,7 +12,7 @@ import {
   uploadRequirement,
   validateServer,
 } from "./api";
-import type { Component, ExtractionInfo, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
+import type { Component, ExtractionInfo, InventoryRow, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
@@ -113,6 +113,7 @@ export default function App() {
   const [proposalNotes, setProposalNotes] = useState<Record<string, string[]>>({});
   const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
   const [view, setView] = useState<"server" | "all">("server");
+  const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [focus, setFocus] = useState<FocusRequest | null>(null);
   const [documentSignal, setDocumentSignal] = useState(0);
   const [pickFileSignal, setPickFileSignal] = useState(0);
@@ -280,6 +281,7 @@ export default function App() {
       const response = await uploadRequirement(file);
       setDocumentName(response.filename);
       setDocumentText(response.text);
+      setInventory(response.inventory || []);
       setExtractionInfo(response.extraction || { mode: "rules" });
       const installed = installGroups(response.groups?.length ? response.groups : [{
         id: DEFAULT_GROUP_ID,
@@ -329,6 +331,13 @@ export default function App() {
     } finally {
       setApplyingGroupId(null);
     }
+  };
+
+  /** 납품 목록 항목과 연결: 수량을 그 항목 수량으로 */
+  const handleInventoryLink = (groupId: string, row: InventoryRow | null) => {
+    setGroups((current) => current.map((group) => group.id === groupId
+      ? { ...group, inventory_link: row?.name || null, quantity: row ? row.qty : null }
+      : group));
   };
 
   const handleRequirementsChange = (groupId: string, requirements: Requirement[]) => {
@@ -422,6 +431,8 @@ export default function App() {
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             showDocumentSignal={documentSignal}
             pickFileSignal={pickFileSignal}
+            inventory={inventory}
+            onInventoryLink={handleInventoryLink}
             groups={groups}
             activeGroupId={activeGroupId}
             documentName={documentName}

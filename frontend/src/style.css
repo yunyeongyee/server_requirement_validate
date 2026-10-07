@@ -420,3 +420,6 @@ details.fold{border-top:1px solid var(--line);padding-top:10px}
 details.fold>summary{cursor:pointer;font-size:13.5px}
 details.fold .form{margin-top:10px}
 details.fold .issues{margin:8px 0 0}
+.invlink{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding-top:10px;font-size:13.5px}
+.invlink label{font-weight:600}
+.invlink select{font:inherit;font-size:13.5px}
