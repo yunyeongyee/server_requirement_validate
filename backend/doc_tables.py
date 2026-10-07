@@ -474,6 +474,60 @@ def clean_name(name: str) -> str:
     return n.strip(" -:()[]") or name
 
 
+# ------------------------------------------------------------------ 시트 = 서버 1대 (구성도·사양서)
+SERVER_WORD = re.compile(r"서버|server|\bsvr\b|노드|node", re.I)
+SPEC_WORD = re.compile(r"\bcpu\b|프로세서|\bmem(ory)?\b|메모리|\bram\b|\bhdd\b|\bssd\b|nvme|디스크|disk|\bnic\b|\braid\b|\bpsu\b|전원", re.I)
+SHEET_PREFIX = re.compile(r"^(?:windows?|linux|rhel|ubuntu|vmware)?\s*서버[_\-\s]*", re.I)
+
+
+def _sheet_lines(ws) -> list[str]:
+    """행마다, 빈 열로 떨어진 셀 묶음은 별도 줄로 (옆 칸의 다른 표가 섞이지 않게).
+    'CPU : … / MEM : … / HDD : …' 처럼 한 칸에 몰린 사양은 항목별로 나눈다."""
+    out = []
+    for row in ws.iter_rows(values_only=True):
+        block: list[str] = []
+        for v in list(row) + [None]:
+            t = _s(v).replace("\n", " ").strip() if v is not None else ""
+            if t:
+                block.append(t)
+            elif block:
+                line = " ".join(block); block = []
+                pieces = [x.strip() for x in re.split(r"\s+[/|]\s+|\s*\|\s*", line) if x.strip()]
+                out.extend(pieces if len(pieces) > 1 else [line])
+    return out
+
+
+def sheet_groups(filename: str, data: bytes) -> list[dict] | None:
+    """엑셀에서 시트 하나가 서버 1대를 설명하는 문서(서버 구성도·사양서). 서버 시트가 2개 이상일 때만."""
+    if Path(filename).suffix.lower() not in (".xlsx", ".xlsm"):
+        return None
+    from . import extract
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    cands = []
+    for ws in wb.worksheets:
+        lines = _sheet_lines(ws)
+        if not lines:
+            continue
+        body = "\n".join(lines)
+        title = lines[0] if len(lines[0]) <= 30 else ""
+        named = SERVER_WORD.search(ws.title) or (title and SERVER_WORD.search(title))
+        if named and len(set(m.group(0).lower() for m in SPEC_WORD.finditer(body))) >= 2:
+            cands.append((ws.title, title, body))
+    if len(cands) < 2:
+        return None
+    groups = []
+    for i, (sheet, title, body) in enumerate(cands, 1):
+        name = title if title and SERVER_WORD.search(title) else (SHEET_PREFIX.sub("", sheet).strip() or sheet)
+        groups.append({
+            "id": f"server-{i}", "name": name, "quantity": None, "doc_role": "requirement",
+            "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body),
+            "model_hint": parts.model_of(body),
+            "evidence": [f"시트 '{sheet}'를 서버 1대로 해석"], "confidence": 0.8, "notes": [],
+        })
+    return groups
+
+
 def analyze_document(filename: str, data: bytes, text: str) -> dict:
     """업로드 문서 → 통합 그룹 구조. 견적서는 제안 구성, 그 외는 요구사항."""
     from . import extract
@@ -503,6 +557,12 @@ def analyze_document(filename: str, data: bytes, text: str) -> dict:
                                "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body),
                                "evidence": [f"서버가 열로 나열된 표 ({g['where']})"], "confidence": 0.85, "notes": []})
             return {"doc_role": "requirement", "groups": groups, "common_items": [], "tables": res["tables"]}
+    try:
+        sg = sheet_groups(filename, data)
+    except Exception:
+        sg = None
+    if sg:
+        return {"doc_role": "requirement", "groups": sg, "common_items": [], "tables": res["tables"]}
     rule = extract.extract_server_groups(text)
     for g in rule:
         m = HEAD_QTY.search(g["name"]) or None

@@ -66,3 +66,24 @@ class FormatVarietyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SheetPerServerTests(unittest.TestCase):
+    def test_config_sheet_per_server(self):
+        """서버 구성도: 시트마다 서버 1대, 한 칸에 'CPU : … / MEM : … / HDD : …', 옆 칸에 다른 표."""
+        rows = lambda name: [
+            [f"{name} 서버"],
+            ["CPU : Intel Xeon Gold 6544Y 16C 3.6GHz / MEM : DDR5-4800 64GB / HDD : SATA 1.92TB * 2EA", None, None, "OS Local (RAID1)"],
+            [None, "HDD7"], [None, "HDD6"],
+            ["I350-T4 4port 1000BASE-T | X710-DA4 4port 10Gb SFP", None, None, "Hostname", "HOST1"],
+        ]
+        data = xlsx([("납품장비리스트", [["구분", "용도", "모델명", "수량"], ["서버", "체계관리", "PowerEdge R760", 2]]),
+                     ("Window 서버_WAS서버", rows("WAS")), ("Window 서버_DB서버", rows("DB"))])
+        r = D.analyze_document("구성도.xlsx", data, "")
+        self.assertEqual([g["name"] for g in r["groups"]], ["WAS 서버", "DB 서버"])
+        cats = {s["category"] for s in r["groups"][0]["spec"]}
+        self.assertTrue({"CPU", "Memory", "Disk"} <= cats)
+        self.assertIn("RAID1", [q["value"] for q in r["groups"][0]["requirements"]])
+        # 디스크 칸 이름(HDD7 등)이 서버로 잡히지 않아야 한다
+        self.assertFalse(any("HDD" in g["name"] for g in r["groups"]))
+
