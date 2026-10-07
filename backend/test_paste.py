@@ -1,6 +1,5 @@
 """붙여넣기 분석·규칙 보강·작업 저장 테스트."""
 import unittest
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -157,25 +156,6 @@ class PasteTests(unittest.TestCase):
         res = self.client.post("/api/paste", json={"text": text, "kind": "quote"}).json()
         self.assertEqual(res["server"]["doc_role"], "quote")
         self.assertEqual([l["status"] for l in res["server"]["lines"]], ["part", "part", "skip"])  # 본체 행 없이 부품만 긁어 와도 견적으로
-
-
-class ProjectSaveTests(unittest.TestCase):
-    """저장하기: 같은 이름은 덮어쓰고, 목록·불러오기가 된다 (임시 폴더에)."""
-    def test_save_list_load(self):
-        import tempfile
-        from pathlib import Path
-        from fastapi.testclient import TestClient
-        from . import app as app_module
-        with tempfile.TemporaryDirectory() as d, patch.object(app_module, "PROJECTS", Path(d)):
-            client = TestClient(app_module.app)
-            first = client.post("/api/projects", json={"name": "견적.xlsx", "state": {"groups": [{"id": "g1"}]}}).json()
-            again = client.post("/api/projects", json={"name": "견적.xlsx", "state": {"groups": [{"id": "g1"}, {"id": "g2"}]}}).json()
-            self.assertEqual(first["id"], again["id"])
-            rows = client.get("/api/projects").json()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["servers"], 2)
-            self.assertEqual(client.get(f"/api/projects/{first['id']}").json()["state"]["groups"][1]["id"], "g2")
-            self.assertEqual(client.get("/api/projects/..%2Fx").status_code, 404)
 
 
 if __name__ == "__main__":

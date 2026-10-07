@@ -5,9 +5,6 @@ import {
   getComponents,
   getImageStatus,
   getServers,
-  listProjects,
-  loadProject,
-  saveProject,
   redetectBays,
   renderServer,
   saveBays,
@@ -16,7 +13,6 @@ import {
   validateServer,
 } from "./api";
 import type { Component, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
-import type { SavedProject } from "./api";
 import ConfigSection from "./components/ConfigSection";
 import type { FocusRequest, RenderedImages } from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
@@ -38,18 +34,10 @@ interface ServerProfile {
 const DEFAULT_GROUP_ID = "server-1";
 const SHOW_QUOTE_DIFF = false;
 const emptyGroup = (id: string, name: string): RequirementGroup => ({ id, name, requirements: [], spec: [] });
-const stamp = () => formatSavedAt(new Date().toISOString());
 const newGroupId = () => `server-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 /** 아직 아무것도 넣지 않은 탭 */
 const isBlank = (group: RequirementGroup) => !group.text && !group.requirements.length && !group.quote;
 
-interface SavedState {
-  workName?: string;
-  groups: RequirementGroup[];
-  profiles: Record<string, ServerProfile>;
-  activeGroupId: string;
-  proposalNotes?: Record<string, string[]>;
-}
 
 
 function defaultConfig(server: Server): ServerConfig {
@@ -114,14 +102,6 @@ export default function App() {
   const [activeGroupId, setActiveGroupId] = useState(DEFAULT_GROUP_ID);
   const [profiles, setProfiles] = useState<Record<string, ServerProfile>>({});
   const [results, setResults] = useState<Record<string, ValidationResult>>({});
-  /** 작업 이름(저장 이름) · 마지막으로 저장한 내용과 시각 */
-  const [workName, setWorkName] = useState(() => `새 작업 ${stamp()}`);
-  const [savedSnapshot, setSavedSnapshot] = useState("");
-  const [savedAt, setSavedAt] = useState("");
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
-  const [openMenu, setOpenMenu] = useState(false);
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState("");
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -410,74 +390,6 @@ export default function App() {
       return { ...item, line_marks: marks };
     }));
 
-  /** 저장 대상: 서버별 붙여넣은 내용·요구사항·구성 전체 (검증 결과·그림은 다시 계산) */
-  const snapshot = useMemo(() => JSON.stringify({ workName, groups, profiles, activeGroupId, proposalNotes } satisfies SavedState),
-    [workName, groups, profiles, activeGroupId, proposalNotes]);
-  const hasWork = groups.some((item) => !isBlank(item)) || groups.length > 1;
-  const dirty = hasWork && snapshot !== savedSnapshot;
-
-  const handleSave = async () => {
-    setSaveBusy(true);
-    setSaveError("");
-    try {
-      const saved = await saveProject(workName.trim() || `작업 ${stamp()}`, JSON.parse(snapshot));
-      setSavedSnapshot(snapshot);
-      setSavedAt(saved.saved_at);
-    } catch (reason) {
-      setSaveError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaveBusy(false);
-    }
-  };
-
-  const resetWork = (state: SavedState | null, name: string, at: string) => {
-    // 예전 저장본: 견적이 요구사항과 한 칸에 있던 것(proposed)을 견적 칸으로 옮긴다
-    const nextGroups = (state?.groups?.length ? state.groups : [emptyGroup(DEFAULT_GROUP_ID, "서버 1")]).map((item) =>
-      item.proposed && !item.quote
-        ? { ...item, quote: { ...item, requirements: [], split: undefined, quote: undefined }, proposed: undefined, items: undefined, lines: item.doc_role === "quote" ? undefined : item.lines, text: item.doc_role === "quote" ? undefined : item.text }
-        : item);
-    const nextProfiles = state?.profiles || {};
-    nextGroups.forEach((item) => { if (!nextProfiles[item.id]) { const fallback = defaultProfile(); if (fallback) nextProfiles[item.id] = fallback; } });
-    const nextActive = nextGroups.some((item) => item.id === state?.activeGroupId) ? state!.activeGroupId : nextGroups[0].id;
-    setGroups(nextGroups);
-    setProfiles(nextProfiles);
-    setActiveGroupId(nextActive);
-    setProposalNotes(state?.proposalNotes || {});
-    setResults({});
-    setRenderedImages({ front: null, rear: null });
-    setView("server");
-    setWorkName(name);
-    setSavedAt(at);
-    setPasteError("");
-    // 연 직후에는 '저장 안 됨'으로 보이지 않게 같은 형식으로 기억
-    setSavedSnapshot(state ? JSON.stringify({ workName: name, groups: nextGroups, profiles: nextProfiles, activeGroupId: nextActive, proposalNotes: state.proposalNotes || {} } satisfies SavedState) : "");
-  };
-  const handleOpenProject = async (id: string) => {
-    setOpenMenu(false);
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 저장한 작업을 열까요?")) return;
-    try {
-      const project = await loadProject<SavedState>(id);
-      resetWork(project.state, project.name, project.saved_at);
-    } catch (reason) {
-      setPasteError(reason instanceof Error ? reason.message : String(reason));
-    }
-  };
-  const handleNewWork = () => {
-    setOpenMenu(false);
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 새 작업을 시작할까요?")) return;
-    resetWork(null, `새 작업 ${stamp()}`, "");
-  };
-  useEffect(() => {
-    if (openMenu) listProjects().then(setSavedProjects).catch(() => setSavedProjects([]));
-  }, [openMenu]);
-  // 저장하지 않고 창을 닫으려 하면 묻는다
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
   const handleApplyProposal = async () => {
     setApplyingGroupId(group.id);
     await applyQuote(group.id, group.quote, profile || null);
@@ -560,21 +472,7 @@ export default function App() {
           <h1>Server Requirement Validator</h1>
         </div>
         <div className="workline">
-          <input className="workname" aria-label="작업 이름" value={workName} onChange={(event) => setWorkName(event.target.value)} title="작업 이름 — 저장할 때 이 이름으로" />
           <span className="muted-on-dark">서버 {groups.length}종 · {groups.reduce((total, item) => total + (item.quantity || 1), 0)}대</span>
-          <span className="openwrap">
-            <button type="button" className="ghost-on-dark" aria-expanded={openMenu} onClick={() => setOpenMenu(!openMenu)}>열기 ▾</button>
-            {openMenu && (
-              <span className="openmenu" role="menu">
-                <button type="button" role="menuitem" onClick={handleNewWork}><b>＋ 새 작업</b></button>
-                {savedProjects.length ? savedProjects.slice(0, 12).map((item) => (
-                  <button type="button" role="menuitem" key={item.id} onClick={() => void handleOpenProject(item.id)}>
-                    {item.name}<small>서버 {item.servers}종 · {formatSavedAt(item.saved_at)} 저장</small>
-                  </button>
-                )) : <span className="muted small pad">저장한 작업이 없습니다</span>}
-              </span>
-            )}
-          </span>
         </div>
         <span className="localnote">외부 전송 없음 · 모든 분석은 이 PC에서</span>
         <ServerBar groups={groups} summaries={projectSummaries} activeGroupId={group.id} view={view}
@@ -667,27 +565,9 @@ export default function App() {
             activeGroupId={group.id}
             onSelectGroup={(id) => { setActiveGroupId(id); setView("server"); }}
           />}
-          {hasWork && (
-            <div className={`savebar ${dirty ? "dirty" : ""}`} role="region" aria-label="저장">
-              <span className="savebar-msg">
-                {saveError ? <span className="warn">저장 오류: {saveError}</span>
-                  : dirty ? <><i className="dot" aria-hidden="true" /> 저장하지 않은 변경이 있습니다</>
-                  : <>✓ 저장됨 · {formatSavedAt(savedAt)}</>}
-                <span className="muted small"> — {workName}</span>
-              </span>
-              <button type="button" className="btn" disabled={saveBusy || !dirty} onClick={() => void handleSave()}>{saveBusy ? "저장 중…" : "저장하기"}</button>
-            </div>
-          )}
         </main>
       </div>
     </>
   );
 }
 
-/** "2026-10-07T14:32:05" → "10/07 14:32" */
-function formatSavedAt(iso: string): string {
-  const date = new Date(iso);
-  if (!iso || Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}

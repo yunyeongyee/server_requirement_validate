@@ -139,25 +139,3 @@ export function applyProposal(
 
 
 
-export interface SavedProject {
-  id: string;
-  name: string;
-  saved_at: string;
-  servers: number;
-}
-
-export function listProjects(): Promise<SavedProject[]> {
-  return request("/api/projects");
-}
-
-export function loadProject<T>(id: string): Promise<{ id: string; name: string; saved_at: string; state: T }> {
-  return request(`/api/projects/${id}`);
-}
-
-export function saveProject(name: string, state: unknown): Promise<{ id: string; saved_at: string }> {
-  return request("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, state }) });
-}
-
-export function deleteProject(id: string): Promise<unknown> {
-  return request(`/api/projects/${id}`, { method: "DELETE" });
-}
