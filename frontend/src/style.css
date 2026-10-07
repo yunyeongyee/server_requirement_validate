@@ -438,3 +438,10 @@ details.fold .issues{margin:8px 0 0}
 .specline b{font-weight:600}
 .specline-act{margin-left:auto;font-size:12.5px}
 .slotpanel{border:2px solid var(--accent)}
+.hs.blocked{background:rgba(8,10,14,.92);border:1px solid rgba(255,255,255,.18);cursor:not-allowed;display:flex;align-items:center;justify-content:center}
+.hs.blocked .blk-ico{color:#8E99A6;font-size:18px;line-height:1}
+.mode-calib .hs.blocked{cursor:move}
+.hs.s-off{background:rgba(8,10,14,.82)!important;border:1px solid rgba(255,255,255,.18)!important}
+.hs.s-off .tag{background:#3A424C}
+.mode-clean .hs.blocked{border-color:transparent!important}
+[data-tip]:hover::after,[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:280px;white-space:normal;background:#11161C;color:#EEF2F6;font-size:12.5px;font-weight:500;line-height:1.45;padding:6px 9px;border-radius:5px;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:20;pointer-events:none;text-align:left}

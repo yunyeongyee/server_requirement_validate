@@ -56,7 +56,11 @@ interface Rect {
   y: number;
   w: number;
   h: number;
+  /** 가림 영역(blk:N)일 때 마우스를 올리면 보여줄 이유 */
+  reason?: string;
 }
+
+const BLOCK_REASON = "이 모델 데이터에 없는 영역이라 사용할 수 없습니다";
 
 interface DragState {
   view: "front" | "rear";
@@ -113,6 +117,7 @@ export default function ConfigSection({
     [...(server?.slots || []), ...(server?.psu_slots || [])].forEach((slot) => {
       if (slot.hotspot) next[slot.id] = { ...slot.hotspot };
     });
+    (server?.rear_blocked || []).forEach((area, index) => { next[`blk:${index}`] = { ...area }; });
     setSlotHotspots(next);
   }, [server]);
 
@@ -244,7 +249,12 @@ export default function ConfigSection({
     setCalibrationBusy(true);
     setCalibrationMessage("");
     try {
-      await onSaveCalibration(slotHotspots, currentFrontRects);
+      // 가림 영역은 삭제로 번호가 비었을 수 있어 0부터 다시 매긴다
+      const plain = Object.fromEntries(Object.entries(slotHotspots).filter(([key]) => !key.startsWith("blk:")));
+      const blocks = Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:"))
+        .sort(([a], [b]) => Number(a.slice(4)) - Number(b.slice(4)))
+        .map(([, area], index) => [`blk:${index}`, area] as const);
+      await onSaveCalibration({ ...plain, ...Object.fromEntries(blocks) }, currentFrontRects);
       setCalibrationMessage("좌표 저장 완료");
     } catch (reason) {
       setCalibrationMessage(`저장 오류: ${reason instanceof Error ? reason.message : String(reason)}`);
@@ -269,6 +279,11 @@ export default function ConfigSection({
   const psuSlots = (server.psu_slots || []).map((psu) => ({
     ...psu, type: "psu", gen: 0, lanes: 0, height: "", double_width_ok: false, cpu: 0, riser: null,
   }));
+  const unusableReason = (slot: { id: string; cpu: number; riser: string | null; label: string }) => {
+    if (slot.cpu > config.cpu_count) return `${slot.label}은 CPU${slot.cpu}에 연결된 슬롯입니다. CPU를 ${slot.cpu}개 이상 장착해야 쓸 수 있습니다.`;
+    if (slot.riser && !config.risers.includes(slot.riser)) return `${slot.label}은 ${server.risers.find((riser) => riser.id === slot.riser)?.name || slot.riser}가 있어야 쓸 수 있습니다. 클릭해서 Riser를 장착하세요.`;
+    return `${slot.label}은 지금 구성에서 쓸 수 없습니다.`;
+  };
   const psuIndex = (id: string) => psuSlots.findIndex((psu) => psu.id === id);
   const psuWarn = !!result?.general.some((item) => item.status !== "충족" && /PSU|전원|소비전력/.test(item.msg));
 
@@ -294,6 +309,8 @@ export default function ConfigSection({
                   ? `bay ${selectedBays.includes(bayIndex) ? "sel" : ""} ${bay?.role === "boot" ? "boot" : ""} ${status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`
                   : slot?.type === "psu"
                   ? `hs psu ${selectedSlot === slot.id ? "sel" : ""} ${psuIndex(slot.id) < config.psu_count ? (psuWarn ? "s-review" : "s-ok") : "empty"}`
+                  : slot && getSlotResult(slot.id)?.usable === false
+                  ? `hs s-off ${selectedSlot === slot.id ? "sel" : ""}`
                   : `hs ${selectedSlot === slot?.id ? "sel" : ""} ${status === "충족" ? "s-ok" : status === "호환 불가" ? "s-incomp" : status === "확인 필요" ? "s-review" : ""}`;
                 return (
                   <button
@@ -303,6 +320,8 @@ export default function ConfigSection({
                     title={view === "front" ? `Bay ${index}${bay ? ` · ${server.drive_options.find((drive) => drive.id === bay.drive)?.name || bay.drive}` : ""}` : slot?.label}
                     aria-label={view === "front" ? `Bay ${index}${bay ? " 사용 중" : " 비어 있음"}` : slot?.label}
                     data-calib-key={view === "front" ? String(index) : slot?.id}
+                    data-tip={view === "rear" && slot && getSlotResult(slot.id)?.usable === false
+                      ? unusableReason(slot) : undefined}
                     style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
                     onClick={() => {
                       if (mode !== "edit") return;
@@ -329,6 +348,27 @@ export default function ConfigSection({
                   </button>
                 );
               })}
+              {view === "rear" && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
+                <div
+                  key={key}
+                  className="hs blocked"
+                  data-calib-key={key}
+                  data-tip={area.reason || BLOCK_REASON}
+                  aria-label={`사용할 수 없는 영역: ${area.reason || BLOCK_REASON}`}
+                  style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.w}%`, height: `${area.h}%` }}
+                >
+                  <span className="blk-ico" aria-hidden="true">⊘</span>
+                  {mode === "calib" && <span className="grip" />}
+                  {mode === "calib" && (
+                    <span className="bay-x" role="button" aria-label="가림 영역 삭제"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSlotHotspots((current) => Object.fromEntries(Object.entries(current).filter(([other]) => other !== key)));
+                      }}>✕</span>
+                  )}
+                </div>
+              ))}
               {view === "front" && mode === "calib" && freeCandidates.map((area, index) => (
                 <button
                   key={`cand-${index}`}
@@ -397,6 +437,12 @@ export default function ConfigSection({
             <button className="btn ghost small" onClick={() => useCandidates("start")}>왼쪽부터 {backplane.bays}개 사용</button>
             <button className="btn ghost small" onClick={() => useCandidates("end")}>오른쪽부터 {backplane.bays}개 사용</button>
           </>}
+          <button className="btn ghost small" title="후면 그림에서 이 모델로 쓸 수 없는 자리를 검정 박스로 가립니다" onClick={() => {
+            const used = Object.keys(slotHotspots).filter((key) => key.startsWith("blk:")).map((key) => Number(key.slice(4)));
+            const next = used.length ? Math.max(...used) + 1 : 0;
+            setSlotHotspots((current) => ({ ...current, [`blk:${next}`]: { x: 42, y: 40, w: 14, h: 22, reason: BLOCK_REASON } }));
+            setCalibrationMessage("후면에 가림 영역을 추가했습니다. 옮기고 크기를 맞춘 뒤 '좌표 저장'을 누르세요.");
+          }}>후면 가림 영역 추가</button>
           <button className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>좌표 저장</button>
           {calibrationMessage && <span className={calibrationMessage.includes("오류") ? "warn" : "muted"} role={calibrationMessage.includes("오류") ? "alert" : undefined}>{calibrationMessage}</span>}
         </div>}

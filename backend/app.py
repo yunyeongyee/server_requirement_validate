@@ -253,6 +253,13 @@ def save_hotspots(sid: str, body: HotspotIn):
     for slot in s["slots"] + s.get("psu_slots", []):
         if slot["id"] in body.hotspots:
             slot["hotspot"] = {k: round(float(v), 2) for k, v in body.hotspots[slot["id"]].items()}
+    # 사용할 수 없는 영역(blk:0, blk:1 …): 보낸 목록으로 통째로 바꾼다 (추가·삭제 반영)
+    blocked = [(int(k.split(":")[1]), v) for k, v in body.hotspots.items() if k.startswith("blk:")]
+    if blocked or "rear_blocked" in s:
+        old = s.get("rear_blocked", [])
+        s["rear_blocked"] = [{**{key: round(float(v[key]), 2) for key in ("x", "y", "w", "h")},
+                              "reason": v.get("reason") or (old[i]["reason"] if i < len(old) else "이 모델 데이터에 없는 영역이라 사용할 수 없습니다")}
+                             for i, v in sorted(blocked)]
     save_servers(data)
     return {"ok": True}
 

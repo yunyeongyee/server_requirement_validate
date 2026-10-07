@@ -385,6 +385,9 @@ export default function App() {
       ...server,
       slots: server.slots.map((slot) => ({ ...slot, hotspot: hotspots[slot.id] || slot.hotspot })),
       psu_slots: server.psu_slots?.map((psu) => ({ ...psu, hotspot: hotspots[psu.id] || psu.hotspot })),
+      rear_blocked: Object.entries(hotspots).filter(([key]) => key.startsWith("blk:"))
+        .sort(([a], [b]) => Number(a.slice(4)) - Number(b.slice(4)))
+        .map(([, area]) => ({ x: area.x, y: area.y, w: area.w, h: area.h, reason: (area as { reason?: string }).reason || "" })),
     };
     await saveHotspots(server.id, hotspots);
     await saveBays(server.id, config.backplane, rects);

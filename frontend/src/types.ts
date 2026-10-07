@@ -138,6 +138,8 @@ export interface Server {
   slots: Slot[];
   drive_options: DriveOption[];
   /** 후면 PSU 베이 위치 (PSU1부터 순서대로 채움) */
+  /** 후면 그림에서 이 모델로는 쓸 수 없는 영역 (검정 박스로 가림) */
+  rear_blocked?: Array<{ x: number; y: number; w: number; h: number; reason: string }>;
   psu_slots?: Array<{ id: string; label: string; hotspot?: { x: number; y: number; w: number; h: number } }>;
 }
 
