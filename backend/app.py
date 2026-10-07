@@ -7,9 +7,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config
-config.load_env()  # .env 의 API 키·설정을 환경변수로 (다른 모듈보다 먼저)
-from . import ai_normalize, doc_tables, extract, images, parts, paste as P, proposal, validate as V
+from . import doc_tables, extract, images, parts, paste as P, proposal, validate as V
+P.load_env()  # .env 의 API 키·설정을 환경변수로
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -54,12 +53,12 @@ def version():
 
 @app.get("/api/ai/status")
 def ai_status():
-    return ai_normalize.status()
+    return P.status()
 
 
 @app.post("/api/ai/check")
 async def ai_check():
-    return {**ai_normalize.status(), **(await asyncio.to_thread(ai_normalize.check_connection))}
+    return {**P.status(), **(await asyncio.to_thread(P.check_connection))}
 
 
 @app.get("/api/servers")

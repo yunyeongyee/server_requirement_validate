@@ -51,6 +51,6 @@ Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시�
 
 ## 테스트
 ```bash
-python -m unittest backend.test_paste backend.test_ai_normalize backend.test_doc_tables backend.test_images
+python -m unittest backend.test_paste backend.test_doc_tables backend.test_images
 ```
 참고 견적서 테스트는 `samples/quote_kgict.xlsx`가 있을 때만 실행된다.
