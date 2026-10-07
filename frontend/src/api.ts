@@ -138,3 +138,22 @@ export function applyProposal(
     server_id: serverId, proposed, base_config: baseConfig, backplane_hint: backplaneHint,
   });
 }
+
+export interface AiStatus {
+  enabled: boolean;
+  key_set: boolean;
+  key_hint: string;
+  model: string;
+  mode: string;
+  custom_base_url: boolean;
+  ok?: boolean;
+  message?: string;
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return request<AiStatus>("/api/ai/status");
+}
+
+export function checkAi(): Promise<AiStatus> {
+  return sendJson<AiStatus>("/api/ai/check", {});
+}

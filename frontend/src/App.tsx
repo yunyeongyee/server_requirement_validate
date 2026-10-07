@@ -20,6 +20,7 @@ import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
+import AiBadge from "./components/AiBadge";
 
 export type ModelSource = "document" | "manual" | "default";
 
@@ -413,6 +414,7 @@ export default function App() {
           <h1>Server Requirement Validator</h1>
           <p>고객 요구사항 문서 ↔ 실제 서버 구성 검증</p>
         </div>
+        <AiBadge lastMode={documentName ? extractionInfo?.mode : null} />
         {documentName && (
           <div className="docline">
             <b>{documentName}</b>

@@ -469,3 +469,15 @@ figure.stage{position:relative}
 .bay.filled.boot::after{background:#F5B942}
 .mode-clean .bay.filled::after,.mode-calib .bay.filled::after{display:none}
 .slotpanel .opts{display:inline-flex;gap:4px}
+.aibadge{position:relative;order:3;margin-left:auto}
+.ai-chip{font:inherit;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#DCE3EA;border-radius:999px;padding:2px 10px;cursor:pointer}
+.ai-chip:hover{background:rgba(255,255,255,.14)}
+.ai-dot{width:8px;height:8px;border-radius:50%;background:#8E99A6}
+.ai-on .ai-dot{background:#3DDC84} .ai-bad .ai-dot{background:#F07272}
+.ai-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:320px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:12px;display:grid;gap:8px;font-size:13px}
+.ai-pop dl{margin:0;display:grid;gap:4px}
+.ai-pop dl div{display:grid;grid-template-columns:72px 1fr;gap:8px}
+.ai-pop dt{color:var(--mute)} .ai-pop dd{margin:0;word-break:break-all}
+.ai-pop .ok-msg{color:var(--ok);margin:0}
+.ai-pop .warn{margin:0}
+.ai-pop code{background:color-mix(in srgb,var(--accent) 10%,transparent);padding:0 4px;border-radius:3px}

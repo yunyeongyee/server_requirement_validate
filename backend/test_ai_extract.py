@@ -212,3 +212,58 @@ class RedactTests(unittest.TestCase):
         for spec in ("Xeon Gold 6544Y", "X710-DA4", "DDR5-4800 64GB", "3.6GHz"):
             self.assertIn(spec, joined)
 
+
+
+class SettingsTests(unittest.TestCase):
+    def test_key_alone_enables_and_zero_disables(self):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-1234567890", "SRV_AI_ENABLED": ""}, clear=False):
+            self.assertTrue(ai_extract.enabled())
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-1234567890", "SRV_AI_ENABLED": "0"}, clear=False):
+            self.assertFalse(ai_extract.enabled())
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "", "SRV_AI_ENABLED": ""}, clear=False):
+            self.assertFalse(ai_extract.enabled())
+
+    def test_status_masks_key(self):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-proj-abcdefghijklmnop"}, clear=False):
+            st = ai_extract.status()
+        self.assertNotIn("abcdefghijkl", st["key_hint"])
+        self.assertTrue(st["key_set"])
+
+    def test_always_mode_calls_ai_even_for_plain_documents(self):
+        text = "메모리 512GB 이상"
+        rules = extract.extract_server_groups(text)
+        self.assertIsNone(ai_extract.choose_effort(text, None, rules))
+        env = {"OPENAI_API_KEY": "sk-test-1234567890", "SRV_AI_ENABLED": "", "SRV_AI_MODE": "always"}
+        with patch.dict("os.environ", env, clear=False), patch.object(ai_extract, "_extract_at_effort", return_value=rules) as call:
+            _, info = ai_extract.extract_groups(text, None, rules)
+        self.assertTrue(call.called)
+        self.assertEqual(info["mode"], "ai")
+        with patch.dict("os.environ", {**env, "SRV_AI_MODE": "auto"}, clear=False), patch.object(ai_extract, "_extract_at_effort") as call:
+            _, info = ai_extract.extract_groups(text, None, rules)
+        self.assertFalse(call.called)
+
+    def test_http_errors_become_readable_notices(self):
+        import urllib.error
+        rules = extract.extract_server_groups("메모리 512GB 이상")
+        env = {"OPENAI_API_KEY": "sk-test-1234567890", "SRV_AI_ENABLED": "", "SRV_AI_MODE": "always"}
+        for code, words in ((401, "API 키"), (429, "한도")):
+            boom = urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b""))
+            with patch.dict("os.environ", env, clear=False), patch("urllib.request.urlopen", side_effect=boom):
+                _, info = ai_extract.extract_groups("메모리 512GB 이상", None, rules)
+            self.assertEqual(info["mode"], "rules_fallback")
+            self.assertIn(words, info["notice"])
+
+
+class EnvFileTests(unittest.TestCase):
+    def test_env_file_is_loaded_without_overriding_existing(self):
+        import os, tempfile
+        from pathlib import Path
+        from . import config
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ".env"
+            p.write_text('# 주석\nSRV_TEST_A="hello"\nSRV_TEST_B=keep\n', encoding="utf-8")
+            with patch.dict("os.environ", {"SRV_TEST_B": "already"}, clear=False):
+                config.load_env(p)
+                self.assertEqual(os.environ["SRV_TEST_A"], "hello")
+                self.assertEqual(os.environ["SRV_TEST_B"], "already")
+            os.environ.pop("SRV_TEST_A", None)

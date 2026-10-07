@@ -24,15 +24,19 @@ Windows: `run.bat` 더블클릭 (최신 코드 받기 → 빌드 → 서버 시�
 ```
 프론트 개발 서버: `cd frontend && npm run dev` (API는 `SRV_API_TARGET`, 기본 `http://127.0.0.1:8000`로 프록시)
 
-## 환경변수 (AI 추출, 선택)
+## AI 분석 설정 (.env)
+프로젝트 폴더의 `.env.example`을 `.env`로 복사하고 값을 채운다 (`run.bat`은 처음 실행할 때 자동으로 복사). `.env`는 git에 올라가지 않는다.
+
 | 변수 | 설명 |
 |---|---|
-| `SRV_AI_ENABLED` | `1`/`true`이면 활성화 |
-| `OPENAI_API_KEY` | API 키 |
-| `SRV_AI_MODEL` | 모델명 |
+| `OPENAI_API_KEY` | OpenAI API 키. 넣으면 요구사항 문서 AI 분석이 켜진다 |
+| `SRV_AI_MODEL` | 모델 (기본 `gpt-5-mini`) |
+| `SRV_AI_MODE` | `always`(기본): 요구사항 문서는 항상 AI로 / `auto`: 애매한 문서만 |
+| `SRV_AI_ENABLED` | `0`이면 강제로 끔 (비우면 키가 있을 때 켜짐) |
+| `SRV_AI_TIMEOUT` | 응답 대기 시간(초, 기본 90) |
 | `SRV_AI_BASE_URL` | 기본 `https://api.openai.com/v1` |
 
-Visio EMF/WMF 변환에는 LibreOffice(`soffice`)가 필요할 수 있다.
+견적서·구성도는 표를 규칙으로 읽고, AI에는 보내지 않는다. AI로 보내기 전에 계정·비밀번호·IP는 가린다. 화면 오른쪽 위 "AI 분석" 표시를 누르면 상태 확인과 연결 확인을 할 수 있다.
 
 ## 테스트
 ```bash

@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import config
+config.load_env()  # .env 의 API 키·설정을 환경변수로 (다른 모듈보다 먼저)
 from . import ai_extract, doc_tables, extract, images, parts, proposal, validate as V
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,6 +53,16 @@ def version():
     return {"version": "v4"}
 
 
+@app.get("/api/ai/status")
+def ai_status():
+    return ai_extract.status()
+
+
+@app.post("/api/ai/check")
+async def ai_check():
+    return {**ai_extract.status(), **(await asyncio.to_thread(ai_extract.check_connection))}
+
+
 @app.get("/api/servers")
 def servers():
     return load_servers()
@@ -62,8 +74,10 @@ def components():
 
 
 # ------------------------------------------------ 요구사항 문서
-def _analyze_requirements(text: str, context: dict | None = None, ai_allowed: bool = True) -> dict:
-    rule_groups = extract.extract_server_groups(text)
+def _analyze_requirements(text: str, context: dict | None = None, ai_allowed: bool = True,
+                          rule_groups: list[dict] | None = None) -> dict:
+    # 표 구조로 먼저 찾은 서버 그룹이 있으면 그것을 AI에 기준으로 준다
+    rule_groups = rule_groups or extract.extract_server_groups(text)
     if ai_allowed:
         groups, extraction_info = ai_extract.extract_groups(text, context, rule_groups)
     else:
@@ -110,7 +124,9 @@ async def upload(file: UploadFile = File(...)):
     except Exception:
         logger.exception("document structure analysis failed")
         doc = None
-    if doc and doc["groups"] and (doc["doc_role"] == "quote" or len(doc["groups"]) > 1 or not ai_extract.enabled()):
+    # 견적서·구성도는 표를 규칙으로 정확히 읽으므로 그대로. 요구사항 문서는 AI가 켜져 있으면 AI로 확인한다.
+    structured = doc and doc["groups"] and (doc["doc_role"] == "quote" or any(g.get("doc_role") == "config" for g in doc["groups"]))
+    if doc and doc["groups"] and (structured or not ai_extract.enabled()):
         servers_list = load_servers()["servers"]
         for g in doc["groups"]:
             g["suggested_server"] = proposal.suggest_server(g.get("model_hint"), servers_list)
@@ -127,7 +143,10 @@ async def upload(file: UploadFile = File(...)):
         except Exception:
             logger.exception("Could not preserve document structure for AI extraction")
             context_error = "문서 표/시트 맥락 추출에 실패해 평문 규칙 결과를 사용했습니다."
-    result = await asyncio.to_thread(_analyze_requirements, text, context, not bool(context_error))
+    hint = doc["groups"] if doc and doc["groups"] and len(doc["groups"]) > 1 else None
+    result = await asyncio.to_thread(_analyze_requirements, text, context, not bool(context_error), hint)
+    if hint and doc.get("inventory"):
+        result["inventory"] = doc["inventory"]
     if context_error:
         context_error = f"{context_error} 원문을 확인하세요."
         result["extraction"] = {

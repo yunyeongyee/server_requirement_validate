@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from . import extract
+from . import config, extract
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +109,59 @@ class AIResponseError(AIExtractionError):
     pass
 
 
+DEFAULT_MODEL = "gpt-5-mini"
+
+
 def enabled() -> bool:
-    return os.getenv("SRV_AI_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    """SRV_AI_ENABLED 가 비어 있으면 API 키가 있을 때 켜짐. 0/false/off 면 강제로 끔."""
+    flag = config.get("SRV_AI_ENABLED").lower()
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    return bool(config.get("OPENAI_API_KEY"))
+
+
+def settings() -> dict:
+    return {
+        "api_key": config.get("OPENAI_API_KEY"),
+        "model": config.get("SRV_AI_MODEL") or DEFAULT_MODEL,
+        "mode": (config.get("SRV_AI_MODE") or "always").lower(),
+        "timeout": float(config.get("SRV_AI_TIMEOUT") or 90),
+        "base_url": (config.get("SRV_AI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
+    }
+
+
+def status() -> dict:
+    """화면 표시용. 키는 앞뒤 일부만."""
+    st = settings()
+    key = st["api_key"]
+    return {"enabled": enabled(), "key_set": bool(key), "key_hint": f"{key[:5]}…{key[-4:]}" if len(key) > 12 else ("설정됨" if key else ""),
+            "model": st["model"], "mode": st["mode"], "custom_base_url": st["base_url"] != "https://api.openai.com/v1"}
+
+
+HTTP_HINTS = {
+    401: "OpenAI API 키가 올바르지 않습니다 (.env 의 OPENAI_API_KEY 확인)",
+    403: "이 API 키로는 해당 모델을 쓸 수 없습니다 (권한·조직 설정 확인)",
+    404: "모델을 찾을 수 없습니다 (.env 의 SRV_AI_MODEL 확인)",
+    429: "OpenAI 사용량 한도를 넘었거나 결제 설정이 필요합니다",
+}
+
+
+def check_connection() -> dict:
+    """키·모델이 유효한지 모델 조회 API로 확인 (토큰을 쓰지 않음)."""
+    st = settings()
+    if not st["api_key"]:
+        return {"ok": False, "message": "API 키가 없습니다. .env 파일에 OPENAI_API_KEY 를 넣으세요."}
+    req = urllib.request.Request(f"{st['base_url']}/models/{st['model']}", headers={"Authorization": f"Bearer {st['api_key']}"})
+    try:
+        with urllib.request.urlopen(req, timeout=min(st["timeout"], 20)) as resp:
+            json.loads(resp.read().decode("utf-8"))
+        return {"ok": True, "message": f"연결됨 · 모델 {st['model']}"}
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "message": HTTP_HINTS.get(error.code, f"OpenAI API 오류 (HTTP {error.code})")}
+    except (urllib.error.URLError, TimeoutError) as error:
+        return {"ok": False, "message": f"OpenAI 서버에 연결하지 못했습니다 ({getattr(error, 'reason', error)})"}
 
 
 def choose_effort(text: str, context: dict | None, groups: list[dict]) -> str | None:
@@ -152,11 +203,14 @@ def extract_groups(
     context: dict | None,
     rule_groups: list[dict],
 ) -> tuple[list[dict], dict]:
-    effort = choose_effort(text, context, rule_groups)
-    if effort is None:
-        return rule_groups, {"mode": "rules", "effort": None}
     if not enabled():
         return rule_groups, {"mode": "rules", "effort": None}
+    st = settings()
+    effort = choose_effort(text, context, rule_groups)
+    if effort is None:
+        if st["mode"] != "always":
+            return rule_groups, {"mode": "rules", "effort": None}
+        effort = "low"  # 정확도 우선: 애매하지 않은 문서도 AI로 확인
     if len(text) > MAX_CONTEXT_CHARS or len(json.dumps(context or {}, ensure_ascii=False)) > MAX_CONTEXT_CHARS:
         return rule_groups, {
             "mode": "rules_fallback",
@@ -164,13 +218,12 @@ def extract_groups(
             "notice": "문서가 AI 분석 한도를 넘어 규칙 기반 결과를 사용했습니다. 확인 필요 항목을 검토하세요.",
         }
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("SRV_AI_MODEL", "").strip()
-    if not api_key or not model:
+    api_key, model = st["api_key"], st["model"]
+    if not api_key:
         return rule_groups, {
             "mode": "rules_fallback",
             "effort": effort,
-            "notice": "AI 분석 설정(API 키 또는 모델 ID)이 없어 규칙 기반 결과를 사용했습니다.",
+            "notice": "AI 분석이 켜져 있지만 API 키가 없어 규칙 기반 결과를 사용했습니다 (.env 의 OPENAI_API_KEY).",
         }
 
     try:
@@ -194,10 +247,11 @@ def extract_groups(
         return merged, {"mode": "ai", "effort": effort, "escalated": escalated}
     except AIExtractionError as error:
         logger.warning("AI extraction failed; retaining rule extraction: %s", error)
+        reason = getattr(error, "user_message", None) or "AI 분석 응답을 검증하지 못했습니다"
         return rule_groups, {
             "mode": "rules_fallback",
             "effort": effort,
-            "notice": "AI 분석 응답을 검증하지 못해 규칙 기반 결과를 사용했습니다. 확인 필요 항목을 검토하세요.",
+            "notice": f"{reason} — 규칙 기반 결과를 사용했습니다. 확인 필요 항목을 검토하세요.",
         }
 
 
@@ -281,19 +335,28 @@ def _request_openai(
             }
         },
     }
+    st = settings()
     request = urllib.request.Request(
-        os.getenv("SRV_AI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/responses",
+        st["base_url"] + "/responses",
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=st["timeout"]) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        raise AIExtractionError(f"OpenAI API returned HTTP {error.code}") from error
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise AIExtractionError("OpenAI API request failed") from error
+        err = AIExtractionError(f"OpenAI API returned HTTP {error.code}")
+        err.user_message = HTTP_HINTS.get(error.code, f"OpenAI API 오류 (HTTP {error.code})")
+        raise err from error
+    except TimeoutError as error:
+        err = AIExtractionError("OpenAI API request timed out")
+        err.user_message = f"AI 응답이 {st['timeout']:g}초 안에 오지 않았습니다 (SRV_AI_TIMEOUT)"
+        raise err from error
+    except (urllib.error.URLError, json.JSONDecodeError) as error:
+        err = AIExtractionError("OpenAI API request failed")
+        err.user_message = "OpenAI 서버에 연결하지 못했습니다"
+        raise err from error
 
     if not isinstance(payload, dict):
         raise AIResponseError("OpenAI response must be an object")
