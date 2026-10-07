@@ -9,6 +9,7 @@ import {
   renderServer,
   saveBays,
   saveHotspots,
+  setImageMap,
   uploadRequirement,
   validateServer,
 } from "./api";
@@ -366,8 +367,11 @@ export default function App() {
 
   const handleBackplaneChange = (id: string) => {
     if (!config || !server) return;
-    const baysAvailable = server.backplanes.find((item) => item.id === id)?.bays || 0;
-    const bays = Object.fromEntries(Object.entries(config.bays).filter(([index]) => Number(index) < baysAvailable));
+    const next = server.backplanes.find((item) => item.id === id);
+    const baysAvailable = next?.bays || 0;
+    // 베이 수를 넘거나 규격(2.5"/3.5")이 맞지 않는 디스크는 뺀다
+    const bays = Object.fromEntries(Object.entries(config.bays).filter(([index, bay]) => Number(index) < baysAvailable
+      && server.drive_options.find((drive) => drive.id === bay.drive)?.ff === next?.ff));
     handleConfigChange({ ...config, backplane: id, bays });
     setRenderedImages({ front: null, rear: null });
   };
@@ -472,6 +476,11 @@ export default function App() {
           />}
             focus={focus}
             onOpenImages={() => setImagesSignal((n) => n + 1)}
+            onUseAutoFront={async () => {
+              if (!server || !config) return;
+              await setImageMap(server.id, "front", config.backplane, null);
+              reloadImages();
+            }}
             server={server}
             apiReady={apiReady}
             components={components}

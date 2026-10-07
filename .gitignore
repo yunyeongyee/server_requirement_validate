@@ -7,3 +7,4 @@ data/parts.json
 .env
 static/index.html
 static/assets/
+static/images/schematic/

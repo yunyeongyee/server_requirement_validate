@@ -156,7 +156,68 @@ def front_item(server, bp_id) -> tuple[dict | None, bool]:
     if ov and item(ov):
         return item(ov), False
     bp = next((b for b in server.get("backplanes", []) if b["id"] == bp_id), None)
-    return by_name(bp.get("stencil") if bp else None), True
+    found = by_name(bp.get("stencil") if bp else None)
+    if found:
+        return found, True
+    # 실제 이미지가 없으면 서버 높이·베이 수·규격에 맞춘 기본 도면 (어느 모델이든 베이를 눌러 디스크를 꽂을 수 있게)
+    return (schematic_front(server, bp) if bp and bp.get("bays") else None), True
+
+
+SCHEMATIC = ROOT / "static" / "images" / "schematic"
+SCHEMATIC_PPI = 150
+_FACE_IN = {"2.5": [(0.603, 2.853), (2.853, 0.603)], "3.5": [(4.103, 1.028)], "E3.S": [(0.36, 3.0)]}
+
+
+def _schematic_layout(server, bp) -> tuple[float, float, list[dict]]:
+    """→ (폭 in, 높이 in, 베이 사각형[% 좌표]). 1U/2U 섀시 안에 베이를 한 줄 또는 여러 줄로 배치."""
+    W = 19.0
+    H = 1.72 if "1u" in str(server.get("form_factor", "")).lower() else 3.42
+    ax0, ax1, ay0, ay1 = 1.0, 18.0, 0.05, H - 0.05
+    n = bp["bays"]
+    for fw, fh in _FACE_IN.get(bp["ff"], _FACE_IN["2.5"]):
+        for rows in range(1, 5):
+            cols = -(-n // rows)
+            gx, gy = min(fw, fh) * 0.12, min(fw, fh) * 0.06
+            if cols * fw + (cols - 1) * gx <= ax1 - ax0 and rows * fh + (rows - 1) * gy <= ay1 - ay0:
+                total_w = cols * fw + (cols - 1) * gx
+                x0 = ax0 + (ax1 - ax0 - total_w) / 2
+                y0 = ay0 + (ay1 - ay0 - (rows * fh + (rows - 1) * gy)) / 2
+                rects = []
+                for i in range(n):
+                    r, c = divmod(i, cols)
+                    rects.append({"x": round((x0 + c * (fw + gx)) / W * 100, 3), "y": round((y0 + r * (fh + gy)) / H * 100, 3),
+                                  "w": round(fw / W * 100, 3), "h": round(fh / H * 100, 3)})
+                return W, H, rects
+    # 어떤 배치도 안 맞으면 크기를 줄여 한 줄
+    fw = (ax1 - ax0) / n * 0.9
+    return W, H, [{"x": round((ax0 + i * (ax1 - ax0) / n) / W * 100, 3), "y": round(ay0 / H * 100, 3),
+                   "w": round(fw / W * 100, 3), "h": round((ay1 - ay0) / H * 100, 3)} for i in range(n)]
+
+
+def schematic_front(server, bp) -> dict:
+    """기본 도면 PNG를 만들고(캐시) 라이브러리 항목과 같은 모양의 dict 를 돌려준다."""
+    W, H, rects = _schematic_layout(server, bp)
+    key = hashlib.sha1(json.dumps([server.get("form_factor"), bp["ff"], bp["bays"], rects, 4]).encode()).hexdigest()[:12]
+    SCHEMATIC.mkdir(parents=True, exist_ok=True)
+    out = SCHEMATIC / f"front_{key}.png"
+    if not out.exists():
+        pw, ph = round(W * SCHEMATIC_PPI), round(H * SCHEMATIC_PPI)
+        im = Image.new("RGBA", (pw, ph), (205, 210, 216, 255))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 0, pw - 1, ph - 1), outline=(150, 156, 164, 255), width=3)
+        for x in (0, pw - round(0.9 * SCHEMATIC_PPI)):  # 랙 귀
+            d.rectangle((x, 0, x + round(0.9 * SCHEMATIC_PPI), ph - 1), fill=(178, 184, 192, 255), outline=(150, 156, 164, 255), width=2)
+        for r in rects:  # 빈 트레이
+            x, y = r["x"] / 100 * pw, r["y"] / 100 * ph
+            w, h = r["w"] / 100 * pw, r["h"] / 100 * ph
+            d.rectangle((x, y, x + w, y + h), fill=(70, 74, 80, 255), outline=(40, 43, 48, 255), width=2)
+            if h > w:  # 세로 트레이 손잡이
+                d.rectangle((x + w * 0.2, y + h * 0.78, x + w * 0.8, y + h * 0.94), fill=(95, 99, 106, 255))
+            else:
+                d.rectangle((x + w * 0.78, y + h * 0.2, x + w * 0.94, y + h * 0.8), fill=(95, 99, 106, 255))
+        im.save(out)
+    return {"id": f"schem-{key}", "name": f"기본 도면 · {bp['name']}", "category": "server_front",
+            "file": f"images/schematic/{out.name}", "w_in": W, "h_in": H, "schematic": True, "rects": rects}
 
 
 def rear_item(server) -> tuple[dict | None, bool]:
@@ -319,8 +380,15 @@ def bays(server, bp: dict, force=False) -> dict:
     if saved and saved.get("item") == fi["id"] and not force and (saved.get("source") == "manual" or saved.get("algo") == BAY_ALGO):
         return saved
     p = ROOT / "static" / fi["file"]
-    ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
-    rects, ok = detect_bays(p, bp["ff"], bp["bays"], ppi)
+    if fi.get("schematic"):
+        rects, ok = fi["rects"], True
+    else:
+        ppi = Image.open(p).width / fi["w_in"] if fi.get("w_in") else visio.PPI
+        rects, ok = detect_bays(p, bp["ff"], bp["bays"], ppi)
+        # 이미지 베이가 백플레인보다 적으면 그림에 없는 칸을 지어내지 않는다
+        found = len(bay_candidates(server, bp))
+        if found and found < bp["bays"]:
+            rects, ok = rects[:found], False
     if not rects:  # 감지 실패 → 보정용 기본 배치
         n = bp["bays"]
         rects = [{"x": 5 + i * 85 / n, "y": 10, "w": 85 / n * 0.9, "h": 80} for i in range(n)]
@@ -338,6 +406,8 @@ def bay_candidates(server, bp: dict) -> list[dict]:
     fi, _ = front_item(server, bp["id"])
     if not fi or not bp["bays"]:
         return []
+    if fi.get("schematic"):
+        return list(fi["rects"])
     key = (fi["id"], bp["ff"])
     if key not in _CANDIDATES:
         p = ROOT / "static" / fi["file"]

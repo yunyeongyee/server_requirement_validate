@@ -19,6 +19,8 @@ interface Props {
   /** 요구사항 행의 '추가/수정' 버튼이 보낸 요청. n 이 바뀔 때마다 처리 */
   focus: FocusRequest | null;
   onOpenImages: () => void;
+  /** 직접 고른 전면 이미지를 해제해 자동(스텐실 또는 기본 도면)으로 */
+  onUseAutoFront: () => Promise<void>;
 }
 
 export interface FocusRequest {
@@ -97,6 +99,7 @@ export default function ConfigSection({
   modelLine,
   focus,
   onOpenImages,
+  onUseAutoFront,
 }: Props) {
   const [imageView, setImageView] = useState<"both" | "front" | "rear">("both");
   const [mode, setMode] = useState<"edit" | "clean" | "calib">("edit");
@@ -442,9 +445,14 @@ export default function ConfigSection({
           </div>
         ) : (
           <div className="noimg">
+            {view === "front" && backplane.bays === 0 ? <>
+              <p><strong>{backplane.name} — 전면 드라이브 베이가 없는 구성입니다.</strong></p>
+              <p className="muted">부트 디스크는 BOSS(M.2)로 구성합니다. 디스크가 필요하면 모델 옆 "변경"에서 백플레인을 바꾸세요.</p>
+            </> : <>
             <p><strong>{server.model} {view === "front" ? "전면" : "후면"} 실제 이미지가 없습니다.</strong></p>
             <p>2단계에서 Dell PowerEdge Rack Servers 스텐실(VSSX) 또는 VSDX를 올리면 자동으로 연결됩니다.</p>
             <p className="muted">이미지가 없어도 구성 목록에서 부품 및 디스크를 지정하고 검증할 수 있습니다.</p>
+            </>}
           </div>
         )}
       </figure>
@@ -496,7 +504,15 @@ export default function ConfigSection({
           </div>
         )}
         {calibrationMessage && <p className={calibrationMessage.includes("오류") ? "warn small" : "muted small"} role={calibrationMessage.includes("오류") ? "alert" : "status"}>{calibrationMessage}</p>}
-        {imageBayMismatch && mode !== "calib" && (
+        {imageBayMismatch && mode !== "calib" && candidates.length < backplane.bays && (
+          <div className="hint">
+            이 전면 이미지에는 베이가 {candidates.length}개뿐이라 {backplane.name} 구성을 모두 표시할 수 없습니다.
+            {" "}{images?.front.auto === false
+              ? <button className="btn small" onClick={() => void onUseAutoFront()}>기본 도면으로 보기</button>
+              : <button className="btn ghost small" onClick={onOpenImages}>다른 이미지 고르기</button>}
+          </div>
+        )}
+        {imageBayMismatch && mode !== "calib" && candidates.length > backplane.bays && (
           <div className="hint">
             전면 이미지에는 베이가 {candidates.length}개 보이는데 선택한 백플레인은 {backplane.bays}베이입니다.
             {matchingBackplane && <> <button className="btn small" onClick={() => onBackplaneChange(matchingBackplane.id)}>백플레인을 {matchingBackplane.name}(으)로 변경</button></>}
