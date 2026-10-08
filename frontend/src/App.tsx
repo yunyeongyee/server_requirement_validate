@@ -141,6 +141,11 @@ export default function App() {
   const validation = results[group.id] || null;
   // '견적 대비 변경' 표시는 보류 (README 작업 목록 참고). 켜려면 SHOW_QUOTE_DIFF = true
   const diff = useMemo(() => SHOW_QUOTE_DIFF && group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
+  const exportItems = useMemo(() => groups.flatMap((item) => {
+    const prof = profiles[item.id];
+    const srv = servers.find((entry) => entry.id === prof?.serverId);
+    return prof && srv ? [{ id: item.id, name: item.name, model: `${srv.vendor} ${srv.model}`, serverId: srv.id, config: prof.config, labels: item.quote_labels }] : [];
+  }), [groups, profiles, servers]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
 
@@ -258,9 +263,9 @@ export default function App() {
     if (!quote?.proposed || !targetProfile) return;
     const base = quote.items?.find((item) => item.category === "base");
     try {
-      const { config: nextConfig, notes } = await applyProposal(targetProfile.serverId, quote.proposed, targetProfile.config, base?.attrs || null);
+      const { config: nextConfig, notes, labels } = await applyProposal(targetProfile.serverId, quote.proposed, targetProfile.config, base?.attrs || null);
       setProfiles((current) => ({ ...current, [groupId]: { ...(current[groupId] || targetProfile), config: nextConfig } }));
-      setGroups((current) => current.map((item) => item.id === groupId ? { ...item, quote_config: nextConfig } : item));
+      setGroups((current) => current.map((item) => item.id === groupId ? { ...item, quote_config: nextConfig, quote_labels: labels } : item));
       setProposalNotes((current) => ({ ...current, [groupId]: notes }));
     } catch (reason) {
       setQuoteError(reason instanceof Error ? reason.message : String(reason));
@@ -599,6 +604,7 @@ export default function App() {
             projectSummaries={projectSummaries}
             activeGroupId={group.id}
             onSelectGroup={(id) => { setActiveGroupId(id); setView("server"); }}
+            exportItems={exportItems}
           />}
         </main>
       </div>

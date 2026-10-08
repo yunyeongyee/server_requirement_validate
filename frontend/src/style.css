@@ -660,3 +660,15 @@ button.sw{cursor:pointer;text-decoration:underline}
 
 .pop .opts{flex-wrap:wrap}.pop .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pop .btn{white-space:nowrap}
+
+/* ── 제안서 이미지 (전체 결과) ── */
+.proposal-images{margin-top:16px}
+.proposal-images .pi-server+.pi-server{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+.proposal-images h3{margin:0 0 8px;font-size:15px}
+.proposal-images figure{margin:0 0 14px}
+.proposal-images figcaption{display:flex;gap:10px;align-items:center;font-weight:600;font-size:13px;margin-bottom:6px}
+.proposal-images img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:6px;background:#fff}
+.tog{display:inline-flex;align-items:center;gap:8px;font:inherit;font-weight:600;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 12px;cursor:pointer;color:var(--ink)}
+.tog .sw{width:34px;height:18px;border-radius:9px;background:#b6c2cf;position:relative;display:inline-block}
+.tog .sw:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left .15s}
+.tog.on{border-color:var(--accent)}.tog.on .sw{background:var(--accent)}.tog.on .sw:after{left:18px}

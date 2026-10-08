@@ -84,6 +84,7 @@ def _fits(slot, comp, cpu_count):
 def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backplane_hint: dict | None = None) -> dict:
     cfg = {**base_cfg, "bays": {}, "slots": {}, "memory": [], "raid": dict(base_cfg.get("raid", {}))}
     notes: list[str] = []
+    labels: dict = {"slots": {}, "bays": {}, "psu": (proposed.get("psu") or {}).get("desc")}
 
     cpu = proposed.get("cpu") or {}
     if cpu.get("count"):
@@ -149,7 +150,7 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
         for _ in range(d["qty"]):
             if bay >= bp["bays"]:
                 notes.append(f"전면 베이 부족: '{d['desc']}' 일부 미배치"); break
-            cfg["bays"][str(bay)] = {"drive": opt["id"], "role": role}; bay += 1
+            cfg["bays"][str(bay)] = {"drive": opt["id"], "role": role}; labels["bays"][str(bay)] = d["desc"]; bay += 1
 
     data_n = sum(1 for b in cfg["bays"].values() if b["role"] == "data")
     boot_n = sum(1 for b in cfg["bays"].values() if b["role"] == "boot")
@@ -199,7 +200,8 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
         if not slot:
             notes.append(f"'{it['desc']}' 를 꽂을 수 있는 빈 슬롯 없음"); continue
         cfg["slots"][slot["id"]] = c["id"]
+        labels["slots"][slot["id"]] = {"comp": c["id"], "desc": it["desc"]}
         if slot.get("riser"):
             used_risers.add(slot["riser"])
     cfg["risers"] = sorted(used_risers | {r["id"] for r in server["risers"] if r.get("default")})
-    return {"config": cfg, "notes": list(dict.fromkeys(notes))}  # 같은 품목 여러 개의 같은 안내는 한 번만
+    return {"config": cfg, "labels": labels, "notes": list(dict.fromkeys(notes))}  # 같은 품목 여러 개의 같은 안내는 한 번만

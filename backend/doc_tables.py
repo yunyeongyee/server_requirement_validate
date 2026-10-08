@@ -502,7 +502,7 @@ def proposal(items: list[dict]) -> dict:
         "fc": [{"desc": x["desc"], "qty": int(q(x)), **x["attrs"]} for x in by("fc")],
         "gpu": [{"desc": x["desc"], "qty": int(q(x))} for x in by("gpu")],
         "riser": [{"desc": x["desc"], "qty": int(q(x)), **x["attrs"]} for x in by("riser")],
-        "psu": {"watt": psu[0]["attrs"].get("watt") if psu else None, "count": int(sum(q(x) * (x["attrs"].get("per_item") or 1) for x in psu)) if psu else 0},
+        "psu": {"desc": psu[0]["desc"] if psu else None, "watt": psu[0]["attrs"].get("watt") if psu else None, "count": int(sum(q(x) * (x["attrs"].get("per_item") or 1) for x in psu)) if psu else 0},
     }
 
 

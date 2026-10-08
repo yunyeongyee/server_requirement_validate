@@ -115,7 +115,7 @@ class PasteTests(unittest.TestCase):
         self.assertEqual(p["cpu"]["model"], "Xeon 6515P")
         self.assertEqual(p["memory"]["total_gb"], 256)
         self.assertEqual(p["drives"][0]["qty"], 2)
-        self.assertEqual(p["psu"], {"watt": 1600, "count": 2})
+        self.assertEqual(p["psu"], {"desc": "Modular PSU 1600W platinum hp", "watt": 1600, "count": 2})
         self.assertEqual(len(p["nic"]) + len(p["ocp"]), 3)
         cats = {i["category"] for i in r["groups"][0]["items"]}
         self.assertIn("accessory", cats)  # 케이블·레일은 부속으로 분리

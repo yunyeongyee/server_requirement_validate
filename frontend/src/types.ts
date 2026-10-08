@@ -101,6 +101,8 @@ export interface RequirementGroup {
   ai?: AiInfo;
   /** 견적대로 적용했을 때의 구성 — 그림에서 직접 바꾼 곳을 '견적 대비 변경'으로 표시하는 기준 */
   quote_config?: ServerConfig;
+  /** 견적 품명으로 그림에 붙이는 라벨 정보 (슬롯·베이·PSU) */
+  quote_labels?: PartLabels;
 }
 
 /** AI 해석과 규칙 파서 해석이 다른 줄 (기본값은 AI, 줄마다 규칙 값을 고를 수 있다) */
@@ -287,4 +289,11 @@ export interface InventoryRow {
   model: string;
   qty: number;
   where: string;
+}
+
+/** 그림 라벨에 쓸 견적 품명 */
+export interface PartLabels {
+  slots?: Record<string, { comp: string; desc: string }>;
+  bays?: Record<string, string>;
+  psu?: string | null;
 }

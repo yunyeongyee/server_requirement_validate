@@ -230,13 +230,14 @@ class RenderIn(BaseModel):
     server_id: str
     view: str
     config: dict
+    labels: dict | None = None   # 있으면 견적 품명 라벨·지시선을 그린다 (제안서용)
 
 
 @app.post("/api/render")
 async def render(body: RenderIn):
     if body.view not in ("front", "rear"):
         raise HTTPException(400)
-    return await asyncio.to_thread(images.render, server_by_id(body.server_id), body.config, body.view, catalog())
+    return await asyncio.to_thread(images.render, server_by_id(body.server_id), body.config, body.view, catalog(), body.labels)
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

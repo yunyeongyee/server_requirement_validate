@@ -483,7 +483,7 @@ def _unused_bay_groups(active: list[dict], candidates: list[dict]) -> list[dict]
     return out
 
 
-def render(server, cfg, view, catalog: dict) -> dict:
+def render(server, cfg, view, catalog: dict, caption: dict | None = None) -> dict:
     if view == "front":
         bp = next((b for b in server["backplanes"] if b["id"] == cfg.get("backplane")), server["backplanes"][0])
         base_it, _ = front_item(server, bp["id"])
@@ -552,7 +552,7 @@ def render(server, cfg, view, catalog: dict) -> dict:
                 labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), spot))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
                       [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
-                      [(str(p), r) for p, r in stretch], blanks, [(str(p), r) for p, r in psu_layers], "psu2"], sort_keys=True, default=str)
+                      [(str(p), r) for p, r in stretch], blanks, [(str(p), r) for p, r in psu_layers], "psu2", caption, cfg.get("bays") if caption is not None else None, cfg.get("slots") if caption is not None else None, "lb2" if caption is not None else None], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
@@ -607,10 +607,139 @@ def render(server, cfg, view, catalog: dict) -> dict:
                 box = (x + 2, y + h / 2 - bh / 2, x + 2 + min(w - 4, tw + 12), y + h / 2 + bh / 2)
                 d.rounded_rectangle(box, radius=3, fill=(16, 34, 56, 225))
                 d.text((box[0] + 6, box[1] + 4), text_out, fill=(255, 255, 255, 255), font=f)
+        if caption is not None:
+            base = _annotate(base, server, cfg, view, catalog, caption, bp)
         base.save(out)
         _cleanup()
     return {"url": "/static/renders/" + out.name, "missing": sorted(set(missing)),
             "labels": [t for t, _ in labels], "layers": len(layers)}
+
+
+# =============================================================== 라벨 · 지시선
+_CJK = ["C:/Windows/Fonts/malgun.ttf", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "/System/Library/Fonts/AppleSDGothicNeo.ttc"]
+_LABEL_COLORS = {"nic": (47, 125, 225), "ocp": (224, 54, 75), "fc": (47, 165, 106), "gpu": (47, 165, 106),
+                 "psu": (238, 138, 26), "boot": (242, 178, 26), "data": (70, 90, 120)}
+
+
+def _label_font(px):
+    for f in _CJK:
+        try:
+            return ImageFont.truetype(f, px)
+        except OSError:
+            continue
+    return _font(px)
+
+
+def _slot_kind(comp: dict) -> str:
+    cat = (comp.get("category") or "")
+    return "ocp" if cat == "OCP NIC" else "fc" if cat == "FC HBA" else "gpu" if cat == "GPU" else "nic"
+
+
+def _place(items: list[dict], d, font, width: int, pad: int, gap: int = 14):
+    """라벨 상자를 가로 위치 순으로 놓되, 겹치면 다음 줄로 보낸다. items: {text, cx} → x, w, h, row 채움."""
+    for it in items:
+        it["w"] = round(d.textlength(it["text"], font=font)) + 20
+        it["h"] = font.size + 12 if hasattr(font, "size") else 24
+    rows: list[list[dict]] = []
+    for it in sorted(items, key=lambda i: i["cx"]):
+        x = min(max(pad, it["cx"] - it["w"] / 2), max(pad, width - pad - it["w"]))
+        placed = False
+        for ri, row in enumerate(rows):
+            if x >= row[-1]["x"] + row[-1]["w"] + gap:
+                it.update(x=x, row=ri); row.append(it); placed = True; break
+        if not placed:
+            it.update(x=x, row=len(rows)); rows.append([it])
+    return len(rows)
+
+
+def _annotate(base: Image.Image, server, cfg, view, catalog, labels: dict, bp) -> Image.Image:
+    W, H = base.size
+    size = max(15, round(W / 95))
+    font = _label_font(size)
+    probe = ImageDraw.Draw(base)
+    top, bottom = [], []   # {text, cx, anchors:[(x,y)], color}
+    boxes = []             # 앞면: 감싸는 사각형
+    def ea(text, n):
+        return f"{text} · {n} EA"
+    if view == "rear":
+        groups: dict[tuple, dict] = {}
+        for slot in server["slots"]:
+            cid = (cfg.get("slots") or {}).get(slot["id"])
+            if not cid or cid not in catalog or not slot.get("hotspot"):
+                continue
+            comp = catalog[cid]
+            info = (labels.get("slots") or {}).get(slot["id"]) or {}
+            text = info.get("desc") if info.get("comp") == cid and info.get("desc") else comp["name"]
+            kind = _slot_kind(comp)
+            h = slot["hotspot"]
+            g = groups.setdefault((kind, text), {"kind": kind, "text": text, "pts": [], "n": 0})
+            g["pts"].append(((h["x"] + h["w"] / 2) / 100 * W, (h["y"] + h["h"] / 2) / 100 * H, h["y"] + h["h"] / 2 < 50)); g["n"] += 1
+        n_psu = int(cfg.get("psu_count") or 0)
+        psu_pts = [(p["hotspot"]["x"] + p["hotspot"]["w"] / 2, p["hotspot"]["y"] + p["hotspot"]["h"] / 2) for p in server.get("psu_slots", [])[:n_psu] if p.get("hotspot")]
+        if psu_pts:
+            watt = cfg.get("psu_watt")
+            text = labels.get("psu") or f"PSU {watt:g}W" if isinstance(watt, (int, float)) else (labels.get("psu") or "PSU")
+            groups[("psu", text)] = {"kind": "psu", "text": text, "n": len(psu_pts), "pts": [(x / 100 * W, y / 100 * H, False) for x, y in psu_pts]}
+        for g in groups.values():
+            up = sum(1 for p in g["pts"] if p[2]) * 2 >= len(g["pts"])
+            item = {"text": ea(g["text"], g["n"]), "cx": sum(p[0] for p in g["pts"]) / len(g["pts"]),
+                    "anchors": [(p[0], p[1]) for p in g["pts"]], "color": _LABEL_COLORS[g["kind"]]}
+            (top if up else bottom).append(item)
+    else:
+        rects = bays(server, bp)["rects"]
+        for role in ("boot", "data"):
+            idx = [int(k) for k, b in (cfg.get("bays") or {}).items() if (b or {}).get("role") == role and int(k) < len(rects)]
+            if not idx:
+                continue
+            descs: dict[str, int] = {}
+            opts = {d["id"]: d["name"] for d in server.get("drive_options", [])}
+            for k in idx:
+                t = (labels.get("bays") or {}).get(str(k)) or opts.get(cfg["bays"][str(k)].get("drive"), "Disk")
+                descs[t] = descs.get(t, 0) + 1
+            x0 = min(rects[i]["x"] for i in idx) / 100 * W; x1 = max(rects[i]["x"] + rects[i]["w"] for i in idx) / 100 * W
+            y0 = min(rects[i]["y"] for i in idx) / 100 * H; y1 = max(rects[i]["y"] + rects[i]["h"] for i in idx) / 100 * H
+            text = " + ".join(ea(t, n) for t, n in descs.items())
+            if role == "boot":
+                text = "OS 설치 영역 · " + text
+            boxes.append((x0, y0, x1, y1, _LABEL_COLORS[role]))
+            bottom.append({"text": text, "cx": (x0 + x1) / 2, "anchors": [((x0 + x1) / 2, y1)], "color": _LABEL_COLORS[role]})
+    pad = round(size * 0.8)
+    nt = _place(top, probe, font, W, pad) if top else 0
+    nb = _place(bottom, probe, font, W, pad) if bottom else 0
+    rowh = (font.size + 12) + 14
+    mt = nt * rowh + (24 if nt else 0)
+    mb = nb * rowh + (24 if nb else 0)
+    canvas = Image.new("RGBA", (W, H + mt + mb), (255, 255, 255, 255))
+    canvas.alpha_composite(base, (0, mt))
+    pen = ImageDraw.Draw(canvas, "RGBA")
+    lw = max(2, round(size / 7))
+    for x0, y0, x1, y1, col in boxes:
+        pen.rectangle((x0, y0 + mt, x1, y1 + mt), outline=col + (255,), width=lw + 1)
+    def draw(items, upper):
+        for it in sorted(items, key=lambda i: i["row"]):
+            row = it["row"]
+            by = (mt - 12 - (row + 1) * rowh + 14) if upper else (mt + H + 12 + row * rowh)
+            col = it["color"] + (255,)
+            # 가까운 줄의 다른 라벨 밑을 지나지 않도록 연결 지점을 옮긴다
+            near = [o for o in items if o["row"] < row]
+            spots = [it["x"] + it["w"] / 2, it["x"] + 12, it["x"] + it["w"] - 12]
+            bx = next((v for v in spots if not any(o["x"] - 6 <= v <= o["x"] + o["w"] + 6 for o in near)), None)
+            if bx is None:   # 어디로 내려도 다른 라벨 밑을 지나면, 라벨을 옆으로 밀어 연결 지점을 비운다
+                it["x"] = min(max(o["x"] + o["w"] for o in near) + 8 - 12, W - it["w"] - 4)
+                bx = it["x"] + 12
+            edge = (mt - 6 - row * 4) if upper else (mt + H + 6 + row * 4)
+            pen.rounded_rectangle((it["x"], by, it["x"] + it["w"], by + it["h"]), radius=5, fill=(255, 255, 255, 255), outline=col, width=lw)
+            pen.text((it["x"] + 10, by + 5), it["text"], fill=it["color"] + (255,), font=font)
+            start = by + it["h"] if upper else by
+            for ax, ay in it["anchors"]:
+                ay = ay + mt
+                pen.line([(bx, start), (bx, edge), (ax, edge), (ax, ay)], fill=col, width=lw, joint="curve")
+                pen.ellipse((ax - lw * 2, ay - lw * 2, ax + lw * 2, ay + lw * 2), fill=col)
+    draw(top, True)
+    draw(bottom, False)
+    return canvas
 
 
 def _cleanup(keep=300):
