@@ -726,3 +726,20 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .cmp .rtools-inline.always{display:inline-flex}
 .pill.p-sw{background:#eef1f5;color:#54657a}
 .cmp tr.swrow{background:color-mix(in srgb,var(--accent) 3%,transparent)}
+
+/* ── 이미지 보관함 ── */
+.modal.vault{max-height:92vh;grid-template-rows:auto auto auto auto auto minmax(0,1fr) auto auto;overflow:hidden;align-self:center}
+.vault-now{margin:0;color:var(--mute)}
+.vault-drop{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;border:1.5px dashed var(--line);border-radius:8px;padding:10px 14px}
+.vault-drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.vault-drop .job{flex-basis:100%}
+.vault-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.vault-tabs button{font:inherit;font-size:13px;border:0;background:transparent;padding:6px 12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--ink)}
+.vault-tabs button.on{border-bottom-color:var(--accent);font-weight:700;color:var(--accent)}
+.vault-tabs small{color:var(--mute)}
+.vault-filter{gap:8px;align-items:center}
+.vault-list{max-height:none;min-height:0;overflow:auto;align-content:start}
+.libcard.chosen{outline:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.vault-foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.vault-foot .vault-sel{margin-right:auto;font-size:13px}
+.vault-foot label{display:flex;gap:6px;align-items:center;font-size:13px}
