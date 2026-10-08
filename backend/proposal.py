@@ -14,7 +14,9 @@ def suggest_server(model_hint: str | None, servers: list[dict]) -> str | None:
     for s in servers:
         if re.sub(r"\s+", "", s["model"]).upper() == k:
             return s["id"]
-    return None
+    # R660xs · R760XA 처럼 뒤에 변형 표기가 붙은 모델은 같은 계열(R660·R760)로 본다 — 가장 긴 접두 일치
+    near = [s for s in servers if k.startswith(re.sub(r"\s+", "", s["model"]).upper())]
+    return max(near, key=lambda s: len(s["model"]))["id"] if near else None
 
 
 def _nearest(options, value, prefer_ge=True):

@@ -338,3 +338,12 @@ class RefineOtherTests(unittest.TestCase):
             result = A.normalize("requirement", ["이중전원(Redundant Power) 지원", "SSO 인증"])
         cats = [r["category"] for r in result["server_groups"][0]["requirements"]]
         self.assertEqual(cats, ["psu", "other"])
+
+
+class SuggestServerTests(unittest.TestCase):
+    def test_variant_suffix_maps_to_family(self):
+        from . import proposal
+        servers = [{"id": "dell_r760", "model": "R760"}, {"id": "dell_r660", "model": "R660"}]
+        self.assertEqual(proposal.suggest_server("R660xs", servers), "dell_r660")
+        self.assertEqual(proposal.suggest_server("PowerEdge R760 XA", servers) or proposal.suggest_server("R760XA", servers), "dell_r760")
+        self.assertIsNone(proposal.suggest_server("RX2540 M8", servers))
