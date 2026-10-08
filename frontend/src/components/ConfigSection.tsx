@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
 import type { Component, ImageStatus, PartLabels, Requirement, Server, ServerConfig, ValidationResult } from "../types";
 import { fixFor, ItemIcon } from "./RequirementSection";
+import AnnotationLayer, { AnnotPanel, AnnotToolbar, buildAuto, emptyAnnot, extents, newLabel } from "./AnnotationLayer";
+import type { Annot, Selection, Target, Tool } from "./AnnotationLayer";
 import type { ConfigDiff } from "../configDiff";
 
 interface Props {
@@ -33,6 +35,9 @@ interface Props {
   quoteLabels?: PartLabels;
   /** 표의 '결과' 칸을 채울 요구사항 */
   requirements?: Requirement[];
+  /** 서버 그림 위 라벨·연결선 (제안서용) */
+  annot?: Annot;
+  onAnnotChange?: (next: Annot) => void;
 }
 
 /** 서버가 합성한 전면/후면 그림과, 그 그림을 만든 구성 (화면 미리보기와 비교용) */
@@ -128,12 +133,17 @@ export default function ConfigSection({
   hasQuote = false,
   quoteLabels,
   requirements = [],
+  annot = emptyAnnot,
+  onAnnotChange = () => undefined,
 }: Props) {
-  const [mode, setMode] = useState<"edit" | "calib">("edit");
+  const [mode, setMode] = useState<"edit" | "calib" | "label">("edit");
   const [selectedBays, setSelectedBays] = useState<number[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   /** 확대 창으로 보고 있는 면 */
+  const [tool, setTool] = useState<Tool>("select");
+  const [annotSel, setAnnotSel] = useState<Selection>(null);
+  const [aspects, setAspects] = useState<{ front: number; rear: number }>({ front: 0.12, rear: 0.2 });
   const [localFocus, setLocalFocus] = useState<FocusRequest | null>(null);
   const [zoom, setZoom] = useState<"front" | "rear" | null>(null);
   /** 확대 창 안의 그림 배율 (Ctrl + / Ctrl − / Ctrl 0, Ctrl+휠) */
@@ -209,7 +219,7 @@ export default function ConfigSection({
   }, [server]);
 
   useEffect(() => { if (mode !== "calib") setCalibSel(null); }, [mode]);
-  useEffect(() => { if (zoom === null) setScale(1); }, [zoom]);
+  useEffect(() => { if (zoom === null) { setScale(1); setAnnotSel(null); setTool("select"); setMode((m) => m === "label" ? "edit" : m); } }, [zoom]);
   useEffect(() => {
     if (zoom === null) return;
     const onWheel = (event: WheelEvent) => {
@@ -298,13 +308,13 @@ export default function ConfigSection({
       const empty = Array.from({ length: total }, (_, index) => index).filter((index) => !config.bays[String(index)]);
       if (!empty.length) { setNotice({ view: "front", text: "전면 베이가 모두 차 있습니다 — 디스크를 바꾸려면 베이를 클릭하세요" }); reveal(frontRef); return; }
       setSelectedBays(empty);
-      reveal(frontRef);
+      setMode("edit"); setZoom("front");
     } else if (f.kind === "spec") {
       openSpec(f.part === "memory" ? "mem" : "cpu");
     } else if (f.kind === "slot" && f.part === "psu") {
       const psuSlotList = server.psu_slots || [];
       const target = psuSlotList[Math.min(config.psu_count || 0, psuSlotList.length - 1)];
-      if (target) { setSelectedSlot(target.id); reveal(rearRef); } else openSpec("psu");
+      if (target) { setSelectedSlot(target.id); setMode("edit"); setZoom("rear"); } else openSpec("psu");
     } else if (f.kind === "slot") {
       // 필요한 부품이 실제로 들어가는 빈 슬롯을 찾는다 (자리·크기·CPU/Riser 조건)
       const wanted = components.filter((item) => f.part === "fc" ? item.category === "FC HBA"
@@ -314,7 +324,7 @@ export default function ConfigSection({
         && !(item.height === "FH" && slot.height === "LP") && !(item.double_width && !slot.double_width_ok));
       const free = server.slots.find((slot) => !config.slots[slot.id] && fitsSlot(slot)
         && (result?.slots.find((item) => item.slot === slot.id)?.usable ?? true));
-      if (free) { setSelectedSlot(free.id); reveal(rearRef); }
+      if (free) { setSelectedSlot(free.id); setMode("edit"); setZoom("rear"); }
       else { setNotice({ view: "rear", text: "이 구성에는 맞는 빈 슬롯이 없습니다 — 다른 슬롯의 부품을 바꾸거나 Riser·CPU 구성을 확인하세요" }); reveal(rearRef); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,14 +603,14 @@ export default function ConfigSection({
   const frontWarn: Warn[] = [
     ...(result?.bays || []).filter((item) => item.status !== "충족").map((item) => ({
       key: `b${item.bay}`, text: `Bay ${item.bay} ${item.status}`, title: item.issues.map((issue) => issue.msg).join(" / "),
-      go: () => { setSelectedSlot(null); setSelectedBays([item.bay]); reveal(frontRef); } })),
+      go: () => { setSelectedSlot(null); setSelectedBays([item.bay]); setMode("edit"); setZoom("front"); } })),
     ...(result?.general || []).filter((item) => item.status !== "충족" && DISK_MSG.test(item.msg)).map((item, index) => ({
       key: `g${index}`, text: item.msg, title: item.msg, go: () => openSpec("disk") })),
   ];
   const rearWarn: Warn[] = [
     ...(result?.slots || []).filter((item) => item.component && item.status && item.status !== "충족").map((item) => ({
       key: `s${item.slot}`, text: `${item.label} ${item.status}`, title: item.issues.map((issue) => issue.msg).join(" / "),
-      go: () => { setSelectedBays([]); setSelectedSlot(item.slot); reveal(rearRef); } })),
+      go: () => { setSelectedBays([]); setSelectedSlot(item.slot); setMode("edit"); setZoom("rear"); } })),
     ...(result?.general || []).filter((item) => item.status !== "충족" && !DISK_MSG.test(item.msg)).map((item, index) => ({
       key: `r${index}`, text: item.msg, title: item.msg, go: PSU_MSG.test(item.msg) ? () => openSpec("psu") : undefined })),
   ];
@@ -717,19 +727,8 @@ export default function ConfigSection({
     return { x, y, w: Math.max(...rects.map((r) => r.x + r.w)) - x, h: Math.max(...rects.map((r) => r.y + r.h)) - y };
   };
   /** floating: 그림 위 선택한 칸 옆에 띄움 / 아니면(그림이 없거나 칸 위치를 모를 때) 그림 아래에 그대로 */
-  const renderPopover = (view: "front" | "rear", floating: boolean) => {
-    if (zoom || mode !== "edit" || (view === "front" ? !selectedBays.length : !selectedSlot)) return null;
-    const body = view === "front" ? bayPopover() : slotPopover();
-    if (!body) return null;
-    const rect = popoverRect(view);
-    if (!floating || !rect) return <div className="pop static" role="dialog" aria-label={view === "front" ? "디스크 선택" : "슬롯 선택"}>{body}</div>;
-    const cx = rect.x + rect.w / 2;
-    const below = rect.y + rect.h / 2 < 60;
-    const style = { left: `clamp(150px, ${cx}%, calc(100% - 150px))`,
-      ...(below ? { top: `calc(${rect.y + rect.h}% + 8px)` } : { bottom: `calc(${100 - rect.y}% + 8px)` }) };
-    return <div className="pop" style={style} role="dialog" aria-label={view === "front" ? "디스크 선택" : "슬롯 선택"} onPointerDown={(event) => event.stopPropagation()}>{body}</div>;
-  };
-
+  /** 본 화면에서는 팝오버를 띄우지 않는다 — 베이·슬롯을 누르면 확대 편집 창이 열린다 */
+  const renderPopover = (_view: "front" | "rear", _floating: boolean) => null;
   const renderStage = (view: "front" | "rear", big = false) => {
     const info = images?.[view];
     const rendered = renderedImages[view] || info?.item?.url || null;
@@ -761,9 +760,10 @@ export default function ConfigSection({
             )}
           </div>
         )}
-        {rendered ? (
+        {rendered ? (<div className="annotframe" style={(() => { const e = extents(annot, view); return { paddingTop: `${e.top * aspects[view]}%`, paddingBottom: `${e.bottom * aspects[view]}%` }; })()}>
           <div className={`chassis mode-${mode}`}>
-            <img src={rendered} alt={`${server.vendor} ${server.model} ${view === "front" ? "전면" : "후면"}`} />
+            <img src={rendered} alt={`${server.vendor} ${server.model} ${view === "front" ? "전면" : "후면"}`}
+              onLoad={(event) => { const img = event.currentTarget; if (img.naturalWidth) setAspects((cur) => cur[view] === img.naturalHeight / img.naturalWidth ? cur : { ...cur, [view]: img.naturalHeight / img.naturalWidth }); }} />
             <div className="hot" onClick={(event) => {
               if (dragged.current) { dragged.current = false; return; }
               if (mode === "edit" && event.target === event.currentTarget) clearSelection();
@@ -793,6 +793,7 @@ export default function ConfigSection({
                         if (mode !== "edit" || event.button !== 0) return;
                         event.preventDefault();
                         pressBay(index, event);
+                        if (!big) setZoom(view);
                       }}
                       onPointerEnter={(event) => { if (mode === "edit" && event.buttons & 1) dragOverBay(index); }}
                       onClick={(event) => { if (mode === "edit" && event.detail === 0) pressBay(index, event); }}
@@ -841,7 +842,8 @@ export default function ConfigSection({
                     onClick={() => {
                       if (mode !== "edit") return;
                       setSelectedBays([]);
-                      setSelectedSlot((current) => current === slot.id ? null : slot.id);
+                      setSelectedSlot((current) => !big || current !== slot.id ? slot.id : null);
+                      if (!big) setZoom(view);
                     }}
                   >
                     <span className="tag">{slot.label}</span>
@@ -889,8 +891,9 @@ export default function ConfigSection({
                 >+</button>
               ))}
             </div>
+            <AnnotationLayer view={view} annot={annot} onChange={onAnnotChange} targets={annotTargets(view)} editable={big && mode === "label"} tool={tool} selection={annotSel} onSelect={setAnnotSel} />
             {floatOk && renderPopover(view, true)}
-          </div>
+          </div></div>
         ) : (
           <div className="noimg">
             {view === "front" && backplane.bays === 0 ? <>
@@ -979,6 +982,51 @@ export default function ConfigSection({
     </table>
   );
 
+  // ── 라벨·연결선: 연결할 수 있는 자리 / 자동 만들기 ──
+  const annotTargets = (view: "front" | "rear"): Target[] => view === "front"
+    ? currentFrontRects.map((rect, index) => ({ kind: "bay" as const, id: String(index), name: `Bay ${index}`, rect }))
+    : [...server.slots, ...psuSlots].flatMap((slot) => rearSpot(slot.id) ? [{ kind: "slot" as const, id: slot.id, name: slot.label, rect: rearSpot(slot.id) as Rect }] : []);
+  const autoAnnot = (view: "front" | "rear") => {
+    const all = annotTargets(view);
+    const groups: Array<{ text: string; color: string; targets: Target[] }> = [];
+    if (view === "rear") {
+      const map = new Map<string, { text: string; color: string; targets: Target[] }>();
+      Object.entries(config.slots).forEach(([sid, cid]) => {
+        const comp = components.find((item) => item.id === cid);
+        const target = all.find((item) => item.id === sid);
+        if (!comp || !target) return;
+        const info = quoteLabels?.slots?.[sid];
+        const name = info && info.comp === cid && info.desc ? info.desc : comp.name;
+        const color = comp.category === "OCP NIC" ? "#e0364b" : comp.category === "NIC" ? "#2f7de1" : "#2fa56a";
+        const entry = map.get(name) || { text: name, color, targets: [] };
+        entry.targets.push(target);
+        map.set(name, entry);
+      });
+      map.forEach((entry) => groups.push({ ...entry, text: `${entry.text} · ${entry.targets.length} EA` }));
+      const psuTargets = all.filter((item) => psuSlots.some((psu) => psu.id === item.id)).slice(0, config.psu_count);
+      if (psuTargets.length) groups.push({ text: `${quoteLabels?.psu || `PSU ${config.psu_watt}W`} · ${psuTargets.length} EA`, color: "#ee8a1a", targets: psuTargets });
+    } else {
+      (["boot", "data"] as const).forEach((role) => {
+        const idx = Object.entries(config.bays).filter(([, bay]) => bay.role === role).map(([k]) => Number(k)).filter((k) => all[k]).sort((a, b) => a - b);
+        if (!idx.length) return;
+        const names = new Map<string, number>();
+        idx.forEach((k) => { const t = quoteLabels?.bays?.[String(k)] || driveShort(config.bays[String(k)].drive); names.set(t, (names.get(t) || 0) + 1); });
+        const text = [...names].map(([t, n]) => `${t} · ${n} EA`).join(" + ");
+        const picks = idx.length > 3 ? [idx[0], idx[idx.length - 1]] : idx;
+        groups.push({ text: role === "boot" ? `OS 설치 영역 · ${text}` : text, color: role === "boot" ? "#ee8a1a" : "#46597a", targets: picks.map((k) => all[k]) });
+      });
+    }
+    const made = buildAuto(view, groups);
+    onAnnotChange({ ...annot, show: true, labels: [...annot.labels.filter((item) => item.view !== view), ...made.labels], links: [...annot.links.filter((item) => item.view !== view), ...made.links] });
+    setAnnotSel(null);
+  };
+  const addAnnotLabel = (view: "front" | "rear") => {
+    const label = newLabel(view);
+    onAnnotChange({ ...annot, show: true, labels: [...annot.labels, label] });
+    setAnnotSel({ type: "label", id: label.id });
+    setTool("select");
+  };
+
   const calibBar = mode === "calib" ? (
     <div className="calibbar" role="toolbar" aria-label="좌표 보정">
       <b>좌표 보정 중</b>
@@ -996,6 +1044,7 @@ export default function ConfigSection({
   ) : null;
   const calibMessage = calibrationMessage ? <p className={calibrationMessage.includes("오류") ? "warn small" : "muted small"} role={calibrationMessage.includes("오류") ? "alert" : "status"}>{calibrationMessage}</p> : null;
   const zoomPanel = () => {
+    if (mode === "label" && zoom) return <AnnotPanel annot={annot} selection={annotSel} onChange={onAnnotChange} onSelect={setAnnotSel} targets={annotTargets(zoom)} view={zoom} />;
     if (mode === "calib") {
       const cur = calibSel ? (calibSel.view === "front" ? currentFrontRects[Number(calibSel.key)] : slotHotspots[calibSel.key]) : null;
       return <>
@@ -1102,14 +1151,16 @@ export default function ConfigSection({
                 <button type="button" className="opt" aria-label="확대" disabled={scale >= 5} onClick={() => setScale((v) => Math.min(5, v + 0.25))}>+</button>
               </span>
               <span className="muted small">Ctrl + / − / 0 · Ctrl+휠</span>
-              <span className="opts" role="group" aria-label="작업 종류">
+              <span className="opts modes" role="group" aria-label="작업 종류">
                 <button type="button" className="opt" aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>구성</button>
+                <button type="button" className="opt" aria-pressed={mode === "label"} onClick={() => setMode("label")}>라벨·연결선</button>
                 <button type="button" className="opt" aria-pressed={mode === "calib"} onClick={() => setMode("calib")}>좌표 보정</button>
               </span>
               <button type="button" className="ico zoomx" autoFocus aria-label="닫기" onClick={() => setZoom(null)}>✕</button>
             </div>
             {calibBar}
             {calibMessage}
+            {mode === "label" && zoom && <AnnotToolbar annot={annot} tool={tool} setTool={setTool} selection={annotSel} onChange={onAnnotChange} onAdd={() => addAnnotLabel(zoom)} onAuto={() => autoAnnot(zoom)} view={zoom} />}
             <div className="zoomgrid">
               <div className="zoomstage"><div className="zoomscale" style={{ width: `${scale * 100}%` }}>{renderStage(zoom, true)}</div></div>
               <aside className="zoompanel" aria-label="선택한 항목">{zoomPanel()}</aside>

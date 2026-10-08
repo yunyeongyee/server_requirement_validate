@@ -1,3 +1,4 @@
+import type { Annot } from "./components/AnnotationLayer";
 export interface Requirement {
   id: string;
   key: string;
@@ -107,6 +108,8 @@ export interface RequirementGroup {
   quote_config?: ServerConfig;
   /** 견적 품명으로 그림에 붙이는 라벨 정보 (슬롯·베이·PSU) */
   quote_labels?: PartLabels;
+  /** 서버 그림 위 라벨·연결선 편집 내용 */
+  annot?: Annot;
 }
 
 /** AI 해석과 규칙 파서 해석이 다른 줄 (기본값은 AI, 줄마다 규칙 값을 고를 수 있다) */

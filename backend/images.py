@@ -483,7 +483,7 @@ def _unused_bay_groups(active: list[dict], candidates: list[dict]) -> list[dict]
     return out
 
 
-def render(server, cfg, view, catalog: dict, caption: dict | None = None) -> dict:
+def render(server, cfg, view, catalog: dict, caption: dict | None = None, annot: dict | None = None) -> dict:
     if view == "front":
         bp = next((b for b in server["backplanes"] if b["id"] == cfg.get("backplane")), server["backplanes"][0])
         base_it, _ = front_item(server, bp["id"])
@@ -552,7 +552,7 @@ def render(server, cfg, view, catalog: dict, caption: dict | None = None) -> dic
                 labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), spot))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
                       [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
-                      [(str(p), r) for p, r in stretch], blanks, [(str(p), r) for p, r in psu_layers], "psu2", caption, cfg.get("bays") if caption is not None else None, cfg.get("slots") if caption is not None else None, "lb2" if caption is not None else None], sort_keys=True, default=str)
+                      [(str(p), r) for p, r in stretch], blanks, [(str(p), r) for p, r in psu_layers], "psu2", caption, cfg.get("bays") if caption is not None else None, cfg.get("slots") if caption is not None else None, "lb2" if caption is not None else None, _annot_sig(annot, view)], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
@@ -607,7 +607,9 @@ def render(server, cfg, view, catalog: dict, caption: dict | None = None) -> dic
                 box = (x + 2, y + h / 2 - bh / 2, x + 2 + min(w - 4, tw + 12), y + h / 2 + bh / 2)
                 d.rounded_rectangle(box, radius=3, fill=(16, 34, 56, 225))
                 d.text((box[0] + 6, box[1] + 4), text_out, fill=(255, 255, 255, 255), font=f)
-        if caption is not None:
+        if _annot_has(annot, view):
+            base = _annotate_custom(base, server, view, annot, bp)
+        elif caption is not None:
             base = _annotate(base, server, cfg, view, catalog, caption, bp)
         base.save(out)
         _cleanup()
@@ -739,6 +741,92 @@ def _annotate(base: Image.Image, server, cfg, view, catalog, labels: dict, bp) -
                 pen.ellipse((ax - lw * 2, ay - lw * 2, ax + lw * 2, ay + lw * 2), fill=col)
     draw(top, True)
     draw(bottom, False)
+    return canvas
+
+
+# =============================================================== 사용자가 편집한 라벨·연결선
+def _annot_has(annot: dict | None, view: str) -> bool:
+    return bool(annot and annot.get("show", True) and any(l.get("view") == view and not l.get("hidden") for l in annot.get("labels", [])))
+
+
+def _annot_sig(annot: dict | None, view: str):
+    if not _annot_has(annot, view):
+        return None
+    return json.dumps([[l for l in annot["labels"] if l.get("view") == view], [k for k in annot.get("links", []) if k.get("view") == view], "ca1"], sort_keys=True, default=str)
+
+
+def _annotate_custom(base: Image.Image, server, view: str, annot: dict, bp) -> Image.Image:
+    """화면(확대 창)에서 편집한 라벨 위치·연결선을 그대로 그린다. 위치는 그림 크기에 대한 %, 그림 밖도 가능."""
+    W, H = base.size
+    k = W / 1000.0                      # 화면에서 그림 폭을 약 1000px 로 보고 글자 크기를 환산
+    labels = [l for l in annot.get("labels", []) if l.get("view") == view and not l.get("hidden")]
+    by_id = {l["id"]: l for l in labels}
+    if view == "front":
+        rects = bays(server, bp)["rects"]
+        targets = {("bay", str(i)): r for i, r in enumerate(rects)}
+    else:
+        targets = {("slot", sl["id"]): sl["hotspot"] for sl in [*server.get("slots", []), *server.get("psu_slots", [])] if sl.get("hotspot")}
+    probe = ImageDraw.Draw(base)
+    boxes = {}
+    for l in labels:
+        font = _label_font(max(10, round((l.get("size") or 13) * k)))
+        tw = probe.textlength(l.get("text") or "(빈 라벨)", font=font)
+        bw, bh = tw + 20 * k, font.size + 12 * k if hasattr(font, "size") else 24
+        cx, cy = l["x"] / 100 * W, l["y"] / 100 * H
+        boxes[l["id"]] = (cx - bw / 2, cy - bh / 2, bw, bh, font)
+    pad = 12 * k
+    top = max([0] + [-(b[1]) + pad for b in boxes.values()])
+    bottom = max([0] + [b[1] + b[3] + pad - H for b in boxes.values()])
+    canvas = Image.new("RGBA", (W, int(H + top + bottom)), (255, 255, 255, 255))
+    canvas.alpha_composite(base, (0, int(top)))
+    pen = ImageDraw.Draw(canvas, "RGBA")
+
+    def color(c, default=(47, 125, 225)):
+        c = (c or "").lstrip("#")
+        return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4)) if len(c) == 6 else default
+
+    def edge(r):
+        return [(r[0] + r[2] / 2, r[1], "t"), (r[0] + r[2] / 2, r[1] + r[3], "b"), (r[0], r[1] + r[3] / 2, "l"), (r[0] + r[2], r[1] + r[3] / 2, "r")]
+    for link in annot.get("links", []):
+        if link.get("view") != view or link.get("hidden") or link.get("from") not in by_id:
+            continue
+        rect = targets.get((link["to"].get("kind"), str(link["to"].get("id"))))
+        if not rect:
+            continue
+        lb = boxes[link["from"]]
+        tbox = (rect["x"] / 100 * W, rect["y"] / 100 * H, rect["w"] / 100 * W, rect["h"] / 100 * H)
+        tc = (tbox[0] + tbox[2] / 2, tbox[1] + tbox[3] / 2)
+        a = min(edge(lb[:4]), key=lambda p: math.hypot(p[0] - tc[0], p[1] - tc[1]))
+        b = min(edge(tbox), key=lambda p: math.hypot(p[0] - a[0], p[1] - a[1]))
+        if link.get("elbow", True):
+            if a[2] in ("t", "b"):
+                mid = (a[1] + b[1]) / 2; pts = [(a[0], a[1]), (a[0], mid), (b[0], mid), (b[0], b[1])]
+            else:
+                mid = (a[0] + b[0]) / 2; pts = [(a[0], a[1]), (mid, a[1]), (mid, b[1]), (b[0], b[1])]
+        else:
+            pts = [(a[0], a[1]), (b[0], b[1])]
+        pts = [(x, y + top) for x, y in pts]
+        col = color(link.get("color")) + (255,)
+        lw = max(2, round((link.get("width") or 2) * k))
+        for p, q in zip(pts, pts[1:]):
+            if link.get("dash"):
+                length = math.hypot(q[0] - p[0], q[1] - p[1]); n = max(1, int(length / (9 * k)))
+                for i in range(0, n, 2):
+                    t0, t1 = i / n, min(1, (i + 1) / n)
+                    pen.line([(p[0] + (q[0] - p[0]) * t0, p[1] + (q[1] - p[1]) * t0), (p[0] + (q[0] - p[0]) * t1, p[1] + (q[1] - p[1]) * t1)], fill=col, width=lw)
+            else:
+                pen.line([p, q], fill=col, width=lw)
+        def arrow(tip, frm):
+            ang = math.atan2(tip[1] - frm[1], tip[0] - frm[0]); size = 9 * k
+            pen.polygon([tip, (tip[0] - size * math.cos(ang - .4), tip[1] - size * math.sin(ang - .4)), (tip[0] - size * math.cos(ang + .4), tip[1] - size * math.sin(ang + .4))], fill=col)
+        if link.get("arrowEnd"): arrow(pts[-1], pts[-2])
+        else: pen.ellipse((pts[-1][0] - lw * 1.6, pts[-1][1] - lw * 1.6, pts[-1][0] + lw * 1.6, pts[-1][1] + lw * 1.6), fill=col)
+        if link.get("arrowStart"): arrow(pts[0], pts[1])
+    for l in labels:
+        x, y, w, h, font = boxes[l["id"]]
+        col = color(l.get("color")) + (255,)
+        pen.rounded_rectangle((x, y + top, x + w, y + top + h), radius=5 * k, fill=(255, 255, 255, 255), outline=col, width=max(2, round(1.5 * k)))
+        pen.text((x + 10 * k, y + top + 6 * k), l.get("text") or "(빈 라벨)", fill=col, font=font)
     return canvas
 
 

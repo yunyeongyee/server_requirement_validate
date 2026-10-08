@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { renderServer } from "../api";
+import type { Annot } from "./AnnotationLayer";
 import type { PartLabels, Server, ServerConfig, ValidationResult } from "../types";
 import type { ProjectSummary } from "../types";
 
@@ -14,19 +15,19 @@ interface Props {
   exportItems: ExportItem[];
 }
 
-export interface ExportItem { id: string; name: string; model: string; serverId: string; config: ServerConfig; labels?: PartLabels; }
+export interface ExportItem { id: string; name: string; model: string; serverId: string; config: ServerConfig; labels?: PartLabels; annot?: Annot; }
 
 /** 제안서에 붙일 서버 그림(전면·후면) — 라벨(견적 품명 · 수량 EA)과 지시선을 한 번에 켜고 끄고 PNG로 저장 */
 function ProposalImages({ items }: { items: ExportItem[] }) {
   const [labelsOn, setLabelsOn] = useState(true);
   const [images, setImages] = useState<Record<string, { front?: string | null; rear?: string | null }>>({});
   const [error, setError] = useState("");
-  const key = JSON.stringify([items.map((item) => [item.id, item.serverId, item.config, item.labels]), labelsOn]);
+  const key = JSON.stringify([items.map((item) => [item.id, item.serverId, item.config, item.labels, item.annot]), labelsOn]);
   useEffect(() => {
     let active = true;
     setError("");
     void Promise.all(items.flatMap((item) => (["front", "rear"] as const).map(async (view) => {
-      const response = await renderServer(item.serverId, view, item.config, labelsOn ? item.labels || {} : undefined);
+      const response = await renderServer(item.serverId, view, item.config, labelsOn ? item.labels || {} : undefined, labelsOn && item.annot?.labels.length ? { ...item.annot, show: true } : undefined);
       return [item.id, view, response.url] as const;
     }))).then((done) => {
       if (!active) return;

@@ -72,8 +72,8 @@ export function getImageStatus(serverId: string, backplane: string): Promise<Ima
   return request(`/api/images/${encodeURIComponent(serverId)}?backplane=${encodeURIComponent(backplane)}`);
 }
 
-export function renderServer(serverId: string, view: "front" | "rear", config: ServerConfig, labels?: PartLabels): Promise<{ url: string | null; missing?: string[] }> {
-  return sendJson("/api/render", { server_id: serverId, view, config, ...(labels ? { labels } : {}) });
+export function renderServer(serverId: string, view: "front" | "rear", config: ServerConfig, labels?: PartLabels, annot?: unknown): Promise<{ url: string | null; missing?: string[] }> {
+  return sendJson("/api/render", { server_id: serverId, view, config, ...(labels ? { labels } : {}), ...(annot ? { annot } : {}) });
 }
 
 export function uploadImageLibrary(files: File[]): Promise<{ job: string }> {

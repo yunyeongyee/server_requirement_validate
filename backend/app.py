@@ -231,13 +231,14 @@ class RenderIn(BaseModel):
     view: str
     config: dict
     labels: dict | None = None   # 있으면 견적 품명 라벨·지시선을 그린다 (제안서용)
+    annot: dict | None = None    # 화면에서 편집한 라벨 위치·연결선 (있으면 이것을 그대로 그린다)
 
 
 @app.post("/api/render")
 async def render(body: RenderIn):
     if body.view not in ("front", "rear"):
         raise HTTPException(400)
-    return await asyncio.to_thread(images.render, server_by_id(body.server_id), body.config, body.view, catalog(), body.labels)
+    return await asyncio.to_thread(images.render, server_by_id(body.server_id), body.config, body.view, catalog(), body.labels, body.annot)
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

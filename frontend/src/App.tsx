@@ -142,7 +142,7 @@ export default function App() {
   const exportItems = useMemo(() => groups.flatMap((item) => {
     const prof = profiles[item.id];
     const srv = servers.find((entry) => entry.id === prof?.serverId);
-    return prof && srv ? [{ id: item.id, name: item.name, model: `${srv.vendor} ${srv.model}`, serverId: srv.id, config: prof.config, labels: item.quote_labels }] : [];
+    return prof && srv ? [{ id: item.id, name: item.name, model: `${srv.vendor} ${srv.model}`, serverId: srv.id, config: prof.config, labels: item.quote_labels, annot: item.annot }] : [];
   }), [groups, profiles, servers]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
@@ -567,6 +567,8 @@ export default function App() {
             diff={diff}
             hasQuote={!!group.quote}
             quoteLabels={group.quote_labels}
+            annot={group.annot}
+            onAnnotChange={(next) => setGroups((current) => current.map((item) => item.id === group.id ? { ...item, annot: next } : item))}
             requirements={group.requirements}
             quotePanel={<QuotePanel
               key={`quote-${group.id}`}
