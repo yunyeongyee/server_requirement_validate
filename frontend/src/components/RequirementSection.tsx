@@ -304,7 +304,25 @@ export default function RequirementSection({
       {showReview && count("확인 필요") > 0 && (
         <div className="reviewbox" role="region" aria-label="수기 검토가 필요한 요구사항">
           <b>수기 검토 필요 {count("확인 필요")}개</b> <span className="muted small">— 자동 판정할 수 없어 사람이 확인해야 하는 항목입니다</span>
-          <ul className="reqrows">{sortedReqs.filter((item) => statusOf(item) === "확인 필요").map(renderRow)}</ul>
+          <ul className="reqrows">{sortedReqs.filter((item) => statusOf(item) === "확인 필요").map((item) => {
+            const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
+            const reason = item.key === "manual" ? (item.note && item.note !== "수기 검토" ? item.note : "정량 기준이 없어 자동으로 판정할 수 없습니다")
+              : item._new ? "직접 추가한 항목 — 값을 입력해야 판정됩니다"
+              : item.note || "AI·규칙이 확신하지 못해 사람이 확인해야 합니다";
+            return (
+              <li key={item.id} className="reqrow s-review review-detail">
+                <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
+                <span className="rtools-inline">
+                  <button type="button" className="lnk small" onClick={() => { setEditingId(item.id); setEditingKey(item.key); setShowReview(false); }}>고치기</button>
+                  <button type="button" className="lnk small" onClick={() => remove(item.id)}>삭제</button>
+                </span>
+                <dl className="rv">
+                  <dt>원문 근거</dt><dd>{sources.length ? sources.map((source, index) => <span key={index}>“{source}”</span>) : "—"}</dd>
+                  <dt>확인이 필요한 이유</dt><dd>{reason}</dd>
+                </dl>
+              </li>
+            );
+          })}</ul>
         </div>
       )}
       <ul className="reqrows">

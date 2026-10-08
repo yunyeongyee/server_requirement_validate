@@ -698,3 +698,7 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .pillbtn{border:0;cursor:pointer;font:inherit;font-size:12px;font-weight:600}
 .reviewbox{margin:8px 16px;border:1px solid #F0D98A;background:#FFFBEA;border-radius:8px;padding:8px 0}
 .reviewbox>b,.reviewbox>span{margin-left:12px}
+.review-detail{grid-template-columns:1fr auto}
+.review-detail .rtools-inline{display:flex;gap:10px;align-self:start}
+.review-detail .rv{grid-column:1/-1;margin:4px 0 0;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13px}
+.review-detail .rv dt{color:var(--mute)}.review-detail .rv dd{margin:0}.review-detail .rv dd span{display:block}
