@@ -88,7 +88,7 @@ function makeSummaries(
     return {
       id: group.id,
       name: group.name,
-      model: server ? `${server.vendor} ${server.model}` : "-",
+      model: server && profiles[group.id]?.source !== "default" ? `${server.vendor} ${server.model}` : "미정",
       matched: result?.requirements.filter((item) => item.status === "충족").length || 0,
       failed: result?.requirements.filter((item) => item.status === "미충족" || item.status === "호환 불가").length || 0,
       review: group.requirements.filter((item) => item.status === "review").length
@@ -136,13 +136,15 @@ export default function App() {
     [servers, profile?.serverId],
   );
   const config = profile?.config || null;
+  /** 문서에서 확인했거나 사용자가 직접 고른 모델만 확정으로 본다 (기본값은 미정) */
+  const modelConfirmed = profile?.source === "document" || profile?.source === "manual";
   const validation = results[group.id] || null;
   // '견적 대비 변경' 표시는 보류 (README 작업 목록 참고). 켜려면 SHOW_QUOTE_DIFF = true
   const diff = useMemo(() => SHOW_QUOTE_DIFF && group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
   const exportItems = useMemo(() => groups.flatMap((item) => {
     const prof = profiles[item.id];
     const srv = servers.find((entry) => entry.id === prof?.serverId);
-    return prof && srv ? [{ id: item.id, name: item.name, model: `${srv.vendor} ${srv.model}`, serverId: srv.id, config: prof.config, labels: item.quote_labels, annot: item.annot }] : [];
+    return prof && srv && prof.source !== "default" ? [{ id: item.id, name: item.name, model: `${srv.vendor} ${srv.model}`, serverId: srv.id, config: prof.config, labels: item.quote_labels, annot: item.annot }] : [];
   }), [groups, profiles, servers]);
   const projectSummaries = useMemo(() => makeSummaries(groups, profiles, servers, results), [groups, profiles, servers, results]);
   const defaultProfile = (): ServerProfile | null => servers[0] ? { serverId: servers[0].id, config: defaultConfig(servers[0]), source: "default" } : null;
@@ -188,7 +190,7 @@ export default function App() {
       Promise.all(groups.map(async (group) => {
         const groupProfile = profiles[group.id];
         const groupServer = servers.find((item) => item.id === groupProfile?.serverId);
-        if (!groupProfile || !groupServer) return null;
+        if (!groupProfile || !groupServer || groupProfile.source === "default") return null;   // 모델이 확정되지 않으면 검증하지 않는다
         const result = await validateServer(groupServer.id, groupProfile.config,
           group.requirements.filter((item) => !item._new && item.status !== "review"));
         return [group.id, result] as const;
@@ -319,7 +321,7 @@ export default function App() {
       if (nextProfile) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
       setRenderedImages({ front: null, rear: null });
       setImageVersion((version) => version + 1);
-      await applyQuote(target.id, quote, nextProfile);
+      if (nextProfile && nextProfile.source !== "default") await applyQuote(target.id, quote, nextProfile);   // 모델 미정이면 장착하지 않는다
     } catch (reason) {
       setQuoteError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -528,6 +530,7 @@ export default function App() {
             busy={pasteBusy}
             error={pasteError}
             result={validation}
+            modelConfirmed={modelConfirmed}
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             onPaste={(text, mode) => void handlePaste(text, mode)}
             onResolve={handleResolve}
@@ -573,6 +576,7 @@ export default function App() {
             onRedetectBays={redetect}
             diff={diff}
             hasQuote={!!group.quote}
+            modelConfirmed={modelConfirmed}
             quoteLabels={group.quote_labels}
             quoteUnresolved={group.quote_unresolved}
             annot={group.annot}
@@ -592,6 +596,7 @@ export default function App() {
               onResolve={handleQuoteResolve}
               onReapply={() => void handleApplyProposal()}
               unresolved={group.quote_unresolved || []}
+              needModel={!modelConfirmed}
               onApprove={(desc) => void handleApproveSubstitute(desc)}
               onClear={handleClearQuote}
               onSplit={() => void handleQuoteSplit()}

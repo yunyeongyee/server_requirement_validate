@@ -35,6 +35,8 @@ const BOOLEAN_KEYS = new Set(["ocp_required", "dual_psu", "raid_controller", "ra
 const SHOWN_NOTES = /^(CPU당|Boot|[\d.]+GbE 이상 포트)$/;
 
 interface Props {
+  /** 모델이 확정되기 전에는 판정하지 않는다 (결과 '대기') */
+  modelConfirmed?: boolean;
   group: RequirementGroup;
   busy: boolean;
   error: string;
@@ -48,7 +50,8 @@ interface Props {
   onKeepOne: () => void;
 }
 
-const STATUS_CLASS: Record<string, string> = { "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
+const STATUS_CLASS: Record<string, string> = {
+  "대기": "pending", "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
 /** 미충족 요구사항을 고칠 곳 */
 export function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> } | null {
   if (key.startsWith("fc_")) return { label: "FC HBA 추가", request: { kind: "slot", part: "fc" } };
@@ -194,7 +197,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 
 export default function RequirementSection({
   group, busy, error,
-  result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
+  result, modelConfirmed = true, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
   const [showReview, setShowReview] = useState(false);
   const [openGroups, setOpenGroups] = useState<string[]>([]);
@@ -207,6 +210,7 @@ export default function RequirementSection({
 
   const statusOf = (item: Requirement) => {
     if (item.status === "review" || item._new || item.key === "manual") return "확인 필요";
+    if (!modelConfirmed) return "대기";
     return result?.requirements.find((row) => row.id === item.id)?.status || "확인 필요";
   };
   const count = (status: string) => requirements.filter((item) => statusOf(item) === status).length;
@@ -332,7 +336,7 @@ export default function RequirementSection({
   const aggregate = (items: Requirement[]) => {
     const all = items.map(statusOf);
     return all.some((x) => x === "미충족" || x === "호환 불가") ? (all.includes("호환 불가") && !all.includes("미충족") ? "호환 불가" : "미충족")
-      : all.includes("확인 필요") ? "확인 필요" : "충족";
+      : all.includes("확인 필요") ? "확인 필요" : all.includes("대기") ? "대기" : "충족";
   };
   const renderGroup = (def: typeof GROUP_DEFS[number]) => {
     const items = sortedReqs.filter((item) => def.keys.includes(item.key) && item.key !== "manual");

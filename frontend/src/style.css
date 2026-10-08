@@ -782,3 +782,6 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .warnlist.unres .btn{margin-top:4px}
 .quote-notes{margin:6px 16px;font-size:13px}.quote-notes ul{margin:4px 0 0;padding-left:20px}
 .vault-warn{flex-basis:100%;color:#a5182b;background:#fff0f2;border:1px solid #ffc4cc;border-radius:6px;padding:5px 10px;font-size:13px}
+.pill.p-pending{background:#eef1f5;color:#6b7a8c}
+.modeledit{margin-left:auto}
+.modelline{align-items:center}

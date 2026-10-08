@@ -31,6 +31,8 @@ interface Props {
   diff?: ConfigDiff | null;
   /** 견적이 적용돼 있는가 (없는 부품은 '미정' 대신 '미사용') */
   hasQuote?: boolean;
+  /** 모델이 확정되지 않으면 그림·사양 대신 안내만 */
+  modelConfirmed?: boolean;
   /** 그림 라벨·표에 쓸 견적 품명 */
   quoteLabels?: PartLabels;
   /** 견적에는 있으나 정확히 같은 부품이 없어 장착하지 않은 항목 */
@@ -133,6 +135,7 @@ export default function ConfigSection({
   quotePanel,
   diff,
   hasQuote = false,
+  modelConfirmed = true,
   quoteLabels,
   quoteUnresolved = [],
   requirements = [],
@@ -643,6 +646,7 @@ export default function ConfigSection({
       key: `r${index}`, text: item.msg, title: item.msg, go: PSU_MSG.test(item.msg) ? () => openSpec("psu") : undefined })),
   ];
   const summaryLine = (view: "front" | "rear") => {
+    if (!modelConfirmed) return null;
     const items = view === "front" ? frontWarn : rearWarn;
     const shown = items.slice(0, 2);
     const pcie = server.slots.filter((slot) => slot.type !== "ocp");
@@ -758,6 +762,12 @@ export default function ConfigSection({
   /** 본 화면에서는 팝오버를 띄우지 않는다 — 베이·슬롯을 누르면 확대 편집 창이 열린다 */
   const renderPopover = (_view: "front" | "rear", _floating: boolean) => null;
   const renderStage = (view: "front" | "rear", big = false) => {
+    if (!modelConfirmed) return (
+      <figure className="stage" key={view}>
+        <figcaption><b>{view === "front" ? "Front" : "Rear"}</b></figcaption>
+        <div className="noimg"><p><strong>서버 모델이 지정되지 않았습니다.</strong></p><p>[구성 편집]에서 모델을 선택해주세요.</p></div>
+      </figure>
+    );
     const info = images?.[view];
     const rendered = renderedImages[view] || info?.item?.url || null;
     const floatOk = !big && !zoom && !!rendered && !!popoverRect(view);
@@ -930,7 +940,7 @@ export default function ConfigSection({
               <p><strong>{backplane.name} — 전면 드라이브 베이가 없는 구성입니다.</strong></p>
               <p className="muted">부트 디스크는 BOSS(M.2)로 구성합니다. 디스크가 필요하면 모델 옆 "변경"에서 백플레인을 바꾸세요.</p>
             </> : <>
-            <p><strong>{server.model} {view === "front" ? "전면" : "후면"} 실제 이미지가 없습니다.</strong></p>
+            <p><strong>등록된 {view === "front" ? "전면" : "후면"} 이미지가 없습니다. ({server.vendor} {server.model})</strong></p>
             <p>Dell PowerEdge 스텐실(VSSX/VSDX)이나 이미지를 올려 주세요. 올리면 이 모델에 자동으로 연결됩니다.</p>
             <p><button type="button" className="btn small" onClick={onOpenImages}>실제 이미지 올리기</button></p>
             <p className="muted">{view === "front" ? "그림이 없어도 오른쪽 위 ⋯ → 디스크 일괄 작업에서 디스크를 꽂고 검증할 수 있습니다." : "그림이 없어도 오른쪽 위 ⋯ → 슬롯 목록에서 부품을 꽂고 검증할 수 있습니다."}</p>
@@ -991,7 +1001,19 @@ export default function ConfigSection({
     const review = found.find((entry) => entry.status === "확인 필요");
     return { status: bad ? bad.status : review ? "확인 필요" : "충족", key: (bad || review || found[0]).req.key };
   };
-  const specTable = (
+  const pendingTable = (
+    <table className="cmp spec" aria-label="견적 구성">
+      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th><th /></tr></thead>
+      <tbody>{["서버 모델", "Rack", "CPU", "Memory", "Disk", "RAID", "OCP", "NIC", "NIC Port", "FC HBA", "FC Port", "GPU", "PSU"].map((label) => (
+        <tr key={label}>
+          <th scope="row"><span className="cmp-item"><ItemIcon k={label === "서버 모델" ? "model" : label === "CPU" ? "cpu_sockets" : label === "PSU" ? "psu" : "box"} />{label}</span></th>
+          <td className="empty">{label === "서버 모델" ? "미정 — [구성 편집]에서 모델을 선택해주세요" : "미정"}</td>
+          <td className="c"><span className="muted">—</span></td><td />
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+  const specTable = !modelConfirmed ? pendingTable : (
     <table className="cmp spec" aria-label="견적 구성">
       <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th><th /></tr></thead>
       <tbody>{specTableRows.map((row) => {

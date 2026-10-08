@@ -23,11 +23,13 @@ interface Props {
   onMarkLine: (line: number, mark: "skip" | null) => void;
   /** 정확히 같은 부품이 없어 장착하지 않은 항목 / 대체 배치 승인 */
   unresolved?: Unresolved[];
+  /** 서버 모델이 정해지지 않아 견적을 그림에 장착하지 못한 상태 */
+  needModel?: boolean;
   onApprove?: (desc: string) => void;
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, unresolved = [], onApprove }: Props) {
+export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, unresolved = [], needModel = false, onApprove }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
@@ -82,6 +84,7 @@ export default function QuotePanel({ quote, busy, error, notes, applying, diffCo
         </div>
       )}
       {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
+      {needModel && <p className="warn small pad" role="status">서버 모델이 정해지지 않아 견적을 그림에 장착하지 않았습니다 — 위 [구성 편집]에서 모델을 선택하면 견적대로 장착합니다.</p>}
       <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
       {unresolved.length > 0 && (
         <div className="warnlist unres" role="region" aria-label="장착하지 않은 견적 항목">

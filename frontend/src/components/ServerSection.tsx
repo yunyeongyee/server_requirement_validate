@@ -217,23 +217,17 @@ export default function ServerSection({
     }
   };
 
-  const sourceTag = modelSource === "document"
-    ? <span className="tag tag-auto">문서에서 자동 선택{modelHint ? ` · ${modelHint}` : ""}</span>
-    : modelSource === "manual"
-      ? <span className="tag">직접 선택</span>
-      : <span className="tag tag-warn">{modelHint ? `문서의 ${modelHint}는 카탈로그에 없음 — 모델을 확인하세요` : "문서에 모델 없음 — 기본값"}</span>;
-
   return (
     <div className="modelline">
       <b className="cardtitle">견적사항</b>
-      <span className="modelname">· {server.vendor} {server.model}</span>
-      {sourceTag}
-      <button type="button" className="lnk" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}>변경</button>
+      <button type="button" className="btn ghost small modeledit" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}>구성 편집</button>
       {error && <span className="warn small" role="alert">{error}</span>}
       {pickerOpen && (
         <div className="modelpop" role="dialog" aria-label="모델 · 백플레인 변경">
+          {modelSource === "default" && <p className="warn small" role="status">{modelHint ? `문서의 ${modelHint}는 카탈로그에 없습니다 — 모델을 선택해 주세요` : "서버 모델이 지정되지 않았습니다 — 모델을 선택해 주세요"}</p>}
           <label>모델
-            <select value={server.id} onChange={(event) => onServerChange(event.target.value)}>
+            <select value={modelSource === "default" ? "" : server.id} onChange={(event) => { if (event.target.value) onServerChange(event.target.value); }}>
+              {modelSource === "default" && <option value="">모델 선택…</option>}
               {servers.map((item) => <option key={item.id} value={item.id}>{item.vendor} {item.family} {item.model}</option>)}
             </select>
           </label>
