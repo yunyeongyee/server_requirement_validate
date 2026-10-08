@@ -165,6 +165,9 @@ KEYS = {
     "disk_count":    ("Disk", "EA"),
     "disk_size_gb":  ("Disk Size", "GB"),
     "disk_total_gb": ("Disk Total", "GB"),
+    "disk_media":    ("Disk Type", ""),
+    "disk_iface":    ("Disk Interface", ""),
+    "cpu_ghz":       ("CPU Clock", "GHz"),
     "rack_mount":    ("Rack Type", ""),
     "raid_controller": ("RAID Controller", ""),
 }
@@ -260,7 +263,7 @@ def extract_requirements(text: str) -> list[dict]:
 
         # CPU sockets
         if re.search(r"cpu|프로세서|processor|소켓|socket|중앙\s*처리|xeon|epyc", L):
-            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(?<![\w.])(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
+            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(?<![\w.])(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)(?![\d.])\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
             if m:
                 n = 2 if (m.group(5) or "dual" in L or "2-way" in L) else int(m.group(1) or m.group(2) or m.group(4))
                 if 1 <= n <= 8:
@@ -332,7 +335,7 @@ def extract_requirements(text: str) -> list[dict]:
             boot = "Boot" if re.search(r"boot|부트|\bos(?![a-z])|운영\s*체제", L) else ""
             total = re.search(r"(?:총|total|합계|전체|가용|usable|실\s*용량)\s*(?:용량)?\s*[:(]?\s*" + NUM + r"\s*(tb|gb)", L)
             size = re.search(NUM + r"\s*(tb|gb)(?!\s*(?:ram|dimm|ddr))", L)
-            count = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|bays?|베이|장)\b|[x×*]\s*(\d{1,3})\b(?!\s*(?:tb|gb))", L)
+            count = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|bays?|베이|장)(?![a-z])|[x×*]\s*(\d{1,3})(?![\d.])(?!\s*(?:tb|gb))", L)
             if total:
                 usable = bool(re.search(r"가용|usable|실\s*용량", L))
                 found.append(_req("disk_total_gb", ">=", float(total.group(1)) * (1000 if total.group(2) == "tb" else 1), line,

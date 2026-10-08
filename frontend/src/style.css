@@ -719,3 +719,10 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .cmp.spec{margin:8px 0;width:100%}
 .cmp.spec td.empty{color:var(--mute)}
 .cmp.spec tr.bad>td:nth-child(2){font-weight:600}
+.cmp .caret{border:0;background:transparent;cursor:pointer;font-size:12px;color:var(--mute);padding:0 2px}
+.cmp tr.subrow th{font-weight:500;color:var(--mute);padding-left:34px;font-size:12.5px}
+.cmp tr.subrow td{font-size:12.5px}.cmp tr.subrow td small{display:block;color:var(--mute)}
+.cmp tr.subrow{background:color-mix(in srgb,var(--accent) 3%,transparent)}
+.cmp .rtools-inline.always{display:inline-flex}
+.pill.p-sw{background:#eef1f5;color:#54657a}
+.cmp tr.swrow{background:color-mix(in srgb,var(--accent) 3%,transparent)}

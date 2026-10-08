@@ -109,9 +109,60 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict], ig
     return out
 
 
+_DISK_LINE = re.compile(r"ssd|hdd|nvme|디스크|disk|드라이브|drive|스토리지|storage|저장\s*장치|내장\s*저장", re.I)
+_NOT_DISK = re.compile(r"memory|메모리|\bram\b|dimm|m\.2|boss|캐시|cache", re.I)
+_CPU_LINE = re.compile(r"cpu|프로세서|processor|xeon|epyc|코어|core", re.I)
+
+
+def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict]:
+    """원문 줄에 적힌 사양 조건(GHz·SSD/HDD·SATA/SAS/NVMe·용량·수량) 중 요구사항에서 빠진 것을 규칙으로 보충한다.
+    AI 든 규칙이든 같은 줄에서 일부만 읽었을 때, 남은 조건이 '충족'으로 가려지지 않게 한다."""
+    out = list(requirements)
+    norms = [_norm(line) for line in lines]
+    for i, raw in enumerate(lines):
+        if not raw.strip():
+            continue
+        low = raw.lower()
+        rel = [r for r in out if i in (r.get("lines") or []) or r.get("line") == i
+               or (r.get("source") and _norm(r["source"]) and _norm(r["source"]) in norms[i])]
+        keys = {r["key"] for r in rel}
+        boot = "Boot" if re.search(r"boot|부트|\bos(?![a-z])|운영\s*체제", low) else ""
+
+        def add(key, op, value, note=""):
+            r = extract._req(key, op, value, raw, note=note)
+            r.update({"line": i, "lines": [i], "how": "rule"})
+            out.append(r)
+            keys.add(key)
+        ghz = re.search(r"(\d+(?:\.\d+)?)\s*ghz", low)
+        if ghz and "cpu_ghz" not in keys and (keys & {"cpu_cores", "cpu_sockets"} or _CPU_LINE.search(low)):
+            le = re.search(r"이하|or less|max", low) and not re.search(r"이상", low)
+            add("cpu_ghz", "<=" if le else ">=", float(ghz.group(1)))
+        if _DISK_LINE.search(low) and not _NOT_DISK.search(low) and (keys & {"disk_count", "disk_size_gb", "disk_total_gb"} or re.search(r"ssd|hdd|nvme|sata|sas", low)):
+            if "disk_media" not in keys:
+                media = "SSD" if re.search(r"\bssd\b|nvme", low) else "HDD" if re.search(r"\bhdd\b|\d+\s*k\s*rpm|nl-?sas", low) else None
+                if media:
+                    add("disk_media", "=", media, boot)
+            if "disk_iface" not in keys:
+                iface = "NVMe" if "nvme" in low else "SATA" if re.search(r"\bsata\b", low) else "SAS" if re.search(r"\bsas\b|nl-?sas", low) else None
+                if iface:
+                    add("disk_iface", "=", iface, boot)
+            if not keys & {"disk_size_gb", "disk_total_gb"}:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(tb|gb)\b(?!\s*(?:ram|dimm|ddr))", low)
+                if m:
+                    add("disk_size_gb", ">=", float(m.group(1)) * (1000 if m.group(2) == "tb" else 1), boot)
+            if "disk_count" not in keys:
+                m = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|장)(?![a-z])|[x×*]\s*(\d{1,3})(?![\d.])(?!\s*(?:tb|gb))", low)
+                if m:
+                    add("disk_count", ">=", int(m.group(1) or m.group(2)), boot)
+    return out
+
+
 def _server(group: dict, text: str, ignored: dict | None = None) -> dict:
     lines = text.splitlines()
     requirements = group.get("requirements") or []
+    if group.get("doc_role", "requirement") == "requirement" and not group.get("items"):
+        requirements = complete_conditions(requirements, lines)   # 견적 줄은 요구사항으로 읽지 않는다
+        group = {**group, "requirements": requirements}
     items = group.get("items") or []
     return {**{k: v for k, v in group.items() if k != "text"}, "text": text,
             "lines": _tag_lines(lines, requirements, items, ignored)}
@@ -319,6 +370,9 @@ _REQ_ITEM = _obj({
     "min_size_gb": _t("number"),
     "min_total_gb": _t("number"),
     "min_cores": _t("integer"),
+    "min_ghz": _t("number"),
+    "media": _t("string", ["SSD", "HDD"]),
+    "interface": _t("string", ["SATA", "SAS", "NVMe"]),
     "core_scope": _t("string", ["per_cpu", "total"]),
     "raid_level": _t("string"),
     "watt": _t("integer"),
@@ -361,8 +415,8 @@ PROMPTS = {
     "requirement": _COMMON + (
         "This is a customer REQUIREMENT text (what is demanded, usually 'at least'). Produce one entry per requirement; "
         "'lines' lists every source line the statement spans. Categories: cpu_sockets (min_count), cpu_cores (min_cores, "
-        "core_scope per_cpu if per CPU/socket else total), memory (min_capacity_gb total), disk (min_count disks, min_size_gb per disk, "
-        "min_total_gb total; boot=true for OS/boot disks), raid (raid_level like 'RAID1'; boot flag), nic and fc (speed_gbps; "
+        "core_scope per_cpu if per CPU/socket else total; min_ghz for a clock like 2.8GHz — keep BOTH when a line has cores and GHz), memory (min_capacity_gb total), disk (min_count disks, min_size_gb per disk, "
+        "min_total_gb total; media SSD/HDD and interface SATA/SAS/NVMe exactly when written; boot=true for OS/boot disks), raid (raid_level like 'RAID1'; boot flag), nic and fc (speed_gbps; "
         "min_ports = total ports demanded if stated, else ports_per_card and card_quantity separately), ocp (required, version), "
         "psu (required=true when redundant/dual power is demanded, e.g. 이중전원/Redundant Power; watt), rack (rack type required), raid_controller (a RAID "
         "controller is required), gpu (min_count), free_pcie (min_count). operator is '>=' for 'N 이상/at least/minimum', "
@@ -483,7 +537,7 @@ def _src(lines: list[str], idx: list[int]) -> str:
 
 
 # ───────────────────────────── 요구사항: AI JSON → 기존 요구사항 구조 ─────────────────────────────
-_EQ_KEYS = {"raid_level", "dual_psu", "ocp_required", "rack_mount", "raid_controller"}
+_EQ_KEYS = {"raid_level", "dual_psu", "ocp_required", "rack_mount", "raid_controller", "disk_media", "disk_iface"}
 
 
 def requirement_items(item: dict, lines: list[str]) -> list[dict]:
@@ -516,12 +570,15 @@ def requirement_items(item: dict, lines: list[str]) -> list[dict]:
         add("cpu_sockets", num("min_count"))
     elif cat == "cpu_cores":
         add("cpu_cores", num("min_cores"), "CPU당" if item.get("core_scope") == "per_cpu" else "총 코어")
+        add("cpu_ghz", num("min_ghz"))
     elif cat == "memory":
         add("memory_gb", num("min_capacity_gb"))
     elif cat == "disk":
         add("disk_count", num("min_count"), boot)
         add("disk_size_gb", num("min_size_gb"), boot)
         add("disk_total_gb", num("min_total_gb"), boot)
+        add("disk_media", item.get("media"), boot)
+        add("disk_iface", item.get("interface"), boot)
     elif cat == "raid":
         level = re.sub(r"[^A-Za-z0-9]", "", str(item.get("raid_level") or "")).upper()
         if level and not level.startswith("RAID"):

@@ -353,3 +353,42 @@ class ModelOnlyLineTests(unittest.TestCase):
     def test_model_only_line_is_heading_not_unread(self):
         lines = A._tag_lines(["PowerEdge R660xs", "CPU 16코어 이상"], [], [])
         self.assertEqual(lines[0]["status"], "head")
+
+
+class SpecConditionTests(unittest.TestCase):
+    TEXT = "PowerEdge R660xs\n가. CPU : 2.8Ghz이상 16코어이상 / 메모리 : 128GB이상\n나. HDD : SSD SATA 1.92TB * 2EA이상"
+
+    def _reqs(self):
+        out = A._server({"requirements": extract.extract_requirements(self.TEXT)}, self.TEXT)
+        return {r["key"]: r for r in out["requirements"]}
+
+    def test_every_condition_of_a_line_is_kept(self):
+        r = self._reqs()
+        self.assertEqual(r["cpu_ghz"]["value"], 2.8)
+        self.assertEqual(r["cpu_cores"]["value"], 16)
+        self.assertNotIn("cpu_sockets", r)          # '2.8' 이 소켓 수 2 로 읽히면 안 됨
+        self.assertEqual((r["disk_media"]["value"], r["disk_iface"]["value"]), ("SSD", "SATA"))
+        self.assertEqual((r["disk_size_gb"]["value"], r["disk_count"]["value"]), (1920.0, 2))
+
+    def test_ai_missing_conditions_are_completed(self):
+        ai = [{"id": "a", "key": "disk_count", "label": "Disk", "op": ">=", "value": 2, "unit": "EA", "source": "나. HDD : SSD SATA 1.92TB * 2EA이상",
+               "status": "auto", "note": "", "line": 2, "lines": [2], "how": "ai"}]
+        out = A._server({"requirements": ai}, self.TEXT)
+        keys = {r["key"] for r in out["requirements"]}
+        self.assertTrue({"disk_media", "disk_iface", "disk_size_gb"} <= keys)
+
+    def test_validation_checks_each_condition(self):
+        from . import validate as V
+        import json
+        server = next(s for s in json.load(open("data/servers.json", encoding="utf-8"))["servers"] if s["id"] == "dell_r660")
+        reqs = list(self._reqs().values())
+        cfg = {"cpu_model": "Xeon Gold 6430", "cpu_count": 2, "memory": [{"size_gb": 64, "qty": 4}], "raid": {"boot": "", "data": ""},
+               "bays": {"0": {"drive": "ssd1920_sas", "role": "data"}, "1": {"drive": "ssd1920_sas", "role": "data"}},
+               "slots": {}, "risers": [], "psu_watt": 1100, "psu_count": 2, "backplane": server["backplanes"][0]["id"], "boss": False}
+        res = {r["requirement"].split()[0] + r["requirement"].split()[1]: r for r in V.validate(server, cfg, reqs, {})["requirements"]}
+        by = {x["requirement"]: x["status"] for x in V.validate(server, cfg, reqs, {})["requirements"]}
+        self.assertEqual(by["CPU Clock >= 2.8GHz"], "미충족")        # 6430 은 2.1GHz
+        self.assertEqual(by["Disk Type SSD"], "충족")
+        self.assertEqual(by["Disk Interface SATA"], "확인 필요")      # SAS ≠ SATA — 대체 허용 여부 확인
+        self.assertEqual(by["Disk Size >= 1.92e+03GB"] if "Disk Size >= 1.92e+03GB" in by else by[[k for k in by if k.startswith("Disk Size")][0]], "충족")
+        self.assertTrue(res)

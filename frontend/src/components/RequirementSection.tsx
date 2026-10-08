@@ -9,6 +9,9 @@ const KEY_DEFS: Record<string, [string, string]> = {
   disk_count: ["Disk", "EA"],
   disk_size_gb: ["Disk Size", "GB"],
   disk_total_gb: ["Disk Total", "GB"],
+  disk_media: ["Disk Type", ""],
+  disk_iface: ["Disk Interface", ""],
+  cpu_ghz: ["CPU Clock", "GHz"],
   raid_level: ["RAID", ""],
   raid_controller: ["RAID Controller", ""],
   rack_mount: ["Rack Type", ""],
@@ -80,7 +83,7 @@ export function ItemIcon({ k }: { k: string }) {
 }
 
 /** 화면에 보여 줄 항목 순서: 서버 → CPU → 메모리 → 디스크 → RAID → 네트워크 → 전원 */
-const KEY_ORDER = ["rack_mount", "cpu_sockets", "cpu_cores", "memory_gb", "disk_count", "disk_size_gb", "disk_total_gb", "raid_level", "raid_controller",
+const KEY_ORDER = ["rack_mount", "cpu_sockets", "cpu_ghz", "cpu_cores", "memory_gb", "disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb", "raid_level", "raid_controller",
   "nic_speed_gb", "nic_ports", "ocp_required", "fc_speed_gb", "fc_ports", "gpu_count", "free_pcie", "dual_psu", "psu_watt", "manual"];
 export const keyRank = (key: string) => { const i = KEY_ORDER.indexOf(key); return i < 0 ? KEY_ORDER.length - 1 : i; };
 
@@ -116,7 +119,7 @@ export function ConflictList({ conflicts, onResolve, what }: { conflicts: AiConf
 }
 
 const GROUPS: Record<string, string> = {
-  rack_mount: "Rack", cpu_sockets: "CPU", cpu_cores: "CPU", memory_gb: "Memory", disk_count: "Disk", disk_size_gb: "Disk", disk_total_gb: "Disk",
+  rack_mount: "Rack", cpu_sockets: "CPU", cpu_cores: "CPU", cpu_ghz: "CPU", disk_media: "Disk", disk_iface: "Disk", memory_gb: "Memory", disk_count: "Disk", disk_size_gb: "Disk", disk_total_gb: "Disk",
   raid_level: "RAID", raid_controller: "RAID", nic_speed_gb: "NIC", nic_ports: "NIC Port", ocp_required: "OCP", fc_speed_gb: "FC HBA", fc_ports: "FC Port",
   gpu_count: "GPU", free_pcie: "PCIe", dual_psu: "PSU", psu_watt: "PSU", manual: "수기 검토",
 };
@@ -136,6 +139,48 @@ export function reqCondition(item: Requirement): string {
   return `${prefix}${value}${shown ? ` ${shown}` : ""}${op ? ` ${op}` : ""}${note}`;
 }
 
+/** 표의 한 줄 = 한 부품 종류. 안에 든 조건은 각각 따로 검증하고, 하나라도 미충족/확인 필요면 그 줄도 그렇게 표시한다 */
+const GROUP_DEFS: Array<{ id: string; label: string; ik: string; keys: string[] }> = [
+  { id: "rack", label: "Rack", ik: "rack_mount", keys: ["rack_mount"] },
+  { id: "cpu", label: "CPU", ik: "cpu_sockets", keys: ["cpu_sockets", "cpu_ghz", "cpu_cores"] },
+  { id: "mem", label: "Memory", ik: "memory_gb", keys: ["memory_gb"] },
+  { id: "disk", label: "Disk", ik: "disk_count", keys: ["disk_media", "disk_iface", "disk_size_gb", "disk_total_gb", "disk_count"] },
+  { id: "raid", label: "RAID", ik: "raid_level", keys: ["raid_level", "raid_controller"] },
+  { id: "nic", label: "NIC", ik: "nic_speed_gb", keys: ["nic_speed_gb", "nic_ports"] },
+  { id: "ocp", label: "OCP", ik: "ocp_required", keys: ["ocp_required"] },
+  { id: "fc", label: "FC HBA", ik: "fc_speed_gb", keys: ["fc_speed_gb", "fc_ports"] },
+  { id: "gpu", label: "GPU", ik: "gpu_count", keys: ["gpu_count"] },
+  { id: "pcie", label: "PCIe", ik: "free_pcie", keys: ["free_pcie"] },
+  { id: "psu", label: "PSU", ik: "dual_psu", keys: ["dual_psu", "psu_watt"] },
+];
+const gbText = (gb: number) => gb >= 1000 ? `${+(gb / 1000).toFixed(2)}TB` : `${gb}GB`;
+/** 그룹의 요구 조건 한 줄. 원문에 없는 조건은 추정하지 않고 '미지정'으로 적는다 */
+function groupCondition(id: string, items: Requirement[]): string {
+  const by = (key: string) => items.find((item) => item.key === key);
+  const op = (item: Requirement) => ({ ">=": " 이상", "<=": " 이하", "=": "", "?": "" } as Record<string, string>)[item.op] ?? "";
+  const num = (item: Requirement) => typeof item.value === "number" ? +item.value.toFixed(2) : item.value;
+  const parts: string[] = [];
+  if (id === "disk") {
+    const media = by("disk_media"), iface = by("disk_iface");
+    parts.push(media || iface ? [iface?.value, media?.value].filter(Boolean).join(" ") : "종류 미지정");
+    const size = by("disk_size_gb"), total = by("disk_total_gb");
+    if (size) parts.push(`디스크당 ${gbText(Number(size.value))}${op(size)}`);
+    if (total) parts.push(`합계 ${gbText(Number(total.value))}${op(total)}${total.note ? ` (${total.note})` : ""}`);
+    if (!size && !total) parts.push("용량 미지정");
+    const count = by("disk_count");
+    parts.push(count ? `${num(count)}개${op(count)}` : "수량 미지정");
+    return parts.join(" · ");
+  }
+  if (id === "nic" || id === "fc") {
+    const speed = by(id === "nic" ? "nic_speed_gb" : "fc_speed_gb"), ports = by(id === "nic" ? "nic_ports" : "fc_ports");
+    parts.push(speed ? `${num(speed)}${id === "nic" ? "GbE" : "Gb"}${op(speed)}` : "속도 미지정");
+    parts.push(ports ? `${num(ports)} Port${op(ports)}${ports.at_speed ? ` (${ports.at_speed}G 이상 포트)` : ""}` : "포트 수 미지정");
+    return parts.join(" · ");
+  }
+  const order = GROUP_DEFS.find((def) => def.id === id)?.keys || [];
+  return order.map((key) => by(key)).filter((item): item is Requirement => !!item).map((item) => reqCondition(item)).join(" · ");
+}
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 12);
 
 export default function RequirementSection({
@@ -143,6 +188,7 @@ export default function RequirementSection({
   result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
   const [showReview, setShowReview] = useState(false);
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [pasteMode, setPasteMode] = useState<"replace" | "append" | null>(null);
@@ -274,6 +320,46 @@ export default function RequirementSection({
       </tr>
     );
   };
+  const aggregate = (items: Requirement[]) => {
+    const all = items.map(statusOf);
+    return all.some((x) => x === "미충족" || x === "호환 불가") ? (all.includes("호환 불가") && !all.includes("미충족") ? "호환 불가" : "미충족")
+      : all.includes("확인 필요") ? "확인 필요" : "충족";
+  };
+  const renderGroup = (def: typeof GROUP_DEFS[number]) => {
+    const items = sortedReqs.filter((item) => def.keys.includes(item.key) && item.key !== "manual");
+    if (!items.length) return null;
+    const status = aggregate(items);
+    const tone = STATUS_CLASS[status] || "review";
+    const open = openGroups.includes(def.id);
+    const bad = items.find((item) => ["미충족", "호환 불가"].includes(statusOf(item))) || items.find((item) => statusOf(item) === "확인 필요");
+    const fix = status !== "충족" && bad ? fixFor(bad.key) : null;
+    return [
+      <tr key={def.id} className={`s-${tone}`}>
+        <th scope="row"><span className="cmp-item"><button type="button" className="caret" aria-expanded={open} aria-label={`${def.label} 조건 ${open ? "접기" : "펼치기"}`} onClick={() => setOpenGroups(open ? openGroups.filter((x) => x !== def.id) : [...openGroups, def.id])}>{open ? "▾" : "▸"}</button><ItemIcon k={def.ik} />{def.label}</span></th>
+        <td>{groupCondition(def.id, items)}</td>
+        <td className="c"><span className={`pill p-${tone}`}>{status}</span></td>
+        <td className="act">{fix && bad && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: `${def.label} ${groupCondition(def.id, items)}` })}>{fix.label}</button>}</td>
+      </tr>,
+      ...(open ? items.map((item) => {
+        const row = result?.requirements.find((entry) => entry.id === item.id);
+        const st = statusOf(item);
+        const t = STATUS_CLASS[st] || "review";
+        if (editingId === item.id) return <tr key={item.id} className="editing"><td colSpan={4}>{renderEdit(item)}</td></tr>;
+        return (
+          <tr key={item.id} className="subrow">
+            <th scope="row">{KEY_DEFS[item.key]?.[0] || item.label}</th>
+            <td>{reqCondition(item)}{row ? <small>실제 {row.actual}{row.note ? ` · ${row.note}` : ""}</small> : null}</td>
+            <td className="c"><span className={`pill p-${t}`}>{st}</span></td>
+            <td className="act"><span className="rtools-inline always">
+              <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
+              <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
+            </span></td>
+          </tr>
+        );
+      }) : []),
+    ];
+  };
+  const softwareLines = (group.lines || []).filter((line) => line.status === "skip" && (line.label?.startsWith("OS·소프트웨어") || /red\s*hat|rhel|windows|linux|vmware|ubuntu|운영\s*체제|라이선스|license/i.test(line.text)));
   const lines = group.lines || [];
   const lineState = (line: PasteLine) => {
     const reqs = requirements.filter((item) => item.line === line.n || item.lines?.includes(line.n));
@@ -325,7 +411,7 @@ export default function RequirementSection({
             const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
             const reason = item.key === "manual" ? (item.note && item.note !== "수기 검토" ? item.note : "정량 기준이 없어 자동으로 판정할 수 없습니다")
               : item._new ? "직접 추가한 항목 — 값을 입력해야 판정됩니다"
-              : item.note || "AI·규칙이 확신하지 못해 사람이 확인해야 합니다";
+              : result?.requirements.find((entry) => entry.id === item.id)?.note || item.note || "AI·규칙이 확신하지 못해 사람이 확인해야 합니다";
             return (
               <li key={item.id} className="reqrow s-review review-detail">
                 <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
@@ -352,7 +438,15 @@ export default function RequirementSection({
               <td className="c"><span className="muted">—</span></td><td />
             </tr>
           )}
-          {sortedReqs.filter((item) => statusOf(item) !== "확인 필요").map(renderRow)}
+          {GROUP_DEFS.map(renderGroup)}
+          {sortedReqs.filter((item) => item.key !== "manual" && !GROUP_DEFS.some((def) => def.keys.includes(item.key))).map(renderRow)}
+          {softwareLines.map((line) => (
+            <tr key={`sw-${line.n}`} className="swrow" title="자동 검증에서 제외 — 공급·설치·라이선스 포함 여부는 별도 확인">
+              <th scope="row"><span className="cmp-item"><ItemIcon k="os" />OS·SW</span></th>
+              <td>{line.text.replace(/^\W*(?:[가-힣]\.|\(?\d+\)|[-•·]\s*)?\s*/, "")}</td>
+              <td className="c"><span className="pill p-sw">별도 확인</span></td><td />
+            </tr>
+          ))}
           {!requirements.length && <tr><td colSpan={4} className="muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</td></tr>}
         </tbody>
       </table>

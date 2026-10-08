@@ -933,9 +933,9 @@ export default function ConfigSection({
   const specTableRows: SpecRow[] = [
     { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [] },
     { key: "rack", ik: "rack", label: "Rack", text: server.form_factor || unset, reqKeys: ["rack_mount"] },
-    { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_cores"], edit: "cpu", changed: diff?.spec },
+    { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], edit: "cpu", changed: diff?.spec },
     { key: "mem", ik: "memory", label: "Memory", text: memoryTotal ? memSummary : unset, reqKeys: ["memory_gb"], edit: "mem", changed: diff?.spec },
-    { key: "disk", ik: "disk", label: "Disk", text: diskText, reqKeys: ["disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
+    { key: "disk", ik: "disk", label: "Disk", text: diskText, reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
     { key: "raid", ik: "raid", label: "RAID", text: raidText, reqKeys: ["raid_level", "raid_controller"], edit: "disk" },
     { key: "ocp", ik: "ocp", label: "OCP", text: listText(ocpRows), reqKeys: ["ocp_required"], part: "nic" },
     { key: "nic", ik: "nic", label: "NIC", text: listText(nicRows), reqKeys: ["nic_speed_gb"], part: "nic" },

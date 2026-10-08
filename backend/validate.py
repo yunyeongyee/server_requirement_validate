@@ -186,6 +186,9 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
         "cpu_model": cfg.get("cpu_model", ""), "cpu_cores": cpu_cores(cfg.get("cpu_model", "")),
         "disks": {role: [_drive_gb(d.get("model", "")) for d in cfg.get("drives", []) if d.get("role", "data") == role
                          for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
+        "disk_meta": {role: [_drive_meta(server, d) for d in cfg.get("drives", []) if d.get("role", "data") == role
+                             for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
+        "cpu_ghz": cpu_ghz(cfg.get("cpu_model", "")),
         "power_est_w": estimate_power(cfg, eff),
     }
 
@@ -201,6 +204,28 @@ def cpu_cores(model: str) -> int | None:
         return CPU_CORES[key]
     m = re.search(r"(\d{1,3})\s*c\b", key)
     return int(m.group(1)) if m else None
+
+
+# CPU 모델별 기본 클럭(GHz). 모르는 모델은 이름의 'x.xGHz' 표기로, 그것도 없으면 None → 확인 필요
+CPU_GHZ = {"xeon silver 4410y": 2.0, "xeon gold 5418y": 2.0, "xeon gold 6430": 2.1, "xeon gold 6442y": 2.6,
+           "xeon platinum 8462y+": 2.8, "xeon 6515p": 2.3}
+
+
+def cpu_ghz(model: str) -> float | None:
+    key = re.sub(r"\s+", " ", model or "").strip().lower()
+    if key in CPU_GHZ:
+        return CPU_GHZ[key]
+    m = re.search(r"(\d+(?:\.\d+)?)\s*ghz", key)
+    return float(m.group(1)) if m else None
+
+
+def _drive_meta(server: dict, d: dict) -> dict:
+    """구성의 디스크 1종 → 종류(SSD/HDD)·인터페이스(SATA/SAS/NVMe)"""
+    opt = next((o for o in server.get("drive_options", []) if o.get("id") == d.get("drive_id")), {})
+    name = d.get("model", "")
+    iface = opt.get("iface") or ("NVMe" if re.search(r"nvme", name, re.I) else "SAS" if re.search(r"sas", name, re.I) else "SATA" if re.search(r"sata", name, re.I) else None)
+    media = "SSD" if re.search(r"ssd|nvme", name, re.I) else "HDD" if re.search(r"hdd|rpm|\d+k\b", name, re.I) else None
+    return {"iface": iface, "media": media, "boss": bool(d.get("boss"))}
 
 
 def _drive_gb(name: str) -> float:
@@ -293,6 +318,33 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             else:
                 total = sum(disks)
                 actual = f"{name} 원시 {_gb_text(total)}"; status = PASS if total >= float(v) else FAIL
+        elif k == "cpu_ghz":
+            ghz = s.get("cpu_ghz")
+            if ghz is None:
+                actual = s["cpu_model"]; status = REVIEW; note = "이 CPU의 클럭을 모릅니다 — 직접 확인"
+            else:
+                actual = f"{ghz:g} GHz"; status = PASS if _cmp(ghz, op, v) else FAIL
+                note = "기본(베이스) 클럭 기준" if status == PASS else "기본(베이스) 클럭 기준 — 부스트 클럭이 아닌 값으로 비교"
+        elif k in ("disk_media", "disk_iface"):
+            role = "boot" if "boot" in str(r.get("note", "")).lower() else "data"
+            metas = [m for m in (s["disk_meta"][role] or (s["disk_meta"]["boot"] if role == "data" else [])) if not m.get("boss")]
+            field = "media" if k == "disk_media" else "iface"
+            have = sorted({m[field] for m in metas if m.get(field)})
+            name = "Boot" if role == "boot" else "Data"
+            if not metas:
+                actual = "디스크 없음"; status = FAIL
+            elif not have:
+                actual = "종류 불명"; status = REVIEW; note = "디스크 종류를 알 수 없습니다 — 직접 확인"
+            elif all(x.upper() == str(v).upper() for x in have):
+                actual = f"{name} {'/'.join(have)}"; status = PASS
+            else:
+                actual = f"{name} {'/'.join(have)}"
+                # SATA ↔ SAS 는 백플레인이 받더라도 요구와 다른 사양 — 대체 허용 여부를 사람이 확인. 그 밖(HDD↔SSD, NVMe)은 미충족
+                family = {"SATA", "SAS"}
+                if k == "disk_iface" and str(v).upper() in {x.upper() for x in family} and all(x.upper() in {y.upper() for y in family} for x in have):
+                    status = REVIEW; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 대체 허용 여부 확인"
+                else:
+                    status = FAIL
         elif k == "rack_mount":
             ff = str(s.get("form_factor") or "")
             actual = ff or "-"; status = PASS if re.search(r"\d\s*u\b|rack", ff, re.I) else REVIEW
