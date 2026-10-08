@@ -142,6 +142,8 @@ export default function ConfigSection({
   const [menuOpen, setMenuOpen] = useState(false);
   /** 확대 창으로 보고 있는 면 */
   const [tool, setTool] = useState<Tool>("select");
+  /** 좌표 보정 중 다른 영역과 가장자리·중심이 맞을 때 보이는 정렬선(%) */
+  const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
   const [annotSel, setAnnotSel] = useState<Selection>(null);
   const [aspects, setAspects] = useState<{ front: number; rear: number }>({ front: 0.12, rear: 0.2 });
   const [localFocus, setLocalFocus] = useState<FocusRequest | null>(null);
@@ -218,6 +220,12 @@ export default function ConfigSection({
     setSlotHotspots(savedHotspots(server));
   }, [server]);
 
+  // 편집한 라벨 배치는 이 서버 모델 기준으로 브라우저에 자동 저장한다 (새로고침·다른 견적에서 '저장된 배치 불러오기')
+  useEffect(() => {
+    if (!server || !annot.labels.length) return;
+    const timer = window.setTimeout(() => { try { window.localStorage.setItem(`srv-annot:${server.id}`, JSON.stringify(annot)); } catch { /* 저장 불가 환경 */ } }, 400);
+    return () => window.clearTimeout(timer);
+  }, [annot, server]);
   useEffect(() => { if (mode !== "calib") setCalibSel(null); }, [mode]);
   useEffect(() => { if (zoom === null) { setScale(1); setAnnotSel(null); setTool("select"); setMode((m) => m === "label" ? "edit" : m); } }, [zoom]);
   useEffect(() => {
@@ -467,6 +475,23 @@ export default function ConfigSection({
         x: Math.min(100 - active.initial.w, Math.max(0, active.initial.x + dx)),
         y: Math.min(100 - active.initial.h, Math.max(0, active.initial.y + dy)),
       };
+    // 다른 영역의 가장자리·중심에 가까우면 달라붙고 정렬선을 보여 준다 (끌 때만 — 크기 조절은 제외)
+    const g: { x?: number; y?: number } = {};
+    if (!active.resize && !event.altKey) {
+      const others: Rect[] = active.view === "front"
+        ? currentFrontRects.filter((_, index) => String(index) !== active.key)
+        : Object.entries(slotHotspots).filter(([key]) => key !== active.key).map(([, rect]) => rect);
+      const near = (own: number[], theirs: number[]) => {
+        let best: { d: number; shift: number; at: number } | null = null;
+        own.forEach((a) => theirs.forEach((b) => { const d = Math.abs(a - b); if (d <= 0.8 && (!best || d < best.d)) best = { d, shift: b - a, at: b }; }));
+        return best as { d: number; shift: number; at: number } | null;
+      };
+      const sx = near([next.x, next.x + next.w / 2, next.x + next.w], others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w]));
+      const sy = near([next.y, next.y + next.h / 2, next.y + next.h], others.flatMap((o) => [o.y, o.y + o.h / 2, o.y + o.h]));
+      if (sx) { next.x += sx.shift; g.x = sx.at; }
+      if (sy) { next.y += sy.shift; g.y = sy.at; }
+    }
+    setGuides(g);
     if (active.view === "front") {
       setFrontRects((current) => current.map((rect, index) => index === Number(active.key) ? next : rect));
     } else {
@@ -767,7 +792,7 @@ export default function ConfigSection({
             <div className="hot" onClick={(event) => {
               if (dragged.current) { dragged.current = false; return; }
               if (mode === "edit" && event.target === event.currentTarget) clearSelection();
-            }} onPointerDown={(event) => startDrag(view, event)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
+            }} onPointerDown={(event) => startDrag(view, event)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; setGuides({}); }} onPointerCancel={() => { drag.current = null; setGuides({}); }}>
               {areas.map(({ area, slot, index }) => {
                 if (view === "front") {
                   const bay = config.bays[String(index)];
@@ -873,6 +898,8 @@ export default function ConfigSection({
                   )}
                 </div>
               ))}
+              {mode === "calib" && guides.x !== undefined && <i className="guide gx" style={{ left: `${guides.x}%` }} />}
+              {mode === "calib" && guides.y !== undefined && <i className="guide gy" style={{ top: `${guides.y}%` }} />}
               {view === "front" && mode === "calib" && freeCandidates.map((area, index) => (
                 <button
                   key={`cand-${index}`}
@@ -1020,6 +1047,10 @@ export default function ConfigSection({
     onAnnotChange({ ...annot, show: true, labels: [...annot.labels.filter((item) => item.view !== view), ...made.labels], links: [...annot.links.filter((item) => item.view !== view), ...made.links] });
     setAnnotSel(null);
   };
+  const storeKey = `srv-annot:${server.id}`;
+  let savedAnnot: Annot | null = null;
+  try { const raw = window.localStorage.getItem(storeKey); savedAnnot = raw ? JSON.parse(raw) as Annot : null; } catch { savedAnnot = null; }
+  const loadSaved = () => { if (savedAnnot?.labels?.length) { onAnnotChange({ ...savedAnnot, show: true }); setAnnotSel(null); } };
   const addAnnotLabel = (view: "front" | "rear") => {
     const label = newLabel(view);
     onAnnotChange({ ...annot, show: true, labels: [...annot.labels, label] });
@@ -1050,9 +1081,24 @@ export default function ConfigSection({
       return <>
         <p><b>좌표 보정</b></p>
         {cur && calibSel
-          ? <p className="small">{calibSel.view === "front" ? `Bay ${calibSel.key}` : calibSel.key}<br />x {cur.x.toFixed(1)}% · y {cur.y.toFixed(1)}%<br />폭 {cur.w.toFixed(1)}% · 높이 {cur.h.toFixed(1)}%</p>
+          ? <>
+            <p className="small"><b>{calibSel.view === "front" ? `Bay ${calibSel.key}` : (server.slots.find((slot) => slot.id === calibSel.key)?.label || psuSlots.find((psu) => psu.id === calibSel.key)?.label || calibSel.key)}</b></p>
+            <div className="calcoords">
+              {([["x", "X"], ["y", "Y"], ["w", "폭"], ["h", "높이"]] as const).map(([field, label]) => (
+                <label key={field}>{label} (%)
+                  <input type="number" step="0.1" value={+cur[field].toFixed(2)} aria-label={`${label} 좌표`} onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (!Number.isFinite(value)) return;
+                    const next = { ...cur, [field]: field === "w" || field === "h" ? Math.max(0.5, Math.min(100, value)) : Math.max(0, Math.min(100, value)) };
+                    if (calibSel.view === "front") setFrontRects((current) => current.map((rect, index) => index === Number(calibSel.key) ? next : rect));
+                    else setSlotHotspots((current) => ({ ...current, [calibSel.key]: next }));
+                  }} />
+                </label>
+              ))}
+            </div>
+          </>
           : <p className="muted small">영역을 눌러 고르세요.</p>}
-        <p className="muted small">방향키: 위치 0.1% · Shift 1%<br />Alt+방향키: 크기<br />끌어서 옮기거나 모서리로 크기 조절도 가능합니다. 저장은 위의 '저장하고 끝내기'를 눌러야 반영됩니다.</p>
+        <p className="muted small">방향키: 위치 0.1% · Shift 1%<br />Alt+방향키: 크기<br />끌 때 다른 영역의 가장자리·중심에 가까우면 자석처럼 붙고 정렬선이 보입니다(Alt를 누르면 붙지 않음). 값을 직접 입력해도 됩니다. 저장은 위의 '저장하고 끝내기'를 눌러야 반영됩니다.</p>
       </>;
     }
     const has = zoom === "front" ? selectedBays.length > 0 : !!selectedSlot;
@@ -1160,7 +1206,7 @@ export default function ConfigSection({
             </div>
             {calibBar}
             {calibMessage}
-            {mode === "label" && zoom && <AnnotToolbar annot={annot} tool={tool} setTool={setTool} selection={annotSel} onChange={onAnnotChange} onAdd={() => addAnnotLabel(zoom)} onAuto={() => autoAnnot(zoom)} view={zoom} />}
+            {mode === "label" && zoom && <AnnotToolbar annot={annot} tool={tool} setTool={setTool} selection={annotSel} onChange={onAnnotChange} onAdd={() => addAnnotLabel(zoom)} onAuto={() => autoAnnot(zoom)} view={zoom} onLoadSaved={savedAnnot?.labels?.length ? loadSaved : undefined} />}
             <div className="zoomgrid">
               <div className="zoomstage"><div className="zoomscale" style={{ width: `${scale * 100}%` }}>{renderStage(zoom, true)}</div></div>
               <aside className="zoompanel" aria-label="선택한 항목">{zoomPanel()}</aside>

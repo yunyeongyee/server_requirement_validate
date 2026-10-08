@@ -826,7 +826,8 @@ def _annotate_custom(base: Image.Image, server, view: str, annot: dict, bp) -> I
         x, y, w, h, font = boxes[l["id"]]
         col = color(l.get("color")) + (255,)
         pen.rounded_rectangle((x, y + top, x + w, y + top + h), radius=5 * k, fill=(255, 255, 255, 255), outline=col, width=max(2, round(1.5 * k)))
-        pen.text((x + 10 * k, y + top + 6 * k), l.get("text") or "(빈 라벨)", fill=col, font=font)
+        bold = round(k * 0.7) if l.get("bold") else 0     # 굵은 글꼴이 없어도 굵게 보이게 테두리를 덧그린다
+        pen.text((x + 10 * k, y + top + 6 * k), l.get("text") or "(빈 라벨)", fill=col, font=font, stroke_width=bold, stroke_fill=col)
     return canvas
 
 

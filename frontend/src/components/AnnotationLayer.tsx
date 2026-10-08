@@ -33,7 +33,8 @@ export const emptyAnnot: Annot = { show: true, labels: [], links: [] };
 export interface Rect { x: number; y: number; w: number; h: number }
 /** 연결할 수 있는 자리 (베이·슬롯·PSU) — rect 는 그림 크기에 대한 % */
 export interface Target { kind: "bay" | "slot"; id: string; name: string; rect: Rect }
-export type Selection = { type: "label" | "link"; id: string } | null;
+export type Selection = { type: "label" | "link"; id: string; ids?: string[] } | null;
+export const selIds = (sel: Selection): string[] => sel ? sel.ids?.length ? sel.ids : [sel.id] : [];
 export type Tool = "select" | "link";
 
 export const COLORS = ["#2f7de1", "#2fa56a", "#e0364b", "#ee8a1a", "#46597a", "#1b1f24"];
@@ -99,7 +100,7 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
   const [size, setSize] = useState({ W: 0, H: 0 });
   const [snap, setSnap] = useState<Target | null>(null);
   const [drawing, setDrawing] = useState<{ from: string; pos: Pt } | null>(null);
-  const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
+  const drag = useRef<{ start: Pt; orig: Record<string, Pt> } | null>(null);
 
   useEffect(() => {
     const el = box.current;
@@ -120,7 +121,6 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
     const rect = box.current?.getBoundingClientRect();
     return rect ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: 0, y: 0 };
   };
-  const update = (id: string, patch: Partial<Label>) => onChange({ ...annot, labels: annot.labels.map((label) => label.id === id ? { ...label, ...patch } : label) });
   const hitTarget = (p: Pt): Target | null => {
     const pad = 14;
     return targets.find((item) => {
@@ -132,15 +132,23 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
   const startLabel = (event: ReactPointerEvent<HTMLDivElement>, label: Label) => {
     if (!editable || event.button !== 0) return;
     event.stopPropagation();
-    onSelect({ type: "label", id: label.id });
     const p = local(event);
+    const current = selIds(selection);
+    if (event.shiftKey && selection?.type === "label") {   // Shift+클릭: 여러 라벨 선택 / 해제
+      const ids = current.includes(label.id) ? current.filter((id) => id !== label.id) : [...current, label.id];
+      onSelect(ids.length ? { type: "label", id: ids[ids.length - 1], ids } : null);
+      return;
+    }
+    const ids = selection?.type === "label" && current.includes(label.id) ? current : [label.id];
+    onSelect({ type: "label", id: label.id, ids });
     if (tool === "link") {
       setDrawing({ from: label.id, pos: p });
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    if (label.locked) return;
-    drag.current = { id: label.id, dx: p.x - label.x / 100 * W, dy: p.y - label.y / 100 * H };
+    const movable = annot.labels.filter((item) => ids.includes(item.id) && !item.locked);
+    if (!movable.length) return;
+    drag.current = { start: p, orig: Object.fromEntries(movable.map((item) => [item.id, { x: item.x, y: item.y }])) };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const moveLabel = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -152,7 +160,9 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
     }
     const d = drag.current;
     if (!d || !W || !H) return;
-    update(d.id, { x: Math.round((p.x - d.dx) / W * 1000) / 10, y: Math.round((p.y - d.dy) / H * 1000) / 10 });
+    const dx = (p.x - d.start.x) / W * 100, dy = (p.y - d.start.y) / H * 100;
+    onChange({ ...annot, labels: annot.labels.map((item) => d.orig[item.id]
+      ? { ...item, x: Math.round((d.orig[item.id].x + dx) * 10) / 10, y: Math.round((d.orig[item.id].y + dy) * 10) / 10 } : item) });
   };
   const endLabel = () => {
     if (drawing && snap) {
@@ -215,7 +225,7 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
       ))}
       {labels.map((label) => (
         <div key={label.id}
-          className={`annot-label ${selection?.type === "label" && selection.id === label.id ? "sel" : ""} ${label.locked ? "locked" : ""}`}
+          className={`annot-label ${selection?.type === "label" && selIds(selection).includes(label.id) ? "sel" : ""} ${label.locked ? "locked" : ""}`}
           style={{ left: `${label.x}%`, top: `${label.y}%`, borderColor: label.color, color: label.color, fontWeight: label.bold ? 700 : 500, fontSize: label.size || 13 }}
           onPointerDown={(event) => startLabel(event, label)} onPointerMove={moveLabel} onPointerUp={endLabel} onPointerCancel={endLabel}>
           {label.text || "(빈 라벨)"}{label.locked && <em aria-hidden="true"> 🔒</em>}
@@ -226,16 +236,17 @@ export default function AnnotationLayer({ view, annot, onChange, targets, editab
 }
 
 /** 상단 도구 모음 */
-export function AnnotToolbar({ annot, tool, setTool, selection, onChange, onAdd, onAuto, view }: {
-  annot: Annot; tool: Tool; setTool: (t: Tool) => void; selection: Selection; onChange: (next: Annot) => void; onAdd: () => void; onAuto: () => void; view: "front" | "rear";
+export function AnnotToolbar({ annot, tool, setTool, selection, onChange, onAdd, onAuto, view, onLoadSaved }: {
+  annot: Annot; tool: Tool; setTool: (t: Tool) => void; selection: Selection; onChange: (next: Annot) => void; onAdd: () => void; onAuto: () => void; view: "front" | "rear"; onLoadSaved?: () => void;
 }) {
   const link = selection?.type === "link" ? annot.links.find((item) => item.id === selection.id) : undefined;
-  const label = selection?.type === "label" ? annot.labels.find((item) => item.id === selection.id) : undefined;
+  const chosen = selection?.type === "label" ? selIds(selection) : [];
+  const label = chosen.length ? annot.labels.find((item) => item.id === chosen[chosen.length - 1]) : undefined;
   const setLink = (patch: Partial<Link>) => link && onChange({ ...annot, links: annot.links.map((item) => item.id === link.id ? { ...item, ...patch } : item) });
-  const setLabel = (patch: Partial<Label>) => label && onChange({ ...annot, labels: annot.labels.map((item) => item.id === label.id ? { ...item, ...patch } : item) });
+  const setLabel = (patch: Partial<Label>) => label && onChange({ ...annot, labels: annot.labels.map((item) => chosen.includes(item.id) ? { ...item, ...patch } : item) });
   const remove = () => {
     if (link) onChange({ ...annot, links: annot.links.filter((item) => item.id !== link.id) });
-    else if (label) onChange({ ...annot, labels: annot.labels.filter((item) => item.id !== label.id), links: annot.links.filter((item) => item.from !== label.id) });
+    else if (label) onChange({ ...annot, labels: annot.labels.filter((item) => !chosen.includes(item.id)), links: annot.links.filter((item) => !chosen.includes(item.from)) });
   };
   const btn = (text: string, title: string, on: boolean, onClick: () => void, key?: string) => (
     <button key={key || text} type="button" className={`atb ${on ? "on" : ""}`} title={title} aria-pressed={on} onClick={onClick}>{text}</button>
@@ -264,9 +275,11 @@ export function AnnotToolbar({ annot, tool, setTool, selection, onChange, onAdd,
           {btn("🔒", "위치 고정", !!label.locked, () => setLabel({ locked: !label.locked }), "l")}
           {btn("숨김", "이 라벨 숨기기", !!label.hidden, () => setLabel({ hidden: !label.hidden }), "h")}
         </>}
-        <button type="button" className="atb danger" title="선택한 라벨(연결된 선 포함) 또는 선 삭제" onClick={remove}>⌫ 삭제</button>
+        <button type="button" className="atb danger" title="선택한 라벨(연결된 선 포함) 또는 선 삭제" onClick={remove}>⌫ 삭제{chosen.length > 1 ? ` (${chosen.length})` : ""}</button>
       </> : <span className="muted small">{annot.labels.filter((item) => item.view === view).length ? "라벨이나 선을 눌러 고르세요" : "‘↺ 자동 배치’로 시작하거나 ‘＋ 라벨’로 직접 추가하세요"}</span>}
       <span className="atb-right">
+        <span className="muted small" title="이 서버 모델 기준으로 브라우저에 자동 저장됩니다">자동 저장됨</span>
+        {onLoadSaved && <button type="button" className="atb" title="이 서버 모델로 마지막에 편집한 라벨 배치를 불러옵니다" onClick={onLoadSaved}>저장된 배치 불러오기</button>}
         {btn(annot.show ? "◉ 라벨 켜짐" : "○ 라벨 꺼짐", "전면·후면 라벨과 선을 한꺼번에 켜고 끕니다", annot.show, () => onChange({ ...annot, show: !annot.show }), "show")}
       </span>
     </div>
@@ -277,7 +290,8 @@ export function AnnotToolbar({ annot, tool, setTool, selection, onChange, onAdd,
 export function AnnotPanel({ annot, selection, onChange, onSelect, targets, view }: {
   annot: Annot; selection: Selection; onChange: (next: Annot) => void; onSelect: (s: Selection) => void; targets: Target[]; view: "front" | "rear";
 }) {
-  const label = selection?.type === "label" ? annot.labels.find((item) => item.id === selection.id) : undefined;
+  const ids = selection?.type === "label" ? selIds(selection) : [];
+  const label = ids.length ? annot.labels.find((item) => item.id === ids[ids.length - 1]) : undefined;
   const link = selection?.type === "link" ? annot.links.find((item) => item.id === selection.id) : undefined;
   const set = (patch: Partial<Label>) => label && onChange({ ...annot, labels: annot.labels.map((item) => item.id === label.id ? { ...item, ...patch } : item) });
   const nameOf = (to: LinkTarget) => targets.find((item) => item.kind === to.kind && item.id === to.id)?.name || to.id;
@@ -288,6 +302,13 @@ export function AnnotPanel({ annot, selection, onChange, onSelect, targets, view
       <p className="small">{from?.text || "?"} → {nameOf(link.to)}</p>
       <p className="muted small">라벨을 옮겨도 선은 연결된 부품을 계속 가리킵니다. 색·굵기·화살표는 위 도구 막대에서 바꿉니다.</p>
       <button type="button" className="btn ghost small" onClick={() => onChange({ ...annot, links: annot.links.map((item) => item.id === link.id ? { ...item, hidden: !item.hidden } : item) })}>{link.hidden ? "선 보이기" : "선 숨기기"}</button>
+    </>;
+  }
+  if (label && ids.length > 1) {
+    return <>
+      <p><b>라벨 {ids.length}개 선택</b></p>
+      <p className="muted small">끌면 함께 움직입니다. 색·굵게·고정·삭제는 위 도구 막대에서 한꺼번에 바뀝니다. Shift+클릭으로 더하거나 뺍니다.</p>
+      <button type="button" className="lnk small" onClick={() => onSelect({ type: "label", id: label.id })}>하나만 선택</button>
     </>;
   }
   if (label) {
@@ -308,6 +329,7 @@ export function AnnotPanel({ annot, selection, onChange, onSelect, targets, view
     <p><b>라벨·연결선</b></p>
     <p className="muted small">라벨 {mineLabels.length}개 · 선 {annot.links.filter((item) => item.view === view).length}개 ({view === "front" ? "전면" : "후면"})</p>
     <p className="muted small">라벨은 끌어서 옮기고, ‘⟋ 연결선’ 도구로 라벨에서 부품까지 끌어 연결합니다. 부품 가까이 가면 초록색으로 강조되며 붙습니다. 편집한 내용은 창을 닫아도 유지되고 본 화면과 PNG에 반영됩니다.</p>
+    {!!mineLabels.length && <button type="button" className="btn ghost small" onClick={() => onSelect({ type: "label", id: mineLabels[mineLabels.length - 1].id, ids: mineLabels.map((item) => item.id) })}>이 면 라벨 모두 선택</button>}
     {mineLabels.map((item) => <button key={item.id} type="button" className="lnk small block" onClick={() => onSelect({ type: "label", id: item.id })}>{item.text || "(빈 라벨)"}</button>)}
   </>;
 }
