@@ -95,7 +95,8 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict], ig
         elif ignored and index in ignored:
             row["status"] = "skip"
             row["label"] = f"AI가 제외: {ignored[index]}" if ignored[index] else "AI가 제외"
-        elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line) or REQ_ID.match(raw.strip()):
+        elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line) or REQ_ID.match(raw.strip()) \
+                or (parts.model_of(raw) and len(raw.split()) <= 4 and not re.search(r"\d\s*(gb|tb|core|코어|ea|개)", raw, re.I)):
             row["status"] = "head"
         elif SOFTWARE.search(raw):
             row["status"] = "skip"

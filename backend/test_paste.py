@@ -347,3 +347,9 @@ class SuggestServerTests(unittest.TestCase):
         self.assertEqual(proposal.suggest_server("R660xs", servers), "dell_r660")
         self.assertEqual(proposal.suggest_server("PowerEdge R760 XA", servers) or proposal.suggest_server("R760XA", servers), "dell_r760")
         self.assertIsNone(proposal.suggest_server("RX2540 M8", servers))
+
+
+class ModelOnlyLineTests(unittest.TestCase):
+    def test_model_only_line_is_heading_not_unread(self):
+        lines = A._tag_lines(["PowerEdge R660xs", "CPU 16코어 이상"], [], [])
+        self.assertEqual(lines[0]["status"], "head")

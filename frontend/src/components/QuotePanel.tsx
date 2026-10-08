@@ -1,9 +1,7 @@
 import { useState } from "react";
 import type { RequirementGroup, Server } from "../types";
-import ProposalPanel from "./ProposalPanel";
-import { ConflictList, ItemIcon } from "./RequirementSection";
+import { ConflictList } from "./RequirementSection";
 
-export interface CompareRow { id: string; key: string; label: string; need: string; actual: string; status: string; note?: string; fix?: string; }
 
 interface Props {
   quote: RequirementGroup | undefined;
@@ -22,24 +20,24 @@ interface Props {
   onSplit: () => void;
   onKeepOne: () => void;
   onMarkLine: (line: number, mark: "skip" | null) => void;
-  /** 요구사항별 견적(실제 구성) 비교 */
-  compare: CompareRow[];
-  onFix: (key: string, need: string) => void;
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, compare, onFix }: Props) {
+export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
 
+  if (busy) return (
+    <div className="quotebox"><div className="pastebusy" role="status"><span className="spin" aria-hidden="true" />견적을 읽는 중… 실패하면 입력한 내용을 그대로 다시 보여 드립니다.</div></div>
+  );
   if (!quote || editing) return (
     <div className="quotebox">
       <b>견적 붙여넣기</b> <span className="muted small">견적 표를 엑셀에서 그대로 긁어 붙여넣으면 아래 서버 그림에 장착됩니다</span>
       <textarea aria-label="견적 붙여넣기" rows={editing ? 8 : 4} value={text} onChange={(event) => setText(event.target.value)} autoFocus={editing}
         placeholder="견적사항을 붙여넣으세요 — 엑셀 견적 표를 그대로 복사해서 Ctrl+V" />
       <div className="row">
-        <button type="button" className="btn small" disabled={busy || !text.trim()} onClick={() => { onPaste(text); setText(""); setEditing(false); }}>{busy ? "읽는 중…" : "견적 적용"}</button>
+        <button type="button" className="btn small" disabled={busy || !text.trim()} onClick={() => { onPaste(text); setEditing(false); }}>{busy ? "읽는 중…" : "견적 적용"}</button>
         {editing && <button type="button" className="btn ghost small" onClick={() => setEditing(false)}>취소</button>}
         {!quote && <span className="muted small">견적 없이 아래 그림에서 직접 구성해도 됩니다</span>}
       </div>
@@ -81,22 +79,6 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
       )}
       {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
       <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
-      {compare.length > 0 && (
-        <table className="cmp" aria-label="요구사항 대비 견적 구성">
-          <thead><tr><th>항목</th><th>견적 구성 (실제)</th><th>결과</th><th>조치</th></tr></thead>
-          <tbody>{compare.map((row) => {
-            const bad = row.status === "미충족" || row.status === "호환 불가";
-            const tone = bad ? "fail" : row.status === "충족" ? "ok" : "review";
-            return <tr key={row.id} className={bad ? "bad" : ""}>
-              <th scope="row"><ItemIcon k={row.key} />{row.label}</th>
-              <td>{row.actual}{row.note ? <small>{row.note}</small> : null}</td>
-              <td><span className={`pill p-${tone}`}>{row.status}</span></td>
-              <td>{bad && row.fix ? <button type="button" className="fix" onClick={() => onFix(row.key, row.need)}>{row.fix}</button> : <span className="muted">—</span>}</td>
-            </tr>;
-          })}</tbody>
-        </table>
-      )}
-      <ProposalPanel group={quote} server={server} servers={servers} notes={notes} busy={applying} onApply={onReapply} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
-import type { Component, ImageStatus, Server, ServerConfig, ValidationResult } from "../types";
+import type { Component, ImageStatus, PartLabels, Requirement, Server, ServerConfig, ValidationResult } from "../types";
+import { fixFor, ItemIcon } from "./RequirementSection";
 import type { ConfigDiff } from "../configDiff";
 
 interface Props {
@@ -26,6 +27,12 @@ interface Props {
   quotePanel?: ReactNode;
   /** 견적 대비 변경 (그림에서 직접 바꾼 곳) */
   diff?: ConfigDiff | null;
+  /** 견적이 적용돼 있는가 (없는 부품은 '미정' 대신 '미사용') */
+  hasQuote?: boolean;
+  /** 그림 라벨·표에 쓸 견적 품명 */
+  quoteLabels?: PartLabels;
+  /** 표의 '결과' 칸을 채울 요구사항 */
+  requirements?: Requirement[];
 }
 
 /** 서버가 합성한 전면/후면 그림과, 그 그림을 만든 구성 (화면 미리보기와 비교용) */
@@ -118,12 +125,16 @@ export default function ConfigSection({
   onUseAutoFront,
   quotePanel,
   diff,
+  hasQuote = false,
+  quoteLabels,
+  requirements = [],
 }: Props) {
   const [mode, setMode] = useState<"edit" | "calib">("edit");
   const [selectedBays, setSelectedBays] = useState<number[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   /** 확대 창으로 보고 있는 면 */
+  const [localFocus, setLocalFocus] = useState<FocusRequest | null>(null);
   const [zoom, setZoom] = useState<"front" | "rear" | null>(null);
   /** 확대 창 안의 그림 배율 (Ctrl + / Ctrl − / Ctrl 0, Ctrl+휠) */
   const [scale, setScale] = useState(1);
@@ -276,27 +287,28 @@ export default function ConfigSection({
   }, [zoom, mode, calibSel, selectedBays, selectedSlot, frontRects, slotHotspots, server, config]);
 
   useEffect(() => {
-    if (!focus || !server || !config) return;
+    const f = localFocus && (!focus || localFocus.n >= focus.n) ? localFocus : focus;
+    if (!f || !server || !config) return;
     clearSelection();
-    setNeed(focus.need || null);
-    if (focus.kind === "bays") {
-      if (focus.part === "raid") { openSpec("disk"); return; }
+    setNeed(f.need || null);
+    if (f.kind === "bays") {
+      if (f.part === "raid") { openSpec("disk"); return; }
       // 디스크 요구: 빈 베이를 모두 골라 두고 팝오버에서 '꽂기'만 누르면 되게
       const total = server.backplanes.find((item) => item.id === config.backplane)?.bays || 0;
       const empty = Array.from({ length: total }, (_, index) => index).filter((index) => !config.bays[String(index)]);
       if (!empty.length) { setNotice({ view: "front", text: "전면 베이가 모두 차 있습니다 — 디스크를 바꾸려면 베이를 클릭하세요" }); reveal(frontRef); return; }
       setSelectedBays(empty);
       reveal(frontRef);
-    } else if (focus.kind === "spec") {
-      openSpec(focus.part === "memory" ? "mem" : "cpu");
-    } else if (focus.kind === "slot" && focus.part === "psu") {
+    } else if (f.kind === "spec") {
+      openSpec(f.part === "memory" ? "mem" : "cpu");
+    } else if (f.kind === "slot" && f.part === "psu") {
       const psuSlotList = server.psu_slots || [];
       const target = psuSlotList[Math.min(config.psu_count || 0, psuSlotList.length - 1)];
       if (target) { setSelectedSlot(target.id); reveal(rearRef); } else openSpec("psu");
-    } else if (focus.kind === "slot") {
+    } else if (f.kind === "slot") {
       // 필요한 부품이 실제로 들어가는 빈 슬롯을 찾는다 (자리·크기·CPU/Riser 조건)
-      const wanted = components.filter((item) => focus.part === "fc" ? item.category === "FC HBA"
-        : focus.part === "gpu" ? item.category === "GPU" : item.category === "NIC" || item.category === "OCP NIC");
+      const wanted = components.filter((item) => f.part === "fc" ? item.category === "FC HBA"
+        : f.part === "gpu" ? item.category === "GPU" : item.category === "NIC" || item.category === "OCP NIC");
       const fitsSlot = (slot: Server["slots"][number]) => wanted.some((item) =>
         (slot.type === "ocp" ? item.form === "ocp" : item.form !== "ocp") && item.lanes <= slot.lanes
         && !(item.height === "FH" && slot.height === "LP") && !(item.double_width && !slot.double_width_ok));
@@ -306,7 +318,7 @@ export default function ConfigSection({
       else { setNotice({ view: "rear", text: "이 구성에는 맞는 빈 슬롯이 없습니다 — 다른 슬롯의 부품을 바꾸거나 Riser·CPU 구성을 확인하세요" }); reveal(rearRef); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus?.n]);
+  }, [focus?.n, localFocus?.n]);
 
   if (!server || !config) return (
     <section id="s3" className="card cfg">
@@ -524,12 +536,6 @@ export default function ConfigSection({
     ? diskGroups.map(([id, count]) => `${driveShort(id)} · ${count} EA`).join(" + ") + (config.boss ? " + BOSS M.2" : "")
     : config.boss ? "BOSS M.2 · 2 EA" : "없음";
   const memSummary = `${memoryTotal}GB${config.memory.some((row) => row.qty) ? ` (${config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB · ${row.qty} EA`).join(" + ")})` : ""}`;
-  const specRows = [
-    { key: "cpu", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, changed: diff?.spec },
-    { key: "mem", label: "MEM", text: memSummary, changed: diff?.spec },
-    { key: "disk", label: "Disk", text: diskSummary, changed: false },
-    { key: "psu", label: "PSU", text: `${config.psu_watt}W · ${config.psu_count} EA`, changed: diff?.psu },
-  ] as const;
   const specBody = (key: "cpu" | "mem" | "disk" | "psu") => {
     if (key === "cpu") return (
       <div className="row">
@@ -903,6 +909,76 @@ export default function ConfigSection({
     );
   };
 
+  // ── 견적사항 표: 정해진 항목을 빠짐없이 (값이 없으면 견적이 있으면 '미사용', 없으면 '미정') ──
+  const unset = hasQuote ? "미사용" : "미정";
+  const partRows = (cats: string[]) => {
+    const map = new Map<string, { name: string; count: number; ports: number }>();
+    Object.entries(config.slots).forEach(([sid, cid]) => {
+      const comp = components.find((item) => item.id === cid);
+      if (!comp || !cats.includes(comp.category)) return;
+      const info = quoteLabels?.slots?.[sid];
+      const name = info && info.comp === cid && info.desc ? info.desc : comp.name;
+      const row = map.get(name) || { name, count: 0, ports: 0 };
+      row.count += 1; row.ports += comp.ports || 0;
+      map.set(name, row);
+    });
+    return [...map.values()];
+  };
+  const listText = (rows: Array<{ name: string; count: number }>) => rows.length ? rows.map((row) => `${row.name} · ${row.count} EA`).join(" / ") : unset;
+  const portText = (rows: Array<{ ports: number }>) => { const total = rows.reduce((sum, row) => sum + row.ports, 0); return total ? `${total} Port` : unset; };
+  const ocpRows = partRows(["OCP NIC"]), nicRows = partRows(["NIC"]), fcRows = partRows(["FC HBA"]), gpuRows = partRows(["GPU"]);
+  const raidText = [config.raid.data ? `Data ${config.raid.data}` : "", config.raid.boot ? `Boot ${config.raid.boot}` : "", config.boss ? "BOSS-N1" : ""].filter(Boolean).join(" · ") || unset;
+  const diskText = diskGroups.length || config.boss ? diskSummary : unset;
+  type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean };
+  const specTableRows: SpecRow[] = [
+    { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [] },
+    { key: "rack", ik: "rack", label: "Rack", text: server.form_factor || unset, reqKeys: ["rack_mount"] },
+    { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_cores"], edit: "cpu", changed: diff?.spec },
+    { key: "mem", ik: "memory", label: "Memory", text: memoryTotal ? memSummary : unset, reqKeys: ["memory_gb"], edit: "mem", changed: diff?.spec },
+    { key: "disk", ik: "disk", label: "Disk", text: diskText, reqKeys: ["disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
+    { key: "raid", ik: "raid", label: "RAID", text: raidText, reqKeys: ["raid_level", "raid_controller"], edit: "disk" },
+    { key: "ocp", ik: "ocp", label: "OCP", text: listText(ocpRows), reqKeys: ["ocp_required"], part: "nic" },
+    { key: "nic", ik: "nic", label: "NIC", text: listText(nicRows), reqKeys: ["nic_speed_gb"], part: "nic" },
+    { key: "nicp", ik: "nic", label: "NIC Port", text: portText([...ocpRows, ...nicRows]), reqKeys: ["nic_ports"], part: "nic" },
+    { key: "fc", ik: "fc", label: "FC HBA", text: listText(fcRows), reqKeys: ["fc_speed_gb"], part: "fc" },
+    { key: "fcp", ik: "fc", label: "FC Port", text: portText(fcRows), reqKeys: ["fc_ports"], part: "fc" },
+    { key: "gpu", ik: "gpu", label: "GPU", text: listText(gpuRows), reqKeys: ["gpu_count"], part: "gpu" },
+    { key: "psu", ik: "psu", label: "PSU", text: `${config.psu_watt}W · ${config.psu_count} EA`, reqKeys: ["dual_psu", "psu_watt"], edit: "psu", changed: diff?.psu },
+  ];
+  const rowStatus = (row: SpecRow) => {
+    const found = requirements.filter((req) => row.reqKeys.includes(req.key) && req.key !== "manual" && !req._new)
+      .map((req) => ({ req, status: result?.requirements.find((entry) => entry.id === req.id)?.status || "" })).filter((entry) => entry.status);
+    if (!found.length) return null;
+    const bad = found.find((entry) => entry.status === "미충족" || entry.status === "호환 불가");
+    const review = found.find((entry) => entry.status === "확인 필요");
+    return { status: bad ? bad.status : review ? "확인 필요" : "충족", key: (bad || review || found[0]).req.key };
+  };
+  const specTable = (
+    <table className="cmp spec" aria-label="견적 구성">
+      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th><th /></tr></thead>
+      <tbody>{specTableRows.map((row) => {
+        const st = rowStatus(row);
+        const bad = st?.status === "미충족" || st?.status === "호환 불가";
+        const tone = bad ? "fail" : st?.status === "충족" ? "ok" : "review";
+        const fix = bad && st ? fixFor(st.key) : null;
+        const empty = row.text === "미정" || row.text === "미사용";
+        return [
+          <tr key={row.key} className={bad ? "bad" : ""}>
+            <th scope="row"><span className="cmp-item"><ItemIcon k={row.ik} />{row.label}</span></th>
+            <td className={empty ? "empty" : ""}>{row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}</td>
+            <td className="c">{st ? <span className={`pill p-${tone}`}>{st.status}</span> : <span className="muted">—</span>}</td>
+            <td className="act">
+              {fix && <button type="button" className="fix" onClick={() => setLocalFocus({ ...fix.request, n: Date.now() })}>{fix.label}</button>}
+              {row.edit && <button type="button" className="lnk" aria-expanded={specOpen === row.edit} onClick={() => setSpecOpen(specOpen === row.edit ? null : row.edit as "cpu" | "mem" | "disk" | "psu")}>{specOpen === row.edit ? "닫기" : "바꾸기"}</button>}
+              {!row.edit && row.part && <button type="button" className="lnk" onClick={() => setLocalFocus({ kind: "slot", part: row.part, n: Date.now() })}>슬롯에서 바꾸기</button>}
+            </td>
+          </tr>,
+          row.edit && specOpen === row.edit && (row.key === "cpu" || row.key === "mem" || row.key === "disk" || row.key === "psu") ? <tr key={`${row.key}-b`} className="editing"><td colSpan={4}>{specBody(row.edit)}</td></tr> : null,
+        ];
+      })}</tbody>
+    </table>
+  );
+
   const calibBar = mode === "calib" ? (
     <div className="calibbar" role="toolbar" aria-label="좌표 보정">
       <b>좌표 보정 중</b>
@@ -959,16 +1035,7 @@ export default function ConfigSection({
         </div>
         <div className="cardbody">
           {quotePanel}
-          <div className="specrows" ref={specRef}>
-            {specRows.map((row) => (
-              <div key={row.key} className={`sr ${specOpen === row.key ? "on" : ""}`}>
-                <button type="button" className="sr-h" aria-expanded={specOpen === row.key} onClick={() => setSpecOpen(specOpen === row.key ? null : row.key)}>
-                  <b>{row.label}</b><span>{row.text}</span>{row.changed ? <i className="l-diff" /> : null}<span className="lnk">{specOpen === row.key ? "닫기" : "바꾸기"}</span>
-                </button>
-                {specOpen === row.key && <div className="sr-b">{specBody(row.key)}</div>}
-              </div>
-            ))}
-          </div>
+          <div className="specrows" ref={specRef}>{specTable}</div>
         {!zoom && calibBar}
         {!zoom && calibMessage}
         {imageBayMismatch && mode !== "calib" && candidates.length < backplane.bays && (

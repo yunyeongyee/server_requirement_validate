@@ -115,6 +115,27 @@ export function ConflictList({ conflicts, onResolve, what }: { conflicts: AiConf
   </>;
 }
 
+const GROUPS: Record<string, string> = {
+  rack_mount: "Rack", cpu_sockets: "CPU", cpu_cores: "CPU", memory_gb: "Memory", disk_count: "Disk", disk_size_gb: "Disk", disk_total_gb: "Disk",
+  raid_level: "RAID", raid_controller: "RAID", nic_speed_gb: "NIC", nic_ports: "NIC Port", ocp_required: "OCP", fc_speed_gb: "FC HBA", fc_ports: "FC Port",
+  gpu_count: "GPU", free_pcie: "PCIe", dual_psu: "PSU", psu_watt: "PSU", manual: "수기 검토",
+};
+const reqGroup = (key: string) => GROUPS[key] || KEY_DEFS[key]?.[0] || key;
+/** '요구 조건' 칸: 항목명을 뺀 조건만 (16 Core 이상 · 2 EA 이상 · 이중화) */
+export function reqCondition(item: Requirement): string {
+  if (BOOLEAN_KEYS.has(item.key) || item.value === true) return item.key === "dual_psu" ? "이중화" : item.key === "rack_mount" ? "랙 장착형" : "필요";
+  if (item.key === "raid_level") return `${item.value}`;
+  if (item.value === "" || item.value == null) return item.label || "";
+  const [, unit] = KEY_DEFS[item.key] || ["", item.unit || ""];
+  let value: string | number = typeof item.value === "number" ? +item.value.toFixed(2) : String(item.value);
+  let shown = unit;
+  if (unit === "GB" && typeof value === "number" && value >= 1000 && item.key.startsWith("disk_")) { value = +(value / 1000).toFixed(2); shown = "TB"; }
+  const prefix = item.key === "disk_size_gb" ? "디스크당 " : item.key === "disk_total_gb" ? "합계 " : item.key === "psu_watt" ? "" : "";
+  const op = ({ ">=": "이상", "<=": "이하", "=": "", "?": "" } as Record<string, string>)[item.op] ?? item.op;
+  const note = item.note && SHOWN_NOTES.test(item.note) ? ` (${item.note})` : "";
+  return `${prefix}${value}${shown ? ` ${shown}` : ""}${op ? ` ${op}` : ""}${note}`;
+}
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 12);
 
 export default function RequirementSection({
@@ -189,7 +210,9 @@ export default function RequirementSection({
     </form>
   );
 
-  const pasteBox = (mode: "replace" | "append" | "first") => (
+  const pasteBox = (mode: "replace" | "append" | "first") => busy ? (
+    <div className="pastebusy" role="status"><span className="spin" aria-hidden="true" />요구사항을 읽는 중… 입력한 내용은 실패하면 그대로 다시 보여 드립니다.</div>
+  ) : (
     <div className={`pastebox ${mode === "first" ? "first" : ""}`}>
       <textarea
         aria-label="요구사항 붙여넣기"
@@ -203,8 +226,7 @@ export default function RequirementSection({
       <div className="row">
         <button type="button" className="btn" disabled={busy || !pasted.trim()} onClick={() => {
           onPaste(pasted, mode === "append" ? "append" : "replace");
-          setPasted("");
-          setPasteMode(null);
+          if (mode !== "first") { setPasted(""); setPasteMode(null); }
         }}>{busy ? "분석 중…" : mode === "append" ? "추가해서 분석" : "분석"}</button>
         {mode !== "first" && <button type="button" className="btn ghost" onClick={() => { setPasteMode(null); setPasted(""); }}>취소</button>}
         <span className="muted small">견적은 오른쪽 칸에 붙여넣으세요 · 외부로 보내지 않습니다</span>
@@ -235,26 +257,21 @@ export default function RequirementSection({
     const status = statusOf(item);
     const tone = STATUS_CLASS[status] || "review";
     const fix = status !== "충족" ? fixFor(item.key) : null;
-    const row = result?.requirements.find((entry) => entry.id === item.id);
     const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
+    if (editingId === item.id) return <tr key={item.id} className="editing"><td colSpan={4}>{renderEdit(item)}</td></tr>;
     return (
-      <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
-        {editingId === item.id ? renderEdit(item) : (
-          <>
-            <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
-            <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
-            <span className="rs">
-              <span className={`pill p-${tone}`}>{status}</span>
-              {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
-            </span>
-            <span className="rtools">
-              <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
-              <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
-            </span>
-            {!!sources.length && <span className="rsrc" role="tooltip"><small>원문</small>{sources.map((source, index) => <span key={index}>“{source}”</span>)}</span>}
-          </>
-        )}
-      </li>
+      <tr key={item.id} className={`s-${tone}`} title={sources.length ? `원문: ${sources.join(" / ")}` : undefined}>
+        <th scope="row"><span className="cmp-item"><ItemIcon k={item.key} />{reqGroup(item.key)}</span></th>
+        <td>{reqCondition(item)}</td>
+        <td className="c"><span className={`pill p-${tone}`}>{status}</span></td>
+        <td className="act">
+          {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
+          <span className="rtools-inline">
+            <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
+            <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
+          </span>
+        </td>
+      </tr>
     );
   };
   const lines = group.lines || [];
@@ -325,16 +342,20 @@ export default function RequirementSection({
           })}</ul>
         </div>
       )}
-      <ul className="reqrows">
-        {(group.model_hint || group.suggested_server) && (
-          <li className="reqrow s-info">
-            <span className="rq"><ItemIcon k="model" />서버 모델 · {group.model_hint || "미기재"}</span>
-            <span className="ra">{group.suggested_server ? "서버 모델 자동 선택됨" : "서버 카탈로그에 없는 모델 — 위에서 직접 고르세요"}</span>
-          </li>
-        )}
-        {sortedReqs.filter((item) => statusOf(item) !== "확인 필요").map(renderRow)}
-        {!requirements.length && <li className="reqempty muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</li>}
-      </ul>
+      <table className="cmp reqtable" aria-label="요구사항">
+        <thead><tr><th>항목</th><th>요구 조건</th><th>결과</th><th /></tr></thead>
+        <tbody>
+          {(group.model_hint || group.suggested_server) && (
+            <tr>
+              <th scope="row"><span className="cmp-item"><ItemIcon k="model" />서버 모델</span></th>
+              <td>{group.model_hint || "미기재"}{group.suggested_server ? "" : " · 카탈로그에 없음"}</td>
+              <td className="c"><span className="muted">—</span></td><td />
+            </tr>
+          )}
+          {sortedReqs.filter((item) => statusOf(item) !== "확인 필요").map(renderRow)}
+          {!requirements.length && <tr><td colSpan={4} className="muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</td></tr>}
+        </tbody>
+      </table>
       <div className="reqfoot">
         <details className="linefold">
           <summary>원문 보기 ({lines.length}줄{n("skip") ? ` · 제외 ${n("skip")}` : ""})</summary>

@@ -702,3 +702,20 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .review-detail .rtools-inline{display:flex;gap:10px;align-self:start}
 .review-detail .rv{grid-column:1/-1;margin:4px 0 0;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13px}
 .review-detail .rv dt{color:var(--mute)}.review-detail .rv dd{margin:0}.review-detail .rv dd span{display:block}
+
+/* 요구사항 표 (견적 표와 같은 모양) */
+.cmp.reqtable{margin:8px 16px;width:calc(100% - 32px)}
+.cmp .c{text-align:center}.cmp thead th.c{text-align:center}
+.cmp-item{display:flex;align-items:center;gap:10px}
+.cmp td.act{text-align:right;white-space:nowrap}
+.cmp tr.s-fail,.cmp tr.s-incomp{background:color-mix(in srgb,var(--fail) 7%,transparent)}
+.cmp tr.s-fail>th:first-child,.cmp tr.s-incomp>th:first-child{box-shadow:inset 3px 0 var(--fail)}
+.cmp .rtools-inline{display:none;gap:2px;margin-left:6px}.cmp tr:hover .rtools-inline,.cmp tr:focus-within .rtools-inline{display:inline-flex}
+.cmp tr.editing td{padding:8px 10px}
+.pastebusy{display:flex;align-items:center;gap:10px;padding:18px 16px;border:1px dashed var(--line);border-radius:8px;color:var(--mute);font-size:13px;margin:12px 16px}
+.quotebox .pastebusy{margin:0}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.cmp.spec{margin:8px 0;width:100%}
+.cmp.spec td.empty{color:var(--mute)}
+.cmp.spec tr.bad>td:nth-child(2){font-weight:600}

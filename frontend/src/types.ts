@@ -223,6 +223,8 @@ export interface Component {
   height: string;
   double_width: boolean;
   short: string;
+  speed_gb?: number;
+  ports?: number;
 }
 
 export interface ValidationIssue {
