@@ -479,10 +479,10 @@ figure.stage{position:relative}
 .actbar .ar.sub{font-size:12.5px;color:var(--mute);min-height:24px}
 .actbar .who{font-weight:700}
 .actbar select{font:inherit;font-size:13.5px;max-width:100%;height:30px;padding:0 6px}
-.actbar .opts{display:inline-flex;gap:4px}
-.actbar .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
-.actbar .opt:hover{border-color:var(--accent)}
-.actbar .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
+.actbar .opts,.pop .opts{display:inline-flex;gap:4px}
+.actbar .opt,.pop .opt{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 12px;cursor:pointer}
+.actbar .opt:hover,.pop .opt:hover{border-color:var(--accent)}
+.actbar .opt[aria-pressed="true"],.pop .opt[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
 .actbar .btn.danger{background:#fff;color:var(--fail);border-color:#E3A29C}
 .actbar .btn.danger:hover:not(:disabled){background:#FDECEC}
 .actbar .issues{margin:0;padding-left:18px;font-size:12.5px}
@@ -657,3 +657,6 @@ button.sw{cursor:pointer;text-decoration:underline}
 .cmp tr.bad{background:color-mix(in srgb,var(--fail) 7%,transparent)}
 .cmp tr.bad>th:first-child{box-shadow:inset 3px 0 var(--fail)}
 .cmp tr:last-child>*{border-bottom:0}
+
+.pop .opts{flex-wrap:wrap}.pop .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pop .btn{white-space:nowrap}

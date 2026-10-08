@@ -9,7 +9,7 @@
 - 합성       : 실제 전면/후면 이미지 + 장착 디스크/OCP 이미지 → PNG (입력 해시 캐시)
 """
 from __future__ import annotations
-import hashlib, io, json, re, threading, time, traceback, uuid
+import hashlib, math, io, json, re, threading, time, traceback, uuid
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -433,6 +433,27 @@ def _contain(img: Image.Image, w: int, h: int) -> Image.Image:
     return img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.LANCZOS)
 
 
+def _backdrop(base: Image.Image, box) -> tuple:
+    """영역 안에서 가장 많이 쓰인 색 (원본 PSU 몸체색) — 덮개 색으로 쓴다."""
+    x, y, w, h = box
+    crop = base.crop((max(0, x), max(0, y), min(base.width, x + w), min(base.height, y + h))).convert("RGB")
+    if crop.width < 2 or crop.height < 2:
+        return (228, 231, 235)
+    counts = crop.quantize(8).convert("RGB").getcolors(crop.width * crop.height) or []
+    light = [c for c in counts if sum(c[1]) > 540] or counts
+    return max(light, key=lambda c: c[0])[1] if light else (228, 231, 235)
+
+
+def _dashed(pen, box, color, width, dash=8):
+    x0, y0, x1, y1 = box
+    for a in range(int(x0), int(x1), dash * 2):
+        for y in (y0, y1):
+            pen.line((a, y, min(a + dash, x1), y), fill=color, width=width)
+    for a in range(int(y0), int(y1), dash * 2):
+        for x in (x0, x1):
+            pen.line((x, a, x, min(a + dash, y1)), fill=color, width=width)
+
+
 def _font(px):
     try:
         return ImageFont.load_default(size=px)
@@ -472,7 +493,7 @@ def render(server, cfg, view, catalog: dict) -> dict:
     if not base_it:
         return {"url": None, "reason": "이미지 미지정"}
     base_p = ROOT / "static" / base_it["file"]
-    layers, labels, missing, empties, stretch, blanks = [], [], [], [], [], []
+    layers, labels, missing, empties, stretch, blanks, psu_layers = [], [], [], [], [], [], []
     if view == "front":
         rects = bays(server, bp)["rects"]
         opts = {d["id"]: d for d in server.get("drive_options", [])}
@@ -526,12 +547,12 @@ def render(server, cfg, view, catalog: dict) -> dict:
             if not spot:
                 continue
             if it:
-                layers.append((ROOT / "static" / it["file"], spot))
+                psu_layers.append((ROOT / "static" / it["file"], spot))
             if not it or not exact:
                 labels.append((f"{watt:g}W" if isinstance(watt, (int, float)) else str(watt), spot))
     sig = json.dumps([base_it["id"], base_p.stat().st_mtime,
                       [(str(p), p.stat().st_mtime, r) for p, r in layers], labels, empties,
-                      [(str(p), r) for p, r in stretch], blanks], sort_keys=True, default=str)
+                      [(str(p), r) for p, r in stretch], blanks, [(str(p), r) for p, r in psu_layers], "psu2"], sort_keys=True, default=str)
     out = RENDERS / f"{server['id']}_{view}_{hashlib.sha1(sig.encode()).hexdigest()[:16]}.png"
     if not out.exists():
         with Image.open(base_p) as b:
@@ -546,13 +567,28 @@ def render(server, cfg, view, catalog: dict) -> dict:
             x, y, w, h = (round(W * r["x"] / 100), round(H * r["y"] / 100), round(W * r["w"] / 100), round(H * r["h"] / 100))
             with Image.open(p) as im:
                 base.alpha_composite(im.convert("RGBA").resize((max(1, w), max(1, h)), Image.LANCZOS), (x, y))
-        if empties:  # 빈 PSU 베이: 원본 그림의 PSU를 어둡게 가리고 표시
-            shade = ImageDraw.Draw(base, "RGBA")
-            for r in empties:
-                x, y, w, h = (W * r["x"] / 100, H * r["y"] / 100, W * r["w"] / 100, H * r["h"] / 100)
-                shade.rounded_rectangle((x, y, x + w, y + h), radius=4, fill=(20, 24, 30, 215))
-                f = _font(max(11, int(min(h * 0.2, 24))))
-                shade.text((x + w / 2, y + h / 2), "EMPTY", fill=(220, 226, 232, 255), font=f, anchor="mm")
+        def px(r):
+            return (round(W * r["x"] / 100), round(H * r["y"] / 100), max(1, round(W * r["w"] / 100)), max(1, round(H * r["h"] / 100)))
+        for r in empties:  # 빈 PSU 베이: 원본 그림의 PSU를 바탕색으로 덮고 점선 틀만 남긴다
+            x, y, w, h = px(r)
+            back = _backdrop(base, (x, y, w, h))
+            pen = ImageDraw.Draw(base, "RGBA")
+            pen.rectangle((x, y, x + w, y + h), fill=back + (255,))
+            _dashed(pen, (x + 2, y + 2, x + w - 2, y + h - 2), (120, 130, 142, 255), max(1, round(min(w, h) * 0.025)))
+            f = _font(max(11, int(min(h * 0.18, 22))))
+            pen.text((x + w / 2, y + h / 2), "EMPTY", fill=(120, 130, 142, 255), font=f, anchor="mm")
+        for p, r in psu_layers:  # PSU: 원본 PSU를 바탕색으로 덮고, 비율이 비슷하면 칸에 맞춰 늘리고 아니면 비율 유지
+            x, y, w, h = px(r)
+            ImageDraw.Draw(base, "RGBA").rectangle((x, y, x + w, y + h), fill=_backdrop(base, (x, y, w, h)) + (255,))
+            with Image.open(p) as im:
+                im = im.convert("RGBA")
+                if (im.width > im.height) != (w > h) and abs(im.width - im.height) > 3:
+                    im = im.rotate(90, expand=True)
+                if abs(math.log((im.width / im.height) / (w / h))) < 0.35:
+                    base.alpha_composite(im.resize((w, h), Image.LANCZOS), (x, y))
+                else:
+                    part = _contain(im, w, h)
+                    base.alpha_composite(part, (x + (w - part.width) // 2, y + (h - part.height) // 2))
         for p, r in layers:
             x, y, w, h = (round(W * r["x"] / 100), round(H * r["y"] / 100), round(W * r["w"] / 100), round(H * r["h"] / 100))
             with Image.open(p) as im:
