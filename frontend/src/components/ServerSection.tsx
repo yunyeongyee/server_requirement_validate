@@ -50,6 +50,7 @@ export default function ServerSection({
   const [linkTarget, setLinkTarget] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState("");
+  const [forceLink, setForceLink] = useState(false);
   const [dropping, setDropping] = useState(false);
 
   useEffect(() => {
@@ -71,8 +72,10 @@ export default function ServerSection({
     if (item.category === "server_front" || item.category === "server_rear") return "server";
     if (item.category === "drive" || item.category === "blank") return "disk";
     if (item.category === "psu") return "psu";
-    if (item.category === "ocp" || item.category === "module") return "nic";
     const n = item.name.toLowerCase();
+    // BOSS-N1·M.2 인터포저 같은 모듈은 NIC 가 아니다 — 이름에 네트워크 단서가 있을 때만 NIC/OCP
+    if (item.category === "module") return /ndc|lom|nic|ethernet|sfp|base-?t|\d+\s*gb?e/.test(n) ? "nic" : "other";
+    if (item.category === "ocp") return "nic";
     if (/fc|hba|fibre|fiber|qle|lpe/.test(n)) return "fc";
     if (/gpu|nvidia|\ba40\b|\bl4\b|h100|a100/.test(n)) return "gpu";
     if (/nic|sfp|rj-?45|ethernet|mellanox|broadcom|\d+\s*gb?e|base-?t/.test(n)) return "nic";
@@ -93,6 +96,27 @@ export default function ServerSection({
   const counts = Object.fromEntries(TABS.map(([id]) => [id, id === "all" ? library.length : library.filter((item) => tabOf(item) === id).length]));
   const selected = library.find((item) => item.id === selectedId) || null;
 
+  /** 이미지 이름에서 읽은 포트 수·속도·형태 vs 부품 사양 — 다르면 경고 (임의 연결 금지) */
+  const imageSpec = (name: string) => {
+    const n = name.toLowerCase();
+    const ports = n.match(/(\d+)\s*x\s*(?:\d|sfp|rj|base)/)?.[1] ?? (/quad/.test(n) ? "4" : /dual/.test(n) ? "2" : /single/.test(n) ? "1" : undefined);
+    const speed = n.match(/\d+\s*x\s*(\d+)\s*g/)?.[1];
+    const media = /sfp28|sfp\+|sfp/.test(n) ? "SFP" : /base-?t|\bbt\b|rj-?45/.test(n) ? "RJ45" : undefined;
+    return { ports: ports ? Number(ports) : undefined, speed: speed ? Number(speed) : undefined, media };
+  };
+  const compatWarn = (item: LibraryImage | null, componentId: string): string => {
+    if (!item || !componentId.startsWith("component:")) return "";
+    const comp = components.find((c) => c.id === componentId.slice(10));
+    if (!comp) return "";
+    const spec = imageSpec(item.name);
+    const diffs: string[] = [];
+    if (spec.ports && comp.ports && spec.ports !== comp.ports) diffs.push(`포트 수 ${spec.ports}개 ≠ ${comp.ports}개`);
+    if (spec.speed && comp.speed_gb && spec.speed !== comp.speed_gb) diffs.push(`속도 ${spec.speed}G ≠ ${comp.speed_gb}G`);
+    const compMedia = /sfp/i.test(comp.name) ? "SFP" : /base-?t|rj-?45|\bbt\b|\b1gbit cu\b|\bcu\b/i.test(comp.name) ? "RJ45" : undefined;
+    if (spec.media && compMedia && spec.media !== compMedia) diffs.push(`포트 형태 ${spec.media} ≠ ${compMedia}`);
+    return diffs.join(", ");
+  };
+  const matchRank = (item: LibraryImage | null, value: string) => compatWarn(item, value) ? 1 : 0;
   /** 선택한 이미지를 연결할 수 있는 대상 */
   const targetsFor = (item: LibraryImage | null): Array<{ value: string; label: string }> => {
     if (!item) return [];
@@ -107,8 +131,9 @@ export default function ServerSection({
       .filter((component) => t !== "nic" || (item.category === "ocp" || item.category === "module" ? component.form === "ocp" : true))
       .map((component) => ({ value: `component:${component.id}`, label: `${component.name} (${component.category})` }));
   };
-  const targets = targetsFor(selected);
+  const targets = [...targetsFor(selected)].sort((a, b) => matchRank(selected, a.value) - matchRank(selected, b.value));
   const currentTarget = targets.some((item) => item.value === linkTarget) ? linkTarget : targets[0]?.value || "";
+  const warn = compatWarn(selected, currentTarget);
   /** 지금 적용 중인 이미지 이름 (대상별) */
   const appliedItem = (value: string): { name: string; auto: boolean } | null => {
     const [kind, ...rest] = value.split(":");
@@ -275,7 +300,7 @@ export default function ServerSection({
                 return (
                   <button type="button" key={item.id} title={`${item.name}\n${item.source}`}
                     className={`libcard pickable ${selectedId === item.id ? "chosen" : ""}`} aria-pressed={selectedId === item.id}
-                    onClick={() => { setSelectedId(item.id); setLinkTarget(""); }}>
+                    onClick={() => { setSelectedId(item.id); setLinkTarget(""); setForceLink(false); }}>
                     {badge && <em className="used-badge" title="지금 적용 중">✓ {badge}</em>}
                     <img src={`/static/${item.file}`} alt="" loading="lazy" />
                     <span>{item.name}</span><small>{TABS.find(([id]) => id === tabOf(item))?.[1]} · {item.source}</small>
@@ -291,15 +316,16 @@ export default function ServerSection({
                 {targets.length ? <>
                   <label>연결 대상
                     <select value={currentTarget} onChange={(event) => setLinkTarget(event.target.value)} aria-label="연결 대상">
-                      {targets.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      {targets.map((item) => <option key={item.value} value={item.value}>{matchRank(selected, item.value) ? "" : "✓ "}{item.label}</option>)}
                     </select>
                   </label>
                   {appliedItem(currentTarget) && <span className="muted small">지금: {appliedItem(currentTarget)?.name}{appliedItem(currentTarget)?.auto ? " (자동)" : ""}</span>}
                   <button type="button" className="btn ghost" disabled={saving} onClick={() => setSelectedId(null)}>취소</button>
                   <button type="button" className="btn ghost" disabled={saving || !currentTarget} onClick={() => void link(currentTarget, null)} title="직접 연결을 풀고 자동 이미지로 되돌립니다">자동으로 되돌리기</button>
-                  <button type="button" className="btn" disabled={saving || !currentTarget} onClick={() => void link(currentTarget, selected.id)}>{saving ? "저장 중…" : "저장하기"}</button>
+                  <button type="button" className="btn" disabled={saving || !currentTarget || (!!warn && !forceLink)} onClick={() => void link(currentTarget, selected.id)}>{saving ? "저장 중…" : "저장하기"}</button>
                 </> : <span className="muted small">이 이미지는 연결할 대상이 없습니다 (그림 합성에 쓰이지 않는 종류)</span>}
               </> : <span className="muted small">이미지를 눌러 고르면 아래에서 연결 대상을 정할 수 있습니다</span>}
+              {warn && <label className="vault-warn" role="alert">⚠ 이미지와 부품 사양이 달라 보입니다 ({warn}). <input type="checkbox" checked={forceLink} onChange={(event) => setForceLink(event.target.checked)} /> 그래도 연결</label>}
               {saved && <span className="tag tag-auto" role="status">{saved}</span>}
             </div>
           </div>

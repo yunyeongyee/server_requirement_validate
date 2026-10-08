@@ -110,6 +110,10 @@ export interface RequirementGroup {
   quote_labels?: PartLabels;
   /** 서버 그림 위 라벨·연결선 편집 내용 */
   annot?: Annot;
+  /** 견적과 정확히 같은 부품이 없어 장착하지 않은 항목 (임의 대체 금지 — 사용자 확인) */
+  quote_unresolved?: Unresolved[];
+  /** 사용자가 대체 배치를 승인한 견적 품명 */
+  quote_sub?: string[];
 }
 
 /** AI 해석과 규칙 파서 해석이 다른 줄 (기본값은 AI, 줄마다 규칙 값을 고를 수 있다) */
@@ -299,6 +303,9 @@ export interface InventoryRow {
   qty: number;
   where: string;
 }
+
+/** 견적에는 있으나 카탈로그에 정확히 같은 부품이 없어 장착하지 않은 항목 */
+export interface Unresolved { category: string; desc: string; qty: number | null; nearest: string | null; reason: string }
 
 /** 그림 라벨에 쓸 견적 품명 */
 export interface PartLabels {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RequirementGroup, Server } from "../types";
 import { ConflictList } from "./RequirementSection";
+import type { Unresolved } from "../types";
 
 
 interface Props {
@@ -20,10 +21,13 @@ interface Props {
   onSplit: () => void;
   onKeepOne: () => void;
   onMarkLine: (line: number, mark: "skip" | null) => void;
+  /** 정확히 같은 부품이 없어 장착하지 않은 항목 / 대체 배치 승인 */
+  unresolved?: Unresolved[];
+  onApprove?: (desc: string) => void;
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne }: Props) {
+export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, unresolved = [], onApprove }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
@@ -79,6 +83,24 @@ export default function QuotePanel({ quote, busy, error, notes, applying, diffCo
       )}
       {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
       <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
+      {unresolved.length > 0 && (
+        <div className="warnlist unres" role="region" aria-label="장착하지 않은 견적 항목">
+          <b>⚠ 견적과 정확히 같은 부품이 없어 장착하지 않은 항목 {unresolved.length}개</b> <span className="muted small">— 다른 사양을 임의로 꽂지 않습니다. 확인 후 승인하면 가장 가까운 부품으로 배치합니다.</span>
+          {unresolved.map((item) => (
+            <div key={item.desc} className="cf">
+              <div className="cf-text" title={item.desc}>{item.desc}{item.qty ? ` · ${item.qty} EA` : ""}</div>
+              <div className="cf-why">{item.reason}{item.nearest ? ` — 가장 가까운 부품: ${item.nearest}` : " — 대체할 부품도 없음"}</div>
+              {item.nearest && onApprove && <button type="button" className="btn ghost small" onClick={() => onApprove(item.desc)}>대체 배치 승인 · {item.nearest}</button>}
+            </div>
+          ))}
+        </div>
+      )}
+      {!!notes?.length && (
+        <details className="quote-notes">
+          <summary className="muted small">견적을 구성에 옮길 때의 확인 사항 {notes.length}개</summary>
+          <ul>{notes.map((note, index) => <li key={index} className="small">{note}</li>)}</ul>
+        </details>
+      )}
     </div>
   );
 }

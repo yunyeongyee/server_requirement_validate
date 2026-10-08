@@ -1,5 +1,6 @@
 import type {
   PartLabels,
+  Unresolved,
   ProposedConfig,
   Component,
   ImageStatus,
@@ -131,9 +132,10 @@ export function applyProposal(
   proposed: ProposedConfig,
   baseConfig: ServerConfig,
   backplaneHint: Record<string, string | number> | null,
-): Promise<{ config: ServerConfig; notes: string[]; labels?: PartLabels }> {
+  substitute: string[] = [],
+): Promise<{ config: ServerConfig; notes: string[]; labels?: PartLabels; unresolved?: Unresolved[] }> {
   return sendJson("/api/proposal/apply", {
-    server_id: serverId, proposed, base_config: baseConfig, backplane_hint: backplaneHint,
+    server_id: serverId, proposed, base_config: baseConfig, backplane_hint: backplaneHint, substitute,
   });
 }
 

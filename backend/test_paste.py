@@ -63,8 +63,15 @@ class QuotePasteTests(unittest.TestCase):
         base = {"cpu_model": server["cpu_options"][0], "cpu_count": 2, "memory": [], "backplane": server["backplanes"][0]["id"],
                 "bays": {}, "raid": {"boot": "", "data": ""}, "boss": False, "psu_watt": 1400, "psu_count": 2, "risers": [], "slots": {}}
         res = client.post("/api/proposal/apply", json={"server_id": server["id"], "proposed": sv["proposed"], "base_config": base}).json()
-        self.assertIn("gpu_h100", res["config"]["slots"].values())
-        self.assertTrue(any("H200" in note and "대체" in note for note in res["notes"]))
+        # 같은 GPU 가 아니면 임의로 꽂지 않고 확인을 요청한다
+        self.assertNotIn("gpu_h100", res["config"]["slots"].values())
+        gone = [u for u in res["unresolved"] if u["category"] == "gpu"]
+        self.assertTrue(gone and "H100" in (gone[0]["nearest"] or ""))
+        # 사용자가 승인하면 대체 배치 (노트에 승인 사실)
+        ok = client.post("/api/proposal/apply", json={"server_id": server["id"], "proposed": sv["proposed"], "base_config": base,
+                                                      "substitute": [gone[0]["desc"]]}).json()
+        self.assertIn("gpu_h100", ok["config"]["slots"].values())
+        self.assertTrue(any("H200" in note and "승인" in note for note in ok["notes"]))
 
 
 class KindTests(unittest.TestCase):
@@ -430,3 +437,41 @@ class PreservedConditionTests(unittest.TestCase):
         waived = status("SSD SATA 1.92TB 2EA 이상", {"basis": "고객 메일 승인"})
         self.assertEqual(waived["status"], "충족")
         self.assertIn("고객 메일 승인", waived["note"])
+
+
+class NoSilentSubstitutionTests(unittest.TestCase):
+    def _server(self):
+        import json
+        with open("data/servers.json", encoding="utf-8") as f:
+            return next(s for s in json.load(f)["servers"] if s["id"] == "dell_r660")
+
+    def _apply(self, drives, substitute=None):
+        from . import proposal
+        server = self._server()
+        base = {"cpu_model": server["cpu_options"][0], "cpu_count": 2, "memory": [], "backplane": server["backplanes"][0]["id"], "bays": {},
+                "raid": {"boot": "", "data": ""}, "boss": False, "psu_watt": 1100, "psu_count": 2, "risers": [], "slots": {}}
+        proposed = {"cpu": {}, "memory": {"dimms": []}, "drives": drives, "raid": [], "nic": [], "ocp": [], "fc": [], "gpu": [], "riser": [], "psu": {}}
+        return proposal.to_config(server, proposed, {}, base, None, substitute)
+
+    def test_sata_request_is_placed_as_sata_not_sas(self):
+        drive = {"desc": "SSD SATA 6G 1.92TB RI 2.5", "qty": 3, "size_gb": 1920, "iface": "SATA", "media": "SSD", "ff": "2.5"}
+        res = self._apply([drive])
+        self.assertEqual({b["drive"] for b in res["config"]["bays"].values()}, {"ssd1920_sata"})
+        self.assertEqual(res["unresolved"], [])
+
+    def test_missing_exact_part_is_not_replaced_without_approval(self):
+        drive = {"desc": "SSD SATA 7.68TB", "qty": 2, "size_gb": 7680, "iface": "SATA", "media": "SSD", "ff": "2.5"}
+        res = self._apply([drive])
+        self.assertEqual(res["config"]["bays"], {})
+        self.assertEqual(res["unresolved"][0]["desc"], drive["desc"])
+        ok = self._apply([drive], [drive["desc"]])
+        self.assertEqual(len(ok["config"]["bays"]), 2)
+        self.assertTrue(any("승인" in n for n in ok["notes"]))
+
+    def test_disk_role_is_not_guessed_from_line_order(self):
+        a = {"desc": "SSD SATA 960GB", "qty": 2, "size_gb": 960, "iface": "SATA", "media": "SSD", "ff": "2.5"}
+        b = {"desc": "SSD SATA 1.92TB", "qty": 3, "size_gb": 1920, "iface": "SATA", "media": "SSD", "ff": "2.5"}
+        res = self._apply([a, b])
+        self.assertEqual({v["role"] for v in res["config"]["bays"].values()}, {"data"})
+        boot = self._apply([{**a, "desc": "Boot SSD SATA 960GB"}, b])
+        self.assertEqual(sum(1 for v in boot["config"]["bays"].values() if v["role"] == "boot"), 2)

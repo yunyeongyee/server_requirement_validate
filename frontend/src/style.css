@@ -778,3 +778,7 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .calcoords{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .calcoords label{display:grid;gap:2px;font-size:12px;color:var(--mute)}
 .calcoords input{width:100%;font:inherit;border:1px solid var(--line);border-radius:4px;padding:3px 6px}
+.cmp small.rownote{display:block;color:#996000;font-size:12px;margin-top:2px;font-weight:400}
+.warnlist.unres .btn{margin-top:4px}
+.quote-notes{margin:6px 16px;font-size:13px}.quote-notes ul{margin:4px 0 0;padding-left:20px}
+.vault-warn{flex-basis:100%;color:#a5182b;background:#fff0f2;border:1px solid #ffc4cc;border-radius:6px;padding:5px 10px;font-size:13px}

@@ -109,12 +109,13 @@ class ProposalIn(BaseModel):
     proposed: dict
     base_config: dict
     backplane_hint: dict | None = None
+    substitute: list[str] = []   # 사용자가 대체 배치를 승인한 견적 품명
 
 
 @app.post("/api/proposal/apply")
 def apply_proposal(body: ProposalIn):
     """견적서 제안 구성 → 선택한 모델의 서버 구성(배치 제안 + 옮기지 못한 항목 안내)."""
-    return proposal.to_config(server_by_id(body.server_id), body.proposed, catalog(), body.base_config, body.backplane_hint)
+    return proposal.to_config(server_by_id(body.server_id), body.proposed, catalog(), body.base_config, body.backplane_hint, body.substitute)
 
 
 # ------------------------------------------------ 검증

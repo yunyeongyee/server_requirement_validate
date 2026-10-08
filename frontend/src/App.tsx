@@ -257,13 +257,13 @@ export default function App() {
   };
 
   /** 견적의 제안 구성을 그 서버 구성에 적용하고, 그 결과를 '견적 기준 구성'으로 기억 */
-  const applyQuote = async (groupId: string, quote: RequirementGroup | undefined, targetProfile: ServerProfile | null) => {
+  const applyQuote = async (groupId: string, quote: RequirementGroup | undefined, targetProfile: ServerProfile | null, substitute: string[] = []) => {
     if (!quote?.proposed || !targetProfile) return;
     const base = quote.items?.find((item) => item.category === "base");
     try {
-      const { config: nextConfig, notes, labels } = await applyProposal(targetProfile.serverId, quote.proposed, targetProfile.config, base?.attrs || null);
+      const { config: nextConfig, notes, labels, unresolved } = await applyProposal(targetProfile.serverId, quote.proposed, targetProfile.config, base?.attrs || null, substitute);
       setProfiles((current) => ({ ...current, [groupId]: { ...(current[groupId] || targetProfile), config: nextConfig } }));
-      setGroups((current) => current.map((item) => item.id === groupId ? { ...item, quote_config: nextConfig, quote_labels: labels } : item));
+      setGroups((current) => current.map((item) => item.id === groupId ? { ...item, quote_config: nextConfig, quote_labels: labels, quote_unresolved: unresolved || [], quote_sub: substitute } : item));
       setProposalNotes((current) => ({ ...current, [groupId]: notes }));
     } catch (reason) {
       setQuoteError(reason instanceof Error ? reason.message : String(reason));
@@ -415,9 +415,16 @@ export default function App() {
       return { ...item, line_marks: marks };
     }));
 
+  /** 정확히 같은 부품이 없는 견적 항목을 사용자가 승인한 가장 가까운 부품으로 배치 */
+  const handleApproveSubstitute = async (desc: string) => {
+    setApplyingGroupId(group.id);
+    await applyQuote(group.id, group.quote, profile || null, [...new Set([...(group.quote_sub || []), desc])]);
+    setRenderedImages({ front: null, rear: null });
+    setApplyingGroupId(null);
+  };
   const handleApplyProposal = async () => {
     setApplyingGroupId(group.id);
-    await applyQuote(group.id, group.quote, profile || null);
+    await applyQuote(group.id, group.quote, profile || null, group.quote_sub || []);
     setRenderedImages({ front: null, rear: null });
     setApplyingGroupId(null);
   };
@@ -567,6 +574,7 @@ export default function App() {
             diff={diff}
             hasQuote={!!group.quote}
             quoteLabels={group.quote_labels}
+            quoteUnresolved={group.quote_unresolved}
             annot={group.annot}
             onAnnotChange={(next) => setGroups((current) => current.map((item) => item.id === group.id ? { ...item, annot: next } : item))}
             requirements={group.requirements}
@@ -583,6 +591,8 @@ export default function App() {
               onPaste={(text) => void handleQuotePaste(text)}
               onResolve={handleQuoteResolve}
               onReapply={() => void handleApplyProposal()}
+              unresolved={group.quote_unresolved || []}
+              onApprove={(desc) => void handleApproveSubstitute(desc)}
               onClear={handleClearQuote}
               onSplit={() => void handleQuoteSplit()}
               onKeepOne={handleQuoteKeepOne}

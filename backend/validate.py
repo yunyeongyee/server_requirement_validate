@@ -189,6 +189,9 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
         "disk_meta": {role: [_drive_meta(server, d) for d in cfg.get("drives", []) if d.get("role", "data") == role
                              for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
         "cpu_ghz": cpu_ghz(cfg.get("cpu_model", "")),
+        "raid_cfg": {role: {"level": next((d.get("raid", "") for d in cfg.get("drives", []) if d.get("role", "data") == role and not d.get("boss") and d.get("raid")), ""),
+                            "count": sum(int(d.get("qty", 0)) for d in cfg.get("drives", []) if d.get("role", "data") == role and not d.get("boss"))}
+                     for role in ("boot", "data")},
         "power_est_w": estimate_power(cfg, eff),
     }
 
@@ -285,6 +288,16 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
                 status = PASS; note = f"{want} 요구 → 상위 수준으로 충족"
             else:
                 status = FAIL
+                # Boot/Data 별 디스크 수와 RAID 설정을 따로 보여 준다 (총 디스크 수 조건과 RAID 에 필요한 디스크 수는 별개)
+                detail = []
+                for role, name in (("boot", "Boot"), ("data", "Data")):
+                    lvl, n = s["raid_cfg"][role]["level"], s["raid_cfg"][role]["count"]
+                    if lvl:
+                        detail.append(f"{name} {lvl} 설정 · 디스크 {n}개" + (f" (그 RAID는 {RAID_MIN.get(lvl, 1)}개 이상 필요)" if n < RAID_MIN.get(lvl, 1) else ""))
+                    elif n:
+                        detail.append(f"{name} 디스크 {n}개 · RAID 미설정")
+                if detail:
+                    actual = " / ".join(detail)
         elif k == "dual_psu":
             actual = f"PSU {s['psu_watt']:g}W × {s['psu_count']}"
             if s["psu_count"] < 2: status = FAIL
@@ -310,7 +323,8 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             disks = s["disks"][role] or (s["disks"]["boot"] if role == "data" else [])
             name = "Boot" if role == "boot" else "Data"
             if k == "disk_count":
-                actual = f"{name} {len(disks)}개"; status = PASS if _cmp(len(disks), op, v) else FAIL
+                other = "Boot" if role == "data" else "Data"
+                actual = f"{name} {len(disks)}개 ({other} {len(s['disks']['boot' if role == 'data' else 'data'])}개)"; status = PASS if _cmp(len(disks), op, v) else FAIL
             elif k == "disk_size_gb":
                 smallest = min(disks, default=0)
                 actual = f"{name} {_gb_text(smallest)}" if disks else "디스크 없음"

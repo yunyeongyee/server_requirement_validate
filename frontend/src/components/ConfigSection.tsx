@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
-import type { Component, ImageStatus, PartLabels, Requirement, Server, ServerConfig, ValidationResult } from "../types";
+import type { Component, ImageStatus, PartLabels, Requirement, Server, ServerConfig, Unresolved, ValidationResult } from "../types";
 import { fixFor, ItemIcon } from "./RequirementSection";
 import AnnotationLayer, { AnnotPanel, AnnotToolbar, buildAuto, emptyAnnot, extents, newLabel } from "./AnnotationLayer";
 import type { Annot, Selection, Target, Tool } from "./AnnotationLayer";
@@ -33,6 +33,8 @@ interface Props {
   hasQuote?: boolean;
   /** 그림 라벨·표에 쓸 견적 품명 */
   quoteLabels?: PartLabels;
+  /** 견적에는 있으나 정확히 같은 부품이 없어 장착하지 않은 항목 */
+  quoteUnresolved?: Unresolved[];
   /** 표의 '결과' 칸을 채울 요구사항 */
   requirements?: Requirement[];
   /** 서버 그림 위 라벨·연결선 (제안서용) */
@@ -132,6 +134,7 @@ export default function ConfigSection({
   diff,
   hasQuote = false,
   quoteLabels,
+  quoteUnresolved = [],
   requirements = [],
   annot = emptyAnnot,
   onAnnotChange = () => undefined,
@@ -942,13 +945,13 @@ export default function ConfigSection({
   // ── 견적사항 표: 정해진 항목을 빠짐없이 (값이 없으면 견적이 있으면 '미사용', 없으면 '미정') ──
   const unset = hasQuote ? "미사용" : "미정";
   const partRows = (cats: string[]) => {
-    const map = new Map<string, { name: string; count: number; ports: number }>();
+    const map = new Map<string, { name: string; count: number; ports: number; noImg: boolean }>();
     Object.entries(config.slots).forEach(([sid, cid]) => {
       const comp = components.find((item) => item.id === cid);
       if (!comp || !cats.includes(comp.category)) return;
       const info = quoteLabels?.slots?.[sid];
       const name = info && info.comp === cid && info.desc ? info.desc : comp.name;
-      const row = map.get(name) || { name, count: 0, ports: 0 };
+      const row = map.get(name) || { name, count: 0, ports: 0, noImg: !images?.components?.[cid]?.item };
       row.count += 1; row.ports += comp.ports || 0;
       map.set(name, row);
     });
@@ -959,20 +962,25 @@ export default function ConfigSection({
   const ocpRows = partRows(["OCP NIC"]), nicRows = partRows(["NIC"]), fcRows = partRows(["FC HBA"]), gpuRows = partRows(["GPU"]);
   const raidText = [config.raid.data ? `Data ${config.raid.data}` : "", config.raid.boot ? `Boot ${config.raid.boot}` : "", config.boss ? "BOSS-N1" : ""].filter(Boolean).join(" · ") || unset;
   const diskText = diskGroups.length || config.boss ? diskSummary : unset;
-  type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean };
+  type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean; notes?: string[] };
+  /** 견적에는 있으나 장착하지 못한 항목 / 장착했는데 그림이 연결되지 않은 부품을 그 줄에 이유와 함께 표시 */
+  const rowNotes = (cat: string, rows?: Array<{ name: string; noImg: boolean }>) => [
+    ...quoteUnresolved.filter((item) => item.category === cat).map((item) => `견적의 '${item.desc}'${item.qty ? ` · ${item.qty} EA` : ""}는 장착하지 않음 — ${item.reason}${item.nearest ? ` (가장 가까운 부품: ${item.nearest}) · 위 '견적' 영역에서 확인` : ""}`),
+    ...(rows || []).filter((row) => row.noImg).map((row) => `'${row.name}' 는 연결된 그림이 없어 글자 라벨로 표시됩니다 — 이미지 보관함에서 이 부품에 이미지를 연결하세요`),
+  ];
   const specTableRows: SpecRow[] = [
     { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [] },
     { key: "rack", ik: "rack", label: "Rack", text: server.form_factor || unset, reqKeys: ["rack_mount"] },
     { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], edit: "cpu", changed: diff?.spec },
     { key: "mem", ik: "memory", label: "Memory", text: memoryTotal ? memSummary : unset, reqKeys: ["memory_gb", "memory_type"], edit: "mem", changed: diff?.spec },
-    { key: "disk", ik: "disk", label: "Disk", text: diskText, reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
+    { key: "disk", ik: "disk", label: "Disk", text: diskText, notes: rowNotes("drive"), reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
     { key: "raid", ik: "raid", label: "RAID", text: raidText, reqKeys: ["raid_level", "raid_controller"], edit: "disk" },
-    { key: "ocp", ik: "ocp", label: "OCP", text: listText(ocpRows), reqKeys: ["ocp_required"], part: "nic" },
-    { key: "nic", ik: "nic", label: "NIC", text: listText(nicRows), reqKeys: ["nic_speed_gb", "nic_media"], part: "nic" },
+    { key: "ocp", ik: "ocp", label: "OCP", text: listText(ocpRows), notes: rowNotes("ocp", ocpRows), reqKeys: ["ocp_required"], part: "nic" },
+    { key: "nic", ik: "nic", label: "NIC", text: listText(nicRows), notes: rowNotes("nic", nicRows), reqKeys: ["nic_speed_gb", "nic_media"], part: "nic" },
     { key: "nicp", ik: "nic", label: "NIC Port", text: portText([...ocpRows, ...nicRows]), reqKeys: ["nic_ports"], part: "nic" },
-    { key: "fc", ik: "fc", label: "FC HBA", text: listText(fcRows), reqKeys: ["fc_speed_gb"], part: "fc" },
+    { key: "fc", ik: "fc", label: "FC HBA", text: listText(fcRows), notes: rowNotes("fc", fcRows), reqKeys: ["fc_speed_gb"], part: "fc" },
     { key: "fcp", ik: "fc", label: "FC Port", text: portText(fcRows), reqKeys: ["fc_ports"], part: "fc" },
-    { key: "gpu", ik: "gpu", label: "GPU", text: listText(gpuRows), reqKeys: ["gpu_count"], part: "gpu" },
+    { key: "gpu", ik: "gpu", label: "GPU", text: listText(gpuRows), notes: rowNotes("gpu", gpuRows), reqKeys: ["gpu_count"], part: "gpu" },
     { key: "psu", ik: "psu", label: "PSU", text: `${config.psu_watt}W · ${config.psu_count} EA`, reqKeys: ["dual_psu", "psu_watt"], edit: "psu", changed: diff?.psu },
   ];
   const rowStatus = (row: SpecRow) => {
@@ -995,7 +1003,7 @@ export default function ConfigSection({
         return [
           <tr key={row.key} className={bad ? "bad" : ""}>
             <th scope="row"><span className="cmp-item"><ItemIcon k={row.ik} />{row.label}</span></th>
-            <td className={empty ? "empty" : ""}>{row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}</td>
+            <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.notes?.map((note, i) => <small key={i} className="rownote">⚠ {note}</small>)}</td>
             <td className="c">{st ? <span className={`pill p-${tone}`}>{st.status}</span> : <span className="muted">—</span>}</td>
             <td className="act">
               {fix && <button type="button" className="fix" onClick={() => setLocalFocus({ ...fix.request, n: Date.now() })}>{fix.label}</button>}

@@ -65,6 +65,20 @@
           "stencil": "14G 2.5 SATA SSD"
         },
         {
+          "id": "ssd1920_sata",
+          "name": "1.92TB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
+          "id": "ssd3840_sata",
+          "name": "3.84TB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
           "id": "ssd1920_sas",
           "name": "1.92TB SAS SSD 2.5\"",
           "ff": "2.5",
@@ -387,6 +401,20 @@
         {
           "id": "ssd960_sata",
           "name": "960GB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
+          "id": "ssd1920_sata",
+          "name": "1.92TB SATA SSD 2.5\"",
+          "ff": "2.5",
+          "iface": "SATA",
+          "stencil": "14G 2.5 SATA SSD"
+        },
+        {
+          "id": "ssd3840_sata",
+          "name": "3.84TB SATA SSD 2.5\"",
           "ff": "2.5",
           "iface": "SATA",
           "stencil": "14G 2.5 SATA SSD"
