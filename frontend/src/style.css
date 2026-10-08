@@ -695,3 +695,6 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .aiconf-quiet>summary{cursor:pointer}
 .aiconf-quiet .cf{margin:6px 0 6px 10px}
 .reqrow.s-info{border-left-color:var(--line);background:color-mix(in srgb,var(--accent) 4%,transparent)}
+.pillbtn{border:0;cursor:pointer;font:inherit;font-size:12px;font-weight:600}
+.reviewbox{margin:8px 16px;border:1px solid #F0D98A;background:#FFFBEA;border-radius:8px;padding:8px 0}
+.reviewbox>b,.reviewbox>span{margin-left:12px}

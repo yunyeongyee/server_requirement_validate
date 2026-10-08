@@ -121,6 +121,7 @@ export default function RequirementSection({
   group, busy, error,
   result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
+  const [showReview, setShowReview] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [pasteMode, setPasteMode] = useState<"replace" | "append" | null>(null);
@@ -215,9 +216,8 @@ export default function RequirementSection({
     <div className="cardhead">
       <h2>요구사항 <span className="muted">· {group.name}{group.quantity ? ` ×${group.quantity}` : ""}</span></h2>
       <div className="counts">
-        {count("충족") > 0 && <span className="pill p-ok">충족 {count("충족")}</span>}
         {count("미충족") + count("호환 불가") > 0 && <span className="pill p-fail">미충족 {count("미충족") + count("호환 불가")}</span>}
-        {count("확인 필요") > 0 && <span className="pill p-review">확인 {count("확인 필요")}</span>}
+        {count("확인 필요") > 0 && <button type="button" className="pill p-review pillbtn" aria-expanded={showReview} onClick={() => setShowReview(!showReview)}>확인 {count("확인 필요")} {showReview ? "▴" : "▾"}</button>}
       </div>
     </div>
   );
@@ -230,6 +230,33 @@ export default function RequirementSection({
     </section>
   );
 
+  const sortedReqs = [...requirements].sort((a, b) => keyRank(a.key) - keyRank(b.key) || (a.line ?? 9999) - (b.line ?? 9999));
+  const renderRow = (item: Requirement) => {
+    const status = statusOf(item);
+    const tone = STATUS_CLASS[status] || "review";
+    const fix = status !== "충족" ? fixFor(item.key) : null;
+    const row = result?.requirements.find((entry) => entry.id === item.id);
+    const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
+    return (
+      <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
+        {editingId === item.id ? renderEdit(item) : (
+          <>
+            <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
+            <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
+            <span className="rs">
+              <span className={`pill p-${tone}`}>{status}</span>
+              {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
+            </span>
+            <span className="rtools">
+              <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
+              <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
+            </span>
+            {!!sources.length && <span className="rsrc" role="tooltip"><small>원문</small>{sources.map((source, index) => <span key={index}>“{source}”</span>)}</span>}
+          </>
+        )}
+      </li>
+    );
+  };
   const lines = group.lines || [];
   const lineState = (line: PasteLine) => {
     const reqs = requirements.filter((item) => item.line === line.n || item.lines?.includes(line.n));
@@ -274,6 +301,12 @@ export default function RequirementSection({
           ))}
         </div>
       )}
+      {showReview && count("확인 필요") > 0 && (
+        <div className="reviewbox" role="region" aria-label="수기 검토가 필요한 요구사항">
+          <b>수기 검토 필요 {count("확인 필요")}개</b> <span className="muted small">— 자동 판정할 수 없어 사람이 확인해야 하는 항목입니다</span>
+          <ul className="reqrows">{sortedReqs.filter((item) => statusOf(item) === "확인 필요").map(renderRow)}</ul>
+        </div>
+      )}
       <ul className="reqrows">
         {(group.model_hint || group.suggested_server) && (
           <li className="reqrow s-info">
@@ -281,32 +314,7 @@ export default function RequirementSection({
             <span className="ra">{group.suggested_server ? "서버 모델 자동 선택됨" : "서버 카탈로그에 없는 모델 — 위에서 직접 고르세요"}</span>
           </li>
         )}
-        {[...requirements].sort((a, b) => keyRank(a.key) - keyRank(b.key) || (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
-          const status = statusOf(item);
-          const tone = STATUS_CLASS[status] || "review";
-          const fix = status !== "충족" ? fixFor(item.key) : null;
-          const row = result?.requirements.find((entry) => entry.id === item.id);
-          const sources = item.sources?.length ? item.sources : item.source ? [item.source] : [];
-          return (
-            <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
-              {editingId === item.id ? renderEdit(item) : (
-                <>
-                  <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
-                  <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
-                  <span className="rs">
-                    <span className={`pill p-${tone}`}>{status}</span>
-                    {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
-                  </span>
-                  <span className="rtools">
-                    <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
-                    <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
-                  </span>
-                  {!!sources.length && <span className="rsrc" role="tooltip"><small>원문</small>{sources.map((source, index) => <span key={index}>“{source}”</span>)}</span>}
-                </>
-              )}
-            </li>
-          );
-        })}
+        {sortedReqs.filter((item) => statusOf(item) !== "확인 필요").map(renderRow)}
         {!requirements.length && <li className="reqempty muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</li>}
       </ul>
       <div className="reqfoot">
