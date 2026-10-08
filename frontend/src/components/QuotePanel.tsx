@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { RequirementGroup, Server } from "../types";
 import ProposalPanel from "./ProposalPanel";
-import { ItemIcon } from "./RequirementSection";
+import { ConflictList, ItemIcon } from "./RequirementSection";
 
 export interface CompareRow { id: string; key: string; label: string; need: string; actual: string; status: string; note?: string; fix?: string; }
 
@@ -61,7 +61,6 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
         <span className="muted small">{quote.base_desc || quote.model_hint || "본체 미표기"} · 품목 {count("part")} · 부속품 {count("skip")}
           {replaced ? <> · <span className="q-warn">대체 {replaced}</span></> : null}
           {warn ? <> · <span className="q-warn">확인 필요 {warn}</span></> : null}
-          {conflicts.length ? <> · <span className="q-warn">AI·규칙 해석 다름 {conflicts.length}</span></> : null}
           {quote.ai?.used ? <> · AI 정리</> : null}
           {diffCount ? <> · <span className="q-diff">견적 대비 변경 {diffCount}</span></> : null}
         </span>
@@ -81,21 +80,7 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
         </div>
       )}
       {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
-      {conflicts.length > 0 && (
-        <div className="warnlist aiconf" role="region" aria-label="AI와 규칙의 해석이 다른 품목">
-          <b>⚠ AI와 규칙의 해석이 다른 품목 {conflicts.length}개</b> <span className="muted small">— 기본은 AI 해석, 품목마다 고르세요</span>
-          {conflicts.map((c) => (
-            <div key={c.line} className="cf">
-              <div className="cf-text" title={c.text}>{c.text}</div>
-              <div className="cf-opts">
-                <button type="button" className={`opt ${c.using === "ai" ? "on" : ""}`} onClick={() => onResolve(c.line, "ai")}>AI: {c.ai}</button>
-                <button type="button" className={`opt ${c.using === "rule" ? "on" : ""}`} disabled={!c.can_use_rule} onClick={() => onResolve(c.line, "rule")}>규칙: {c.rule ?? "읽지 못함"}</button>
-              </div>
-              {c.unverified.length > 0 && <div className="cf-why">원문에서 확인하지 못한 값: {c.unverified.join(", ")}</div>}
-            </div>
-          ))}
-        </div>
-      )}
+      <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
       {compare.length > 0 && (
         <table className="cmp" aria-label="요구사항 대비 견적 구성">
           <thead><tr><th>항목</th><th>견적 구성 (실제)</th><th>결과</th><th>조치</th></tr></thead>

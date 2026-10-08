@@ -24,7 +24,7 @@ import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
 import QuotePanel from "./components/QuotePanel";
 import type { CompareRow } from "./components/QuotePanel";
-import { fixFor, formatRequirement } from "./components/RequirementSection";
+import { fixFor, formatRequirement, keyRank } from "./components/RequirementSection";
 import { configDiff } from "./configDiff";
 
 export type ModelSource = "document" | "manual" | "default";
@@ -494,6 +494,7 @@ export default function App() {
 
   const compareRows: CompareRow[] = group.quote ? group.requirements
     .filter((item) => item.status !== "review" && item.key !== "manual" && !item._new)
+    .sort((a, b) => keyRank(a.key) - keyRank(b.key))
     .map((item) => {
       const row = validation?.requirements.find((entry) => entry.id === item.id);
       return { id: item.id, key: item.key, label: formatRequirement(item), need: formatRequirement(item),

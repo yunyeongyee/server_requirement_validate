@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PasteLine, Requirement, RequirementGroup, ValidationResult } from "../types";
+import type { AiConflict, PasteLine, Requirement, RequirementGroup, ValidationResult } from "../types";
 import type { FocusRequest } from "./ConfigSection";
 
 const KEY_DEFS: Record<string, [string, string]> = {
@@ -79,13 +79,48 @@ export function ItemIcon({ k }: { k: string }) {
   </svg>;
 }
 
+/** 화면에 보여 줄 항목 순서: 서버 → CPU → 메모리 → 디스크 → RAID → 네트워크 → 전원 */
+const KEY_ORDER = ["rack_mount", "cpu_sockets", "cpu_cores", "memory_gb", "disk_count", "disk_size_gb", "disk_total_gb", "raid_level", "raid_controller",
+  "nic_speed_gb", "nic_ports", "ocp_required", "fc_speed_gb", "fc_ports", "gpu_count", "free_pcie", "dual_psu", "psu_watt", "manual"];
+export const keyRank = (key: string) => { const i = KEY_ORDER.indexOf(key); return i < 0 ? KEY_ORDER.length - 1 : i; };
+
+/** AI 와 규칙이 다르게 읽은 줄: 기본은 AI 해석을 쓰고, 확인용으로 접어 둔다. 원문에서 확인 못 한 값이 있는 줄만 펼쳐 경고한다. */
+export function ConflictList({ conflicts, onResolve, what }: { conflicts: AiConflict[]; onResolve: (line: number, use: "ai" | "rule") => void; what: string }) {
+  if (!conflicts.length) return null;
+  const risky = conflicts.filter((c) => c.unverified.length > 0);
+  const quiet = conflicts.filter((c) => c.unverified.length === 0);
+  const row = (c: AiConflict) => (
+    <div key={c.line} className="cf">
+      <div className="cf-text" title={c.text}>{c.text}</div>
+      <div className="cf-opts">
+        <button type="button" className={`opt ${c.using === "ai" ? "on" : ""}`} onClick={() => onResolve(c.line, "ai")}>AI: {c.ai}</button>
+        <button type="button" className={`opt ${c.using === "rule" ? "on" : ""}`} disabled={!c.can_use_rule} onClick={() => onResolve(c.line, "rule")}>규칙: {c.rule ?? "읽지 못함"}</button>
+      </div>
+      {c.unverified.length > 0 && <div className="cf-why">원문에서 확인하지 못한 값: {c.unverified.join(", ")}</div>}
+    </div>
+  );
+  return <>
+    {risky.length > 0 && (
+      <div className="warnlist aiconf" role="region" aria-label={`원문에서 확인하지 못한 ${what}`}>
+        <b>⚠ 원문에서 확인하지 못한 값이 있는 {what} {risky.length}개</b> <span className="muted small">— 원문과 비교해 고르세요</span>
+        {risky.map(row)}
+      </div>
+    )}
+    {quiet.length > 0 && (
+      <details className="aiconf-quiet">
+        <summary className="muted small">AI가 규칙과 다르게 읽은 {what} {quiet.length}개 — AI 해석으로 반영됨 (필요하면 바꾸기)</summary>
+        {quiet.map(row)}
+      </details>
+    )}
+  </>;
+}
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 12);
 
 export default function RequirementSection({
   group, busy, error,
   result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
-  const [showMet, setShowMet] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [pasteMode, setPasteMode] = useState<"replace" | "append" | null>(null);
@@ -222,21 +257,7 @@ export default function RequirementSection({
       )}
       {pasteMode && <div className="pad">{pasteBox(pasteMode)}</div>}
       {group.ai?.notice && <p className="warn small pad" role="status">{group.ai.notice}</p>}
-      {!!group.ai?.conflicts.length && (
-        <div className="warnlist aiconf" role="region" aria-label="AI와 규칙의 해석이 다른 줄">
-          <b>⚠ AI와 규칙의 해석이 다른 줄 {group.ai.conflicts.length}개</b> <span className="muted small">— 기본은 AI 해석, 줄마다 고르세요</span>
-          {group.ai.conflicts.map((c) => (
-            <div key={c.line} className="cf">
-              <div className="cf-text" title={c.text}>{c.text}</div>
-              <div className="cf-opts">
-                <button type="button" className={`opt ${c.using === "ai" ? "on" : ""}`} onClick={() => onResolve(c.line, "ai")}>AI: {c.ai}</button>
-                <button type="button" className={`opt ${c.using === "rule" ? "on" : ""}`} disabled={!c.can_use_rule} onClick={() => onResolve(c.line, "rule")}>규칙: {c.rule ?? "읽지 못함"}</button>
-              </div>
-              {c.unverified.length > 0 && <div className="cf-why">원문에서 확인하지 못한 값: {c.unverified.join(", ")}</div>}
-            </div>
-          ))}
-        </div>
-      )}
+      <ConflictList conflicts={group.ai?.conflicts || []} onResolve={onResolve} what="줄" />
       {n("warn") > 0 && (
         <div className="warnlist" role="region" aria-label="읽지 못한 줄">
           <b>⚠ 읽지 못한 줄 {n("warn")}개</b> <span className="muted small">— 항목으로 추가하거나 제외하세요</span>
@@ -254,7 +275,13 @@ export default function RequirementSection({
         </div>
       )}
       <ul className="reqrows">
-        {[...requirements].filter((item) => showMet || statusOf(item) !== "충족").sort((a, b) => (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
+        {(group.model_hint || group.suggested_server) && (
+          <li className="reqrow s-info">
+            <span className="rq"><ItemIcon k="model" />서버 모델 · {group.model_hint || "미기재"}</span>
+            <span className="ra">{group.suggested_server ? "서버 모델 자동 선택됨" : "서버 카탈로그에 없는 모델 — 위에서 직접 고르세요"}</span>
+          </li>
+        )}
+        {[...requirements].sort((a, b) => keyRank(a.key) - keyRank(b.key) || (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
           const status = statusOf(item);
           const tone = STATUS_CLASS[status] || "review";
           const fix = status !== "충족" ? fixFor(item.key) : null;
@@ -280,8 +307,6 @@ export default function RequirementSection({
             </li>
           );
         })}
-        {!showMet && count("충족") > 0 && <li className="reqmet"><button type="button" className="lnk" onClick={() => setShowMet(true)}>충족 {count("충족")}개 보기</button></li>}
-        {showMet && count("충족") > 0 && <li className="reqmet"><button type="button" className="lnk" onClick={() => setShowMet(false)}>충족 항목 접기</button></li>}
         {!requirements.length && <li className="reqempty muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</li>}
       </ul>
       <div className="reqfoot">

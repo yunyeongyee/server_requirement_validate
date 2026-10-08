@@ -21,7 +21,7 @@ export default function ProposalPanel({ group, notes }: Props) {
   const list = (items: Array<{ desc: string; qty: number }>) => {
     const merged = new Map<string, number>();
     items.forEach((item) => merged.set(item.desc, (merged.get(item.desc) || 0) + (item.qty || 0)));
-    return [...merged].map(([desc, qty]) => `${desc} × ${qty}`).join(" / ");
+    return [...merged].map(([desc, qty]) => `${desc} · ${qty} EA`).join(" / ");
   };
 
   return (
@@ -34,9 +34,9 @@ export default function ProposalPanel({ group, notes }: Props) {
       {!!notes?.length && <span className="pp-warn">⚠ 바뀐 항목 {notes.length}개</span>}
       </summary>
       <dl className="pp-grid">
-        {line("본체", group.base_desc || group.model_hint)}
-        {line("CPU", p.cpu.count ? `${p.cpu.model || "-"} × ${p.cpu.count}` : null)}
-        {line("Memory", p.memory.total_gb ? `${p.memory.total_gb}GB (${p.memory.dimms.map((d) => `${d.size_gb}GB × ${d.qty}`).join(" + ")})` : null)}
+        {line("서버 모델", group.base_desc || group.model_hint)}
+        {line("CPU", p.cpu.count ? `${p.cpu.model || "-"} · ${p.cpu.count} EA` : null)}
+        {line("Memory", p.memory.total_gb ? `${p.memory.total_gb}GB (${p.memory.dimms.map((d) => `${d.size_gb}GB · ${d.qty} EA`).join(" + ")})` : null)}
         {line("Disk", p.drives.length ? list(p.drives) : null)}
         {line("RAID", p.raid.length ? p.raid.join(" / ") : null)}
         {line("OCP", p.ocp.length ? list(p.ocp) : null)}
@@ -44,7 +44,7 @@ export default function ProposalPanel({ group, notes }: Props) {
         {line("FC HBA", p.fc.length ? list(p.fc) : null)}
         {line("GPU", p.gpu.length ? list(p.gpu) : null)}
         {line("Riser", p.riser?.length ? list(p.riser) : null)}
-        {line("PSU", p.psu.count ? `${p.psu.watt ?? "-"}W × ${p.psu.count}` : null)}
+        {line("PSU", p.psu.count ? `${p.psu.watt ?? "-"}W · ${p.psu.count} EA` : null)}
       </dl>
     </details>
   );

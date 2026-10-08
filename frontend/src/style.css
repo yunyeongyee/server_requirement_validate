@@ -690,3 +690,8 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .zoomstage{overflow:auto;max-height:calc(96vh - 150px);border-radius:6px}
 .zoomscale{min-width:100%}
 .zoomhead .opts{margin-left:0}
+
+.aiconf-quiet{margin:6px 16px;font-size:13px}
+.aiconf-quiet>summary{cursor:pointer}
+.aiconf-quiet .cf{margin:6px 0 6px 10px}
+.reqrow.s-info{border-left-color:var(--line);background:color-mix(in srgb,var(--accent) 4%,transparent)}

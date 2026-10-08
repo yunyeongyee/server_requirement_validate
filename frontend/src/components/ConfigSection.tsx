@@ -521,14 +521,14 @@ export default function ConfigSection({
     return [...counts];
   })();
   const diskSummary = diskGroups.length
-    ? diskGroups.map(([id, count]) => `${count} × ${driveShort(id)}`).join(" + ") + (config.boss ? " + BOSS M.2" : "")
-    : config.boss ? "BOSS M.2 × 2" : "없음";
-  const memSummary = `${memoryTotal}GB${config.memory.some((row) => row.qty) ? ` (${config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB × ${row.qty}`).join(" + ")})` : ""}`;
+    ? diskGroups.map(([id, count]) => `${driveShort(id)} · ${count} EA`).join(" + ") + (config.boss ? " + BOSS M.2" : "")
+    : config.boss ? "BOSS M.2 · 2 EA" : "없음";
+  const memSummary = `${memoryTotal}GB${config.memory.some((row) => row.qty) ? ` (${config.memory.filter((row) => row.qty).map((row) => `${row.size_gb}GB · ${row.qty} EA`).join(" + ")})` : ""}`;
   const specRows = [
-    { key: "cpu", label: "CPU", text: `${config.cpu_count} × ${config.cpu_model}`, changed: diff?.spec },
+    { key: "cpu", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, changed: diff?.spec },
     { key: "mem", label: "MEM", text: memSummary, changed: diff?.spec },
     { key: "disk", label: "Disk", text: diskSummary, changed: false },
-    { key: "psu", label: "PSU", text: `${config.psu_count} × ${config.psu_watt}W`, changed: diff?.psu },
+    { key: "psu", label: "PSU", text: `${config.psu_watt}W · ${config.psu_count} EA`, changed: diff?.psu },
   ] as const;
   const specBody = (key: "cpu" | "mem" | "disk" | "psu") => {
     if (key === "cpu") return (
@@ -1091,7 +1091,7 @@ function StorageSummary({ server, config, bayCount }: { server: Server; config: 
       <span className="muted">전면 베이 {used}/{bayCount} 사용 · 빈 베이 {Math.max(0, bayCount - used)}개{config.boss ? " · BOSS-N1 M.2 부트(RAID1)" : ""}</span>
       {roles.map((row) => (
         <span key={row.role} className={`chip ${row.usable === null || row.mixed ? "chip-bad" : ""}`}>
-          <b>{row.role === "boot" ? "Boot" : "Data"}</b> {row.names.map(({ name, count }) => `${name} × ${count}`).join(" + ")} · {row.level || "No RAID"} · 원시 {formatGb(row.raw)}
+          <b>{row.role === "boot" ? "Boot" : "Data"}</b> {row.names.map(({ name, count }) => `${name} · ${count} EA`).join(" + ")} · {row.level || "No RAID"} · 원시 {formatGb(row.raw)}
           {row.usable === null ? ` · ${row.level}에 디스크 ${row.count}개는 구성 불가` : ` · 사용 가능 약 ${formatGb(row.usable)}`}
           {row.mixed && " · 서로 다른 디스크 혼용"}
         </span>
