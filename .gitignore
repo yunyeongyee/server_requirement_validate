@@ -7,3 +7,7 @@ data/parts.json
 .env
 static/index.html
 static/assets/
+static/images/
+data/image_map.json.broken-*
+data/*.broken-*
+*.tsbuildinfo
