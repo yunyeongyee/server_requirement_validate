@@ -252,20 +252,20 @@ export default function ServerSection({
             )}
             </div>
             <details className="sub">
-              <summary>고급: OCP 카드 · 디스크 · PSU 이미지 연결 (전면/후면 합성에 쓰임)</summary>
+              <summary>고급: 카드(OCP·NIC·FC·GPU) · 디스크 · PSU 이미지 연결 (전면/후면 합성에 쓰임)</summary>
               <div className="scroll">
                 <table className="grid">
                   <thead><tr><th>부품</th><th>사용 이미지</th><th>연결</th></tr></thead>
                   <tbody>
-                    {components.filter((component) => component.form === "ocp").map((component) => {
+                    {[...components].sort((a, b) => Number(b.form === "ocp") - Number(a.form === "ocp")).map((component) => {
                       const image = images?.components[component.id];
                       return (
                         <tr key={component.id}>
-                          <td>{component.name}</td>
-                          <td>{image?.item?.name || "자동 이미지 없음"}{image?.auto === false ? " · 직접 선택" : ""}</td>
+                          <td>{component.name}<span className="muted small"> · {component.category}</span></td>
+                          <td>{image?.item?.name || (component.form === "ocp" ? "자동 이미지 없음" : "이미지 없음 — 글자 라벨로 표시")}{image?.auto === false ? " · 직접 선택" : ""}</td>
                           <td><select aria-label={`${component.name} 이미지`} value={pending[`component:${component.id}`] ? pending[`component:${component.id}`].itemId || "" : image?.item?.id || ""} onChange={(event) => stage("component", component.id, event.target.value || null)}>
                             <option value="">자동(스텐실 기본값)</option>
-                            {library.filter((item) => item.category === "ocp").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                            {library.filter((item) => component.form === "ocp" ? item.category === "ocp" : ["other", "module", "ocp"].includes(item.category)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                           </select></td>
                         </tr>
                       );
