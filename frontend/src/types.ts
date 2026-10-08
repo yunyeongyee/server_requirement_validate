@@ -1,3 +1,4 @@
+import type { Annot } from "./components/AnnotationLayer";
 export interface Requirement {
   id: string;
   key: string;
@@ -11,6 +12,27 @@ export interface Requirement {
   note?: string;
   confidence?: number;
   _new?: boolean;
+  /** 근거가 된 붙여넣은 줄 번호 (대표 줄 / 함께 읽은 줄들) */
+  line?: number;
+  lines?: number[];
+  /** 'NIC 4포트'가 몇 GbE 이상 포트인지 (속도별 포트 요구) */
+  at_speed?: number;
+  /** 사용자가 직접 고치거나 추가한 항목 — 다시 분석해도 남긴다 */
+  _user?: boolean;
+  /** 원문에 '동급/대체 가능'이 있어 다른 사양은 확인 필요로 처리 */
+  alt?: boolean;
+  /** 사람이 대체를 승인한 기록 (승인 근거) */
+  waiver?: { basis: string; at: string };
+}
+
+/** 붙여넣은 한 줄을 무엇으로 읽었는지 */
+export interface PasteLine {
+  n: number;
+  text: string;
+  /** req 요구사항 / part 견적 품목 / skip 검증 대상 아님 / head 제목 / warn 읽지 못함 */
+  status: "req" | "part" | "skip" | "head" | "warn";
+  label?: string;
+  hint?: string;
 }
 
 export interface SpecItem {
@@ -58,7 +80,7 @@ export interface RequirementGroup {
   requirements: Requirement[];
   spec: SpecGroup[];
   /** quote: 견적서(제안 구성) / requirement: 요구사항 문서 */
-  doc_role?: "quote" | "requirement" | "spec_table";
+  doc_role?: "quote" | "config" | "requirement" | "spec_table";
   evidence?: string[];
   confidence?: number;
   notes?: string[];
@@ -66,15 +88,63 @@ export interface RequirementGroup {
   model_hint?: string | null;
   base_desc?: string | null;
   suggested_server?: string | null;
+  /** 납품·장비 목록에서 연결한 항목 이름 */
+  inventory_link?: string | null;
   items?: QuoteItem[];
   proposed?: ProposedConfig;
+  /** 이 서버에 붙여넣은 원문과 줄마다 결과 */
+  text?: string;
+  lines?: PasteLine[];
+  /** 사용자가 '검증 대상 아님'으로 정한 줄 */
+  line_marks?: Record<number, "skip">;
+  /** 붙여넣은 내용에 서버가 여럿 보일 때 나누기 제안 */
+  split?: RequirementGroup[];
+  common_lines?: number;
+  /** 오른쪽 칸에 붙여넣은 견적 (요구사항과 따로) */
+  quote?: RequirementGroup;
+  /** 이 붙여넣기를 AI로 정제했는지, 규칙과 다른 줄 */
+  ai?: AiInfo;
+  /** 견적대로 적용했을 때의 구성 — 그림에서 직접 바꾼 곳을 '견적 대비 변경'으로 표시하는 기준 */
+  quote_config?: ServerConfig;
+  /** 견적 품명으로 그림에 붙이는 라벨 정보 (슬롯·베이·PSU) */
+  quote_labels?: PartLabels;
+  /** 서버 그림 위 라벨·연결선 편집 내용 */
+  annot?: Annot;
+  /** 견적과 정확히 같은 부품이 없어 장착하지 않은 항목 (임의 대체 금지 — 사용자 확인) */
+  quote_unresolved?: Unresolved[];
+  /** 사용자가 대체 배치를 승인한 견적 품명 */
+  quote_sub?: string[];
 }
 
-export interface ExtractionInfo {
-  mode: "rules" | "rules_fallback" | "ai";
-  effort?: "low" | "medium" | null;
-  notice?: string;
+/** AI 해석과 규칙 파서 해석이 다른 줄 (기본값은 AI, 줄마다 규칙 값을 고를 수 있다) */
+export interface AiConflict {
+  line: number;
+  text: string;
+  kind: "diff" | "unverified";
+  ai: string;
+  rule: string | null;
+  unverified: string[];
+  can_use_rule: boolean;
+  using: "ai" | "rule";
 }
+
+export interface AiInfo {
+  used: boolean;
+  model?: string;
+  notice: string | null;
+  conflicts: AiConflict[];
+  rule_lines: number[];
+}
+
+export interface PasteResponse {
+  ai?: AiInfo;
+  server: RequirementGroup;
+  error?: string;
+  split: RequirementGroup[];
+  common_lines: number;
+  inventory?: InventoryRow[];
+}
+
 
 export interface ProjectSummary {
   id: string;
@@ -135,9 +205,15 @@ export interface Server {
   backplanes: Backplane[];
   slots: Slot[];
   drive_options: DriveOption[];
+  /** 후면 PSU 베이 위치 (PSU1부터 순서대로 채움) */
+  /** 후면 그림에서 이 모델로는 쓸 수 없는 영역 (검정 박스로 가림) */
+  rear_blocked?: Array<{ x: number; y: number; w: number; h: number; reason: string }>;
+  psu_slots?: Array<{ id: string; label: string; hotspot?: { x: number; y: number; w: number; h: number } }>;
 }
 
 export interface ServerConfig {
+  /** 본체에 달린 온보드(LOM) NIC — 견적 본체 품명에서 읽는다 */
+  onboard_nic?: { desc?: string; ports: number; speed_gb: number };
   cpu_model: string;
   cpu_count: number;
   memory: Array<{ size_gb: number; qty: number }>;
@@ -160,6 +236,8 @@ export interface Component {
   height: string;
   double_width: boolean;
   short: string;
+  speed_gb?: number;
+  ports?: number;
 }
 
 export interface ValidationIssue {
@@ -187,6 +265,7 @@ export interface ValidationResult {
     issues: ValidationIssue[];
   }>;
   requirements: Array<{
+    id: string;
     requirement: string;
     actual: string;
     status: string;
@@ -211,20 +290,28 @@ export interface LibraryImage {
 export interface ImageStatus {
   front: { item: ImageRef | null; auto: boolean; stencil?: string };
   rear: { item: ImageRef | null; auto: boolean; stencil?: string };
-  bays: { rects: Array<{ x: number; y: number; w: number; h: number }> };
+  bays: { rects: Array<{ x: number; y: number; w: number; h: number }>; candidates?: Array<{ x: number; y: number; w: number; h: number }> };
   components: Record<string, { item: ImageRef | null; auto: boolean }>;
   drives: Record<string, { item: ImageRef | null; auto: boolean }>;
+  /** 용량(W)별 PSU 이미지. exact=false 면 다른 용량 이미지로 대체 중 */
+  psus?: Record<string, { item: ImageRef | null; auto: boolean; exact: boolean }>;
   library_count: number;
 }
 
-export interface UploadResponse {
-  filename: string;
-  chars: number;
-  text: string;
-  requirements: Requirement[];
-  spec: SpecGroup[];
-  groups?: RequirementGroup[];
-  extraction?: ExtractionInfo;
-  doc_role?: "quote" | "requirement" | "spec_table";
-  common_items?: QuoteItem[];
+
+export interface InventoryRow {
+  name: string;
+  model: string;
+  qty: number;
+  where: string;
+}
+
+/** 견적에는 있으나 카탈로그에 정확히 같은 부품이 없어 장착하지 않은 항목 */
+export interface Unresolved { category: string; desc: string; qty: number | null; nearest: string | null; reason: string }
+
+/** 그림 라벨에 쓸 견적 품명 */
+export interface PartLabels {
+  slots?: Record<string, { comp: string; desc: string }>;
+  bays?: Record<string, string>;
+  psu?: string | null;
 }

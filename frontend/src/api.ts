@@ -1,13 +1,14 @@
 import type {
+  PartLabels,
+  Unresolved,
   ProposedConfig,
   Component,
   ImageStatus,
   LibraryImage,
   Requirement,
-  RequirementGroup,
   Server,
   ServerConfig,
-  UploadResponse,
+  PasteResponse,
   ValidationResult,
 } from "./types";
 
@@ -52,14 +53,12 @@ export function getComponents(): Promise<Component[]> {
   return request<Component[]>("/api/components");
 }
 
-export function uploadRequirement(file: File): Promise<UploadResponse> {
-  const form = new FormData();
-  form.append("file", file);
-  return request<UploadResponse & { groups?: RequirementGroup[] }>("/api/upload", { method: "POST", body: form });
-}
 
-export function extractRequirements(text: string): Promise<Pick<UploadResponse, "requirements" | "spec" | "extraction"> & { groups?: RequirementGroup[] }> {
-  return sendJson("/api/extract", { text });
+/** 견적·사양 표를 복사해 붙여넣은 글 → 업로드와 같은 형태의 결과 */
+
+
+export function pasteText(text: string, kind: "requirement" | "quote", ai = false, ruleLines: number[] = []): Promise<PasteResponse> {
+  return request("/api/paste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind, ai, rule_lines: ruleLines }) });
 }
 
 export function validateServer(
@@ -74,8 +73,8 @@ export function getImageStatus(serverId: string, backplane: string): Promise<Ima
   return request(`/api/images/${encodeURIComponent(serverId)}?backplane=${encodeURIComponent(backplane)}`);
 }
 
-export function renderServer(serverId: string, view: "front" | "rear", config: ServerConfig): Promise<{ url: string | null; missing?: string[] }> {
-  return sendJson("/api/render", { server_id: serverId, view, config });
+export function renderServer(serverId: string, view: "front" | "rear", config: ServerConfig, labels?: PartLabels, annot?: unknown): Promise<{ url: string | null; missing?: string[] }> {
+  return sendJson("/api/render", { server_id: serverId, view, config, ...(labels ? { labels } : {}), ...(annot ? { annot } : {}) });
 }
 
 export function uploadImageLibrary(files: File[]): Promise<{ job: string }> {
@@ -101,7 +100,7 @@ export function getImageJob(id: string): Promise<{
 
 export function setImageMap(
   serverId: string,
-  kind: "front" | "rear" | "component" | "drive",
+  kind: "front" | "rear" | "component" | "drive" | "psu",
   key: string,
   itemId: string | null,
 ): Promise<{ ok: boolean }> {
@@ -133,8 +132,30 @@ export function applyProposal(
   proposed: ProposedConfig,
   baseConfig: ServerConfig,
   backplaneHint: Record<string, string | number> | null,
-): Promise<{ config: ServerConfig; notes: string[] }> {
+  substitute: string[] = [],
+): Promise<{ config: ServerConfig; notes: string[]; labels?: PartLabels; unresolved?: Unresolved[] }> {
   return sendJson("/api/proposal/apply", {
-    server_id: serverId, proposed, base_config: baseConfig, backplane_hint: backplaneHint,
+    server_id: serverId, proposed, base_config: baseConfig, backplane_hint: backplaneHint, substitute,
   });
+}
+
+
+
+
+
+export interface AiStatus {
+  enabled: boolean;
+  key_set: boolean;
+  model: string;
+  key_hint: string;
+  ok?: boolean;
+  message?: string;
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return request("/api/ai/status");
+}
+
+export function checkAi(): Promise<AiStatus> {
+  return request("/api/ai/check", { method: "POST" });
 }

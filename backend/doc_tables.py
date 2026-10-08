@@ -98,6 +98,21 @@ def load_tables(filename: str, data: bytes) -> list[Table]:
                 out.append(Table(f"표 {tcount}", rows, titles))
         if para_rows:
             out.append(Table("본문", para_rows))
+    elif ext == ".tsv":  # 붙여넣기: 엑셀·웹 표를 복사하면 탭으로 칸이 나뉜다. 탭이 없으면 2칸 이상 공백
+        from .extract import _decode
+        rows = []
+        for i, line in enumerate(_decode(data).splitlines(), 1):
+            if not line.strip():
+                continue
+            cells = line.split("\t") if "\t" in line else re.split(r"\s{2,}|\s\|\s", line.strip())
+            cells = [_s(c) for c in cells]
+            while cells and not cells[-1]:
+                cells.pop()
+            while cells and not cells[0]:
+                cells.pop(0)
+            if any(cells):
+                rows.append((i, cells))
+        out.append(Table("붙여넣기", rows))
     elif ext == ".csv":
         from .extract import _decode
         rows = [(i, [_s(c) for c in r]) for i, r in enumerate(csv.reader(io.StringIO(_decode(data))), 1) if any(x.strip() for x in r)]
@@ -166,6 +181,11 @@ def _verify_roles(roles: dict[int, str], rows) -> dict[int, str]:
     return roles
 
 
+def _is_subheader(cells) -> bool:
+    vals = [c.strip() for c in cells if c.strip()]
+    return bool(vals) and all(re.fullmatch(r"[(\[（].{0,12}[)\]）]|ea|원|개|대|krw|usd|단위|vat\s*별도", v, re.I) for v in vals)
+
+
 def find_header(rows) -> tuple[int, dict[int, str]] | None:
     """표 머리글 행(인덱스)과 열 역할. 머리글이 없으면 열 내용 형태로 추정."""
     best = None
@@ -180,6 +200,15 @@ def find_header(rows) -> tuple[int, dict[int, str]] | None:
                 best = (idx, roles, score)
     if best:
         return best[0], _verify_roles(best[1], rows[best[0] + 1:])
+    # 머리글이 두 줄(예: 위 '수량' / 아래 '(EA)', 또는 위 그룹명 / 아래 세부명)이면 칸별로 이어 붙여 다시 본다
+    for idx in range(len(rows) - 1):
+        a, b = rows[idx][1], rows[idx + 1][1]
+        merged = [f"{x} {y}".strip() for x, y in zip(a + [""] * (len(b) - len(a)), b + [""] * (len(a) - len(b)))]
+        roles = _header_roles(merged)
+        kinds = set(roles.values())
+        nxt = rows[idx + 2: idx + 5]
+        if len(kinds & {"code", "desc", "qty"}) >= 2 and nxt and any(any(_cell_kind(c) in ("int_small", "code", "text") for c in r[1]) for r in nxt):
+            return idx + 1, _verify_roles(roles, rows[idx + 2:])
     return _infer_roles(rows)
 
 
@@ -245,6 +274,23 @@ def _is_title(cells) -> str | None:
     return t or None
 
 
+def _guess_row(cells: list[str]) -> tuple[str, str, float | None]:
+    """한 줄의 칸들 → (품명, 품번, 수량). 수량 = 끝의 작은 정수, 품번 = 품번처럼 생긴 칸, 품명 = 가장 긴 글."""
+    vals = [c.strip() for c in cells if c and c.strip()]
+    qty = None
+    if len(vals) > 1 and _cell_kind(vals[-1]) == "int_small":
+        qty = float(vals[-1].replace(",", ""))
+        vals = vals[:-1]
+    codes = [v for v in vals if _cell_kind(v) == "code"]
+    texts = [v for v in vals if v not in codes]
+    desc = max(texts, key=len) if texts else ""
+    code = codes[0] if codes else ""
+    # '서버 RX2540M8' 처럼 품번 칸에 모델명만 있는 경우 품명에 붙여 본체를 알아보게
+    if code and parts.BASE_UNIT.search(code) and not parts.BASE_UNIT.search(desc):
+        desc = f"{code} {desc}".strip()
+    return desc, code, qty
+
+
 def table_blocks(t: Table) -> list[Block]:
     rows = t.rows
     hdr = find_header(rows)
@@ -262,13 +308,27 @@ def table_blocks(t: Table) -> list[Block]:
     title = title or next((x for x in reversed(t.titles) if ROLE_WORDS.search(x)), None)
     blocks: list[Block] = []
     cur = Block(title, "표 제목" if title else "", [], t.source, has_price)
-    for n, cells in rows[hi + 1:]:
+    for k, (n, cells) in enumerate(rows[hi + 1:]):
+        if k == 0 and hi >= 0 and _is_subheader(cells):
+            continue  # 머리글 둘째 줄(단위·보조 설명)은 품목이 아니다
         txt = _row_text(cells)
         if TOTAL_ROW.search(cells[0] if cells else "") or TOTAL_ROW.fullmatch(txt.split(" ")[0] or ""):
             continue
         if REMARK_ROW.search(txt) or META_ROW.search(txt):
             continue
         get = lambda r: cells[col[r]] if r in col and col[r] < len(cells) else ""
+        if hi < 0:
+            # 머리글 없는 표(긁어 붙인 견적 등): 줄마다 칸 수가 달라 열 위치를 믿을 수 없어 줄 단위로 판단
+            desc, code, qty = _guess_row(cells)
+            grp = ""
+            if not desc and not code:
+                continue
+            it = Item(code, desc or code, qty, grp, f"{t.source} {n}행", parts.interpret(code, desc or code))
+            if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in cur.items):
+                blocks.append(cur)
+                cur = Block(None, "", [], t.source, has_price)
+            cur.items.append(it)
+            continue
         desc, code, qtys, grp = get("desc"), get("code"), get("qty"), get("group")
         qty = parts._num(qtys.replace(",", "")) if qtys else None
         sec = _is_title(cells)
@@ -282,7 +342,16 @@ def table_blocks(t: Table) -> list[Block]:
             continue
         if not desc and code and _cell_kind(code) != "code":
             desc, code = code, ""
-        it = Item(code, desc or code, qty, grp, f"{t.source} {n}행", parts.interpret(code, desc or code))
+        where = f"{t.source} {n}행 (붙여넣은 표 기준)"
+        pos = [f"{name} {col[r] + 1}열" for r, name in (("desc", "품명"), ("code", "모델"), ("qty", "수량")) if r in col]
+        if pos:
+            where += " · " + " · ".join(pos)
+        # 금액·단가 열을 수량으로 읽지 않는다: 수량이 비정상적으로 크거나 금액 열과 같으면 수량 미확정
+        price = get("price")
+        if qty and (qty >= 1000 or (price and price.strip() == qtys.strip())):
+            qty = None
+            where += " · ⚠ 수량 열 값이 금액처럼 보여 수량을 확정하지 않음 (확인 필요)"
+        it = Item(code, desc or code, qty, grp, where, parts.interpret(code, desc or code))
         # 본체 행이 이미 있는 블록에 또 본체가 나오면 새 서버 구성 시작
         if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in cur.items) and not grp:
             blocks.append(cur)
@@ -302,6 +371,27 @@ def table_blocks(t: Table) -> list[Block]:
 # ------------------------------------------------------------------ 그룹 조립
 def _key(name: str) -> str:
     return re.sub(r"[\s_\-·]|서버|server|용", "", (name or "").lower())
+
+
+HARDWARE = {"cpu", "memory", "drive", "raid", "fc", "nic", "ocp", "psu", "riser", "gpu", "boot_module"}
+
+
+def _is_parts_list(groups: list[dict]) -> bool:
+    for g in groups:
+        items = g.get("items") or []
+        coded = sum(1 for i in items if i.get("code"))
+        if items and any(i["category"] == "base" for i in items) and coded >= max(2, len(items) * 0.5):
+            return True
+        # 품번 칸이 비어 있어도: 본체 행이 있고, 대부분 수량이 있고, 하드웨어 품목이 3종류 이상이면 부품 목록
+        with_qty = sum(1 for i in items if i.get("qty"))
+        hw = {i["category"] for i in items if i["category"] in HARDWARE}
+        if any(i["category"] == "base" for i in items) and len(hw) >= 3 and with_qty >= len(items) * 0.7:
+            return True
+        # 본체 행 없이 부품만 긁어 온 경우: 품번 붙은 하드웨어 품목이 2종류 이상이면 부품 목록
+        kinds = {i["category"] for i in items if i.get("code") and i["category"] in HARDWARE}
+        if len(kinds) >= 2 and coded >= max(2, len(items) * 0.6):
+            return True
+    return False
 
 
 def analyze(filename: str, data: bytes) -> dict:
@@ -333,6 +423,11 @@ def analyze(filename: str, data: bytes) -> dict:
         if base:
             evidence.append(f"본체 행: {base.desc} ({base.where})")
             conf = max(conf, 0.75)
+        if not name:
+            # 시트 이름이 'DB서버'처럼 의미 있으면 본체 품명보다 우선 (Sheet1 같은 기본 이름은 제외)
+            sheet = re.match(r"시트 '(.+?)'", b.where)
+            if sheet and not re.fullmatch(r"(?i)(sheet|시트|worksheet)\s*\d*", sheet.group(1).strip()):
+                name, how = sheet.group(1).strip(), "시트 이름"
         if not name:
             name = base.desc if base else None
             how = "본체 품명" if base else ""
@@ -372,7 +467,8 @@ def analyze(filename: str, data: bytes) -> dict:
     for g in server_groups:
         g.pop("_has_base"); g.pop("_cats")
     return {
-        "doc_role": "quote" if has_price else ("requirement" if not server_groups else "spec_table"),
+        # 가격 열이 없어도 품번·품명·수량이 있는 부품 목록(본체 행 포함)이면 제안 구성으로 본다
+        "doc_role": "quote" if has_price or _is_parts_list(server_groups) else ("requirement" if not server_groups else "spec_table"),
         "groups": server_groups,
         "common_items": common_items,
         "tables": [{"source": t.source, "rows": len(t.rows)} for t in tables],
@@ -419,7 +515,19 @@ def proposal(items: list[dict]) -> dict:
         s = x["attrs"].get("size_gb")
         if s:
             dimms[s] = dimms.get(s, 0) + q(x)
+    onboard = None
+    for x in items:
+        d = x.get("desc") or ""
+        if re.search(r"온보드|on-?board|\blom\b", d, re.I):
+            sp = re.search(r"(\d+(?:\.\d+)?)\s*(?:gbe|gb|g)\b", d, re.I)
+            word = re.search(r"듀얼|dual|쿼드|quad|싱글|single", d, re.I)
+            n = re.search(r"(\d+)\s*(?:포트|port|p\b)", d, re.I)
+            ports = {"듀얼": 2, "dual": 2, "쿼드": 4, "quad": 4, "싱글": 1, "single": 1}.get(word.group(0).lower()) if word else (int(n.group(1)) if n else None)
+            if sp and ports:
+                onboard = {"desc": re.sub(r"\s*포함.*$", "", re.sub(r"^.*?(?=Broadcom|Intel|Marvell|Realtek|[A-Z]{3,})", "", d))[:80] or d[:80], "speed_gb": float(sp.group(1)), "ports": ports}
+                break
     return {
+        "onboard": onboard,
         "cpu": {"model": cpu[0]["attrs"].get("model") if cpu else None,
                 "count": int(sum(q(x) for x in cpu)) if cpu else 0,
                 "cores": cpu[0]["attrs"].get("cores") if cpu else None},
@@ -431,7 +539,7 @@ def proposal(items: list[dict]) -> dict:
         "fc": [{"desc": x["desc"], "qty": int(q(x)), **x["attrs"]} for x in by("fc")],
         "gpu": [{"desc": x["desc"], "qty": int(q(x))} for x in by("gpu")],
         "riser": [{"desc": x["desc"], "qty": int(q(x)), **x["attrs"]} for x in by("riser")],
-        "psu": {"watt": psu[0]["attrs"].get("watt") if psu else None, "count": int(sum(q(x) for x in psu)) if psu else 0},
+        "psu": {"desc": psu[0]["desc"] if psu else None, "watt": psu[0]["attrs"].get("watt") if psu else None, "count": int(sum(q(x) * (x["attrs"].get("per_item") or 1) for x in psu)) if psu else 0},
     }
 
 
@@ -469,6 +577,140 @@ def clean_name(name: str) -> str:
     return n.strip(" -:()[]") or name
 
 
+# ------------------------------------------------------------------ 시트 = 서버 1대 (구성도·사양서)
+SERVER_WORD = re.compile(r"서버|server|\bsvr\b|노드|node", re.I)
+SPEC_WORD = re.compile(r"\bcpu\b|프로세서|\bmem(ory)?\b|메모리|\bram\b|\bhdd\b|\bssd\b|nvme|디스크|disk|\bnic\b|\braid\b|\bpsu\b|전원", re.I)
+SHEET_PREFIX = re.compile(r"^(?:windows?|linux|rhel|ubuntu|vmware)?\s*서버[_\-\s]*", re.I)
+
+
+def _sheet_lines(ws) -> list[str]:
+    """행마다, 빈 열로 떨어진 셀 묶음은 별도 줄로 (옆 칸의 다른 표가 섞이지 않게).
+    'CPU : … / MEM : … / HDD : …' 처럼 한 칸에 몰린 사양은 항목별로 나눈다."""
+    out = []
+    for row in ws.iter_rows(values_only=True):
+        block: list[str] = []
+        for v in list(row) + [None]:
+            raw = str(v) if v is not None else ""
+            if len([x for x in raw.splitlines() if x.strip()]) > 1:  # 한 칸 안의 줄바꿈은 서로 다른 항목
+                if block:
+                    out.append(" ".join(block)); block = []
+                out.extend(_s(x) for x in raw.splitlines() if x.strip())
+                continue
+            t = _s(v)
+            if t:
+                block.append(t)
+            elif block:
+                line = " ".join(block); block = []
+                pieces = [x.strip() for x in re.split(r"\s+[/|]\s+|\s*\|\s*", line) if x.strip()]
+                out.extend(pieces if len(pieces) > 1 else [line])
+    return out
+
+
+def sheet_groups(filename: str, data: bytes) -> dict | None:
+    """엑셀에서 시트 하나가 서버 1대를 설명하는 문서(서버 구성도·사양서). 서버 시트가 2개 이상일 때만."""
+    if Path(filename).suffix.lower() not in (".xlsx", ".xlsm"):
+        return None
+    from . import extract
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    cands = []
+    for ws in wb.worksheets:
+        lines = _sheet_lines(ws)
+        if not lines:
+            continue
+        body = "\n".join(lines)
+        title = lines[0] if len(lines[0]) <= 30 else ""
+        named = SERVER_WORD.search(ws.title) or (title and SERVER_WORD.search(title))
+        if named and len(set(m.group(0).lower() for m in SPEC_WORD.finditer(body))) >= 2:
+            cands.append((ws.title, title, body))
+    if len(cands) < 2:
+        return None
+    inventory = _inventory(wb)
+    groups = []
+    for i, (sheet, title, body) in enumerate(cands, 1):
+        name = title if title and SERVER_WORD.search(title) else (SHEET_PREFIX.sub("", sheet).strip() or sheet)
+        items, notes = _config_items(body, sheet)
+        groups.append({
+            "id": f"server-{i}", "name": name, "quantity": None,
+            # 사양이 읽히면 '구성도'로 보고 구성에 적용한다. 이미 갖춘 구성이라 요구사항으로 판정하지 않는다.
+            "doc_role": "config" if items else "requirement",
+            "requirements": [] if items else extract.extract_requirements(body),
+            "spec": extract.spec_summary(body),
+            "model_hint": parts.model_of(body),
+            "items": items, "proposed": proposal(items) if items else None,
+            "evidence": [f"시트 '{sheet}'를 서버 1대로 해석"] + ([f"사양 {len(items)}개를 구성으로 읽음"] if items else []),
+            "confidence": 0.8, "notes": notes,
+        })
+    for g in groups:
+        hit = next((row for row in inventory if _key(row["name"]) and (_key(row["name"]) in _key(g["name"]) or _key(g["name"]) in _key(row["name"]))), None)
+        if hit:
+            g["quantity"] = hit["qty"]
+            g["inventory_link"] = hit["name"]
+            g["evidence"].append(f"납품 목록 '{hit['name']}' 수량 {hit['qty']}대와 연결")
+    return {"groups": groups, "inventory": inventory}
+
+
+def _inventory(wb) -> list[dict]:
+    """'용도/모델명/수량' 머리글이 있는 납품·장비 목록 시트 → [{name, model, qty, where}]. 서버 시트와 이름이 달라도 화면에서 연결할 수 있게."""
+    rows_out = []
+    for ws in wb.worksheets:
+        header = None
+        for r, row in enumerate(ws.iter_rows(values_only=True), 1):
+            cells = [_s(v) for v in row]
+            if header is None:
+                low = [c.lower() for c in cells]
+                qi = next((i for i, c in enumerate(low) if c in ("수량", "qty", "quantity", "대수")), None)
+                ni = next((i for i, c in enumerate(low) if c in ("용도", "서버명", "장비명", "구분명", "hostname", "name")), None)
+                if qi is not None and ni is not None:
+                    mi = next((i for i, c in enumerate(low) if c in ("모델명", "모델", "model")), None)
+                    header = (ni, mi, qi)
+                continue
+            ni, mi, qi = header
+            name = cells[ni] if ni < len(cells) else ""
+            qty = cells[qi] if qi < len(cells) else ""
+            if name and re.fullmatch(r"\d+", qty or ""):
+                rows_out.append({"name": name, "model": cells[mi] if mi is not None and mi < len(cells) else "",
+                                 "qty": int(qty), "where": f"시트 '{ws.title}' {r}행"})
+    return rows_out
+
+
+CFG_LABEL = re.compile(r"^\s*(?:cpu|프로세서|mem(?:ory)?|메모리|ram|hdd|ssd|disk|디스크|storage|nic|lan|psu|전원|raid|gpu)\s*[:：]\s*", re.I)
+CFG_QTY = re.compile(r"[*×]\s*(\d+)|\b(\d+)\s*(?:ea|개)\b|\bx\s+(\d+)\b", re.I)
+CFG_SKIP = re.compile(r"포트\s*\d|\bport\s+\d|계정|password|\bpw\b|\bid\b|hostname|ip\b|시리얼|serial|s/n|모델명|용량|영역|제조사", re.I)
+
+
+def _config_items(body: str, sheet: str) -> tuple[list[dict], list[str]]:
+    """구성도 한 시트의 줄들 → 부품 품목(proposal 입력 형식). 수량이 없으면 1로 두고 알린다."""
+    items, seen, notes = [], set(), []
+    for n, line in enumerate(body.splitlines(), 1):
+        if len(line) > 90 or CFG_SKIP.search(line):
+            continue
+        desc = CFG_LABEL.sub("", line).strip()
+        if not desc or desc.lower() in seen:
+            continue
+        r = parts.parse_desc(desc)
+        cat = r["category"]
+        if cat == "license" and re.search(r"raid\s*\d", desc, re.I):
+            cat = "raid"
+        if cat not in ("cpu", "memory", "drive", "nic", "ocp", "fc", "gpu", "psu", "riser", "raid"):
+            continue
+        if cat in ("nic", "fc") and not r["attrs"]:  # 'NIC port 용도' 같은 표 머리글
+            continue
+        m = CFG_QTY.search(desc)
+        qty = float(next(g for g in m.groups() if g)) if m else None
+        if qty is None and cat in ("cpu", "memory"):
+            notes.append(f"{'CPU' if cat == 'cpu' else '메모리'} 수량이 문서에 없어 1개로 가정 — '{desc}'")
+        seen.add(desc.lower())
+        items.append({"code": "", "desc": desc, "qty": qty, "category": cat, "category_ko": parts.CATEGORY_KO.get(cat, cat),
+                      "attrs": r["attrs"], "confidence": r["confidence"], "how": "rule", "where": f"시트 '{sheet}' {n}번째 줄"})
+    if not any(i["category"] == "raid" for i in items):
+        m = re.search(r"\bRAID\s*-?\s*(10|0|1|5|6)\b", body, re.I)
+        if m:
+            items.append({"code": "", "desc": f"RAID{m.group(1)}", "qty": None, "category": "raid", "category_ko": "RAID",
+                          "attrs": {"level": f"RAID{m.group(1)}"}, "confidence": 0.7, "how": "rule", "where": f"시트 '{sheet}'"})
+    return items, notes
+
+
 def analyze_document(filename: str, data: bytes, text: str) -> dict:
     """업로드 문서 → 통합 그룹 구조. 견적서는 제안 구성, 그 외는 요구사항."""
     from . import extract
@@ -495,9 +737,15 @@ def analyze_document(filename: str, data: bytes, text: str) -> dict:
             for i, g in enumerate(cg, 1):
                 body = "\n".join(l for l, _ in g["lines"])
                 groups.append({"id": f"server-{i}", "name": g["name"], "quantity": g["qty"], "doc_role": "requirement",
-                               "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body),
+                               "requirements": extract.extract_requirements(body), "spec": extract.spec_summary(body), "text": body,
                                "evidence": [f"서버가 열로 나열된 표 ({g['where']})"], "confidence": 0.85, "notes": []})
             return {"doc_role": "requirement", "groups": groups, "common_items": [], "tables": res["tables"]}
+    try:
+        sg = sheet_groups(filename, data)
+    except Exception:
+        sg = None
+    if sg:
+        return {"doc_role": "requirement", "groups": sg["groups"], "inventory": sg["inventory"], "common_items": [], "tables": res["tables"]}
     rule = extract.extract_server_groups(text)
     for g in rule:
         m = HEAD_QTY.search(g["name"]) or None
@@ -506,3 +754,128 @@ def analyze_document(filename: str, data: bytes, text: str) -> dict:
                        "confidence": 0.7 if len(rule) > 1 else 0.5,
                        "notes": [] if len(rule) > 1 else ["서버가 여러 대라면 '서버 나누기'로 구간을 지정하세요"]})
     return {"doc_role": "requirement", "groups": groups, "common_items": [], "tables": res["tables"]}
+
+
+# ------------------------------------------------------------------ 요구사항 표 → 공통 사양 문장
+# 문장형 요구사항과 표형 요구사항을 같은 사양으로 만들기 위해, 표의 열 제목 의미를 읽어 행마다 문장 한 줄로 바꾼다.
+# 줄 수는 그대로(1:1)라 줄 번호·근거가 유지된다. 열 위치나 열 순서에 의존하지 않고 열 제목의 뜻으로 해석한다.
+REQ_COLS = [
+    ("item", r"^(항목|구분|품목|분류|부품|명칭|item|category|component|name)$"),
+    ("media", r"종류|타입|type|media|매체"),
+    ("iface", r"인터페이스|interface|연결\s*방식|커넥터|connector|접속"),
+    ("size", r"용량|capacity|size"),
+    ("qty", r"수량|qty|quantity|개수|\bea\b|대수"),
+    ("speed", r"속도|speed|대역폭|bandwidth"),
+    ("port", r"포트|port"),
+    ("core", r"코어|core"),
+    ("clock", r"클럭|clock|ghz|주파수"),
+    ("socket", r"소켓|socket"),
+    ("note", r"비고|note|remark|참고|설명"),
+]
+_MIN = re.compile(r"최소|min|이상|at\s*least")
+_MAX = re.compile(r"최대|max|이하|이내")
+_TOTAL = re.compile(r"총|전체|합계|total")
+_SUBJECT_HINT = [("Disk", r"디스크|disk|ssd|hdd|drive|스토리지"), ("CPU", r"cpu|프로세서|processor"), ("Memory", r"메모리|memory|ram"),
+                 ("NIC", r"nic|이더넷|네트워크|ethernet"), ("FC HBA", r"fc|hba|fibre"), ("PSU", r"psu|전원|power")]
+
+
+def _col_role(header: str) -> str | None:
+    h = header.strip().lower()
+    if not h or len(h) > 30:
+        return None
+    for role, pattern in REQ_COLS:
+        if re.search(pattern, h, re.I):
+            return role
+    return None
+
+
+def _split_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.split("\t")]
+
+
+def _is_header_like(cells: list[str]) -> bool:
+    roles = [_col_role(c) for c in cells if c]
+    return sum(r is not None and r != "item" for r in roles) >= 2 or (len(roles) >= 2 and "item" in roles and sum(r is not None for r in roles) >= 2)
+
+
+def requirement_tables_to_sentences(text: str) -> tuple[str, dict[str, tuple[str, str]]]:
+    """붙여넣은 요구사항 속 표(탭으로 구분)를 열 제목 뜻대로 문장으로 바꾼다.
+    → (바뀐 글, {바뀐 줄: (원래 줄, 위치 설명)}) — 표가 없으면 원문 그대로, 빈 dict."""
+    lines = text.splitlines()
+    out = list(lines)
+    back: dict[str, tuple[str, str]] = {}
+    i = 0
+    while i < len(lines):
+        if "\t" not in lines[i]:
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and "\t" in lines[j]:
+            j += 1
+        block = [_split_cells(l) for l in lines[i:j]]
+        # 머리글: 열 제목 뜻이 둘 이상 읽히는 첫 줄 (두 줄짜리 머리글이면 칸마다 이어 붙인다)
+        h = next((k for k, cells in enumerate(block) if _is_header_like(cells)), None)
+        if h is not None:
+            header = list(block[h])
+            start = h + 1
+            if start < len(block) and any(_col_role(c) for c in block[start] if c) and not any(re.search(r"\d", c) for c in block[start] if c):
+                width = max(len(header), len(block[start]))
+                header = [((header[k] if k < len(header) else "") + " " + (block[start][k] if k < len(block[start]) else "")).strip() for k in range(width)]
+                start += 1
+            roles = [_col_role(c) for c in header]
+            title = None
+            if i > 0 and lines[i - 1].strip() and "\t" not in lines[i - 1]:
+                title = lines[i - 1].strip()
+            subject_default = next((name for name, pat in _SUBJECT_HINT if title and re.search(pat, title, re.I)), None)
+            if not subject_default and "item" not in roles and ({"media", "iface"} & set(roles)):
+                subject_default = "Disk"
+            if not subject_default and "item" not in roles and ("core" in roles or "clock" in roles or "socket" in roles):
+                subject_default = "CPU"
+            hdr_text = "·".join(c for c in header if c)
+            for k in range(start, len(block)):
+                cells = block[k] + [""] * (len(header) - len(block[k]))
+                subject = (cells[roles.index("item")] if "item" in roles else "") or subject_default or ""
+                sub_low = subject.lower()
+                pieces: list[str] = []
+                for col, role in enumerate(roles):
+                    value = cells[col].strip() if col < len(cells) else ""
+                    if not value or role in (None, "item"):
+                        if value and role is None:
+                            pieces.append(f"{header[col]} {value}".strip())      # 뜻을 모르는 열도 버리지 않고 이름과 함께 남긴다
+                        continue
+                    head = header[col]
+                    ge = "" if re.search(r"이상|이하|이내|초과|미만", value) else (" 이하" if _MAX.search(head) else " 이상")
+                    unit = (re.search(r"\(([^)]+)\)", head) or [None, ""])[1]
+                    num = bool(re.fullmatch(r"\d+(?:\.\d+)?", value.replace(",", "")))
+                    if role in ("media", "iface"):
+                        pieces.append(value)
+                    elif role == "size":
+                        v = f"{value}{unit or 'GB'}" if num else value
+                        pieces.append(f"{'총' if _TOTAL.search(head) else '개당'} {v}{ge}")
+                    elif role == "qty":
+                        pieces.append(f"{value}개{ge}" if num else f"{value}{ge}")
+                    elif role == "speed":
+                        suffix = unit or ("GbE" if "nic" in sub_low or "네트워크" in sub_low or "이더넷" in sub_low else "Gb" if "fc" in sub_low or "hba" in sub_low else "G")
+                        pieces.append(f"{value}{suffix}{ge}" if num else f"{value}{ge}")
+                    elif role == "port":
+                        pieces.append(f"{value}포트{ge}" if num else f"{value}{ge}")
+                    elif role == "core":
+                        pieces.append(f"{value}코어{ge}" if num else f"{value}{ge}")
+                    elif role == "clock":
+                        pieces.append(f"{value}GHz{ge}" if num else f"{value}{ge}")
+                    elif role == "socket":
+                        pieces.append(f"{value}소켓{ge}" if num else f"{value}{ge}")
+                    elif role == "note":
+                        pieces.append(value)
+                if not pieces:
+                    continue
+                sentence = f"{subject} : {' '.join(pieces)}" if subject else " ".join(pieces)
+                idx = i + k
+                where = f"붙여넣은 표 {k + 1}행 (머리글: {hdr_text}) — 원본 엑셀 좌표 아님"
+                back[sentence.strip()] = (lines[idx].replace("\t", " | ").strip(), where)
+                out[idx] = sentence
+            # 머리글 줄은 제목으로 남겨 읽지 못한 줄로 뜨지 않게 한다
+            for k in range(h, start):
+                out[i + k] = "※ 표 머리글: " + " / ".join(c for c in block[k] if c)
+        i = j
+    return "\n".join(out), back

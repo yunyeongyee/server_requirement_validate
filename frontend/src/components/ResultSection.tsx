@@ -1,4 +1,7 @@
-import type { Server, ValidationResult } from "../types";
+import { useEffect, useState } from "react";
+import { renderServer } from "../api";
+import type { Annot } from "./AnnotationLayer";
+import type { PartLabels, Server, ServerConfig, ValidationResult } from "../types";
 import type { ProjectSummary } from "../types";
 
 interface Props {
@@ -9,6 +12,61 @@ interface Props {
   projectSummaries: ProjectSummary[];
   activeGroupId: string;
   onSelectGroup: (groupId: string) => void;
+  exportItems: ExportItem[];
+}
+
+export interface ExportItem { id: string; name: string; model: string; serverId: string; config: ServerConfig; labels?: PartLabels; annot?: Annot; }
+
+/** 제안서에 붙일 서버 그림(전면·후면) — 라벨(견적 품명 · 수량 EA)과 지시선을 한 번에 켜고 끄고 PNG로 저장 */
+function ProposalImages({ items }: { items: ExportItem[] }) {
+  const [labelsOn, setLabelsOn] = useState(true);
+  const [images, setImages] = useState<Record<string, { front?: string | null; rear?: string | null }>>({});
+  const [error, setError] = useState("");
+  const key = JSON.stringify([items.map((item) => [item.id, item.serverId, item.config, item.labels, item.annot]), labelsOn]);
+  useEffect(() => {
+    let active = true;
+    setError("");
+    void Promise.all(items.flatMap((item) => (["front", "rear"] as const).map(async (view) => {
+      const response = await renderServer(item.serverId, view, item.config, labelsOn ? item.labels || {} : undefined, labelsOn && item.annot?.labels.length ? { ...item.annot, show: true } : undefined);
+      return [item.id, view, response.url] as const;
+    }))).then((done) => {
+      if (!active) return;
+      const next: Record<string, { front?: string | null; rear?: string | null }> = {};
+      done.forEach(([id, view, url]) => { next[id] = { ...next[id], [view]: url }; });
+      setImages(next);
+    }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
+    return () => { active = false; };
+  }, [key]);
+  if (!items.length) return null;
+  return (
+    <section className="card proposal-images">
+      <div className="cardhead">
+        <h2>제안서 이미지</h2>
+        <button type="button" className={`tog ${labelsOn ? "on" : ""}`} role="switch" aria-checked={labelsOn} onClick={() => setLabelsOn(!labelsOn)}>
+          라벨 <span className="sw" aria-hidden="true" /> {labelsOn ? "켜짐" : "꺼짐"}
+        </button>
+      </div>
+      <div className="pad">
+        {error && <p className="warn small" role="alert">{error}</p>}
+        {items.map((item) => (
+          <div key={item.id} className="pi-server">
+            <h3>{item.name} <span className="muted small">· {item.model}</span></h3>
+            {(["front", "rear"] as const).map((view) => {
+              const url = images[item.id]?.[view];
+              return (
+                <figure key={view}>
+                  <figcaption>{view === "front" ? "전면부 구성도" : "후면부 구성도"}
+                    {url && <a className="btn small ghost" href={url} download={`${item.name}_${view === "front" ? "전면" : "후면"}${labelsOn ? "" : "_라벨없음"}.png`}>PNG 저장</a>}
+                  </figcaption>
+                  {url ? <img src={url} alt={`${item.name} ${view === "front" ? "전면" : "후면"}`} /> : <p className="muted small">그림을 만드는 중이거나, 이 모델의 실제 이미지가 없습니다.</p>}
+                </figure>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 const STATUS_CLASS: Record<string, string> = {
@@ -23,14 +81,14 @@ function Badge({ status }: { status: string | null | undefined }) {
   return <em className={`st st-${STATUS_CLASS[status] || "review"}`}>{status}</em>;
 }
 
-export default function ResultSection({ server, result, error, loading, projectSummaries, activeGroupId, onSelectGroup }: Props) {
+export default function ResultSection({ server, result, error, loading, projectSummaries, activeGroupId, onSelectGroup, exportItems }: Props) {
   const projectTable = (
     <div className="scroll project-summary">
       <table className="grid">
         <thead><tr><th>요구 서버</th><th>실제 모델</th><th>충족</th><th>미충족</th><th>확인 필요</th><th>결과</th></tr></thead>
         <tbody>{projectSummaries.map((summary) => (
           <tr key={summary.id} className={summary.id === activeGroupId ? "active-project-row" : ""}>
-            <td><button className="lnk" onClick={() => onSelectGroup(summary.id)}>{summary.name}</button></td><td>{summary.model}</td><td>{summary.matched}</td><td>{summary.failed}</td><td>{summary.review}</td><td>{summary.verdict === "미검증" ? <span className="muted">미검증</span> : <Badge status={summary.verdict === "충족" ? "충족" : summary.verdict === "구성 불가" ? "호환 불가" : summary.verdict} />}</td>
+            <td><button className="lnk" onClick={() => onSelectGroup(summary.id)}>{summary.name}</button></td><td>{summary.model}</td><td>{summary.matched}</td><td>{summary.failed}</td><td>{summary.review}</td><td>{summary.verdict === "미검증" || summary.verdict.includes("요구사항 없음") ? <span className="muted">{summary.verdict}</span> : <Badge status={summary.verdict === "충족" ? "충족" : summary.verdict === "구성 불가" ? "호환 불가" : summary.verdict} />}</td>
           </tr>
         ))}</tbody>
       </table>
@@ -40,15 +98,12 @@ export default function ResultSection({ server, result, error, loading, projectS
   if (!result) {
     return (
       <>
-        <section id="s5" className="panel">
-          <h2><span className="n">5</span>호환성 검증</h2>
-          {error ? <p className="warn" role="alert">{error}</p> : <p className="muted">{loading ? "구성을 검증하고 있습니다…" : "검증 결과가 없습니다."}</p>}
-        </section>
         <section id="s6" className="panel">
-          <h2><span className="n">6</span>프로젝트 결과</h2>
-          <p className="muted">요구 서버별 실제 모델 선택 및 검증 결과</p>
+          <h2>전체 결과</h2>
+          <p className="muted">{error || (loading ? "구성을 검증하고 있습니다…" : "서버별 모델과 검증 결과입니다. 서버 이름을 누르면 해당 서버 작업 화면으로 돌아갑니다.")}</p>
           {projectTable}
         </section>
+        <ProposalImages items={exportItems} />
       </>
     );
   }
@@ -108,34 +163,9 @@ export default function ResultSection({ server, result, error, loading, projectS
 
   return (
     <>
-      <section id="s5" className="panel">
-        <h2><span className="n">5</span>호환성 검증</h2>
-        {error && <p className="warn" role="alert">{error}</p>}
-        {result.general.map((item, index) => <p className="gen" key={`${item.msg}-${index}`}><Badge status={item.status} /> {item.msg}</p>)}
-        <p className="muted">
-          예상 최대 소비전력(추정) {Math.round(result.summary.power_est_w)}W · 메모리 {result.summary.memory_gb}GB · 사용 가능한 빈 PCIe {result.summary.free_pcie}개
-        </p>
-        <div className="scroll">
-          <table className="grid">
-            <thead><tr><th>위치</th><th>부품</th><th>결과</th><th>상세</th></tr></thead>
-            <tbody>
-              {used.length ? used.map((item, index) => (
-                <tr key={`${item.label}-${index}`}>
-                  <td>{item.label}</td>
-                  <td>{item.component}</td>
-                  <td><Badge status={item.status} /></td>
-                  <td>{item.issues.map((issue, issueIndex) => (
-                    <span key={`${issue.msg}-${issueIndex}`}>{issue.status !== item.status && <><Badge status={issue.status} /> </>}{issue.msg}<br /></span>
-                  ))}</td>
-                </tr>
-              )) : <tr><td colSpan={4} className="muted">장착된 부품이 없습니다. 3단계에서 디스크를 장착하거나 슬롯을 선택하세요.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
       <section id="s6" className="panel">
-        <h2><span className="n">6</span>프로젝트 결과</h2>
-        <p className="muted">요구 서버별 실제 모델 선택 및 검증 결과</p>
+        <h2>전체 결과</h2>
+        <p className="muted">서버별 모델과 검증 결과입니다. 서버 이름을 누르면 해당 서버 작업 화면으로 돌아갑니다.</p>
         {projectTable}
         <h3 className="active-result-title">{projectSummaries.find((summary) => summary.id === activeGroupId)?.name || "선택 서버"} · 상세 결과</h3>
         <div className="verdict" hidden={!rows.length} style={{ display: "inline-block", background: `var(--${verdictColor})`, color: "#fff", marginBottom: 12 }}>{verdict}</div>
@@ -157,6 +187,7 @@ export default function ResultSection({ server, result, error, loading, projectS
           <button className="btn ghost" onClick={() => window.print()}>인쇄 / PDF</button>
         </div>
       </section>
+      <ProposalImages items={exportItems} />
     </>
   );
 }

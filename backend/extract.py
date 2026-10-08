@@ -156,11 +156,24 @@ KEYS = {
     "fc_speed_gb":   ("FC Speed", "Gb"),
     "fc_ports":      ("FC Port", "Port"),
     "ocp_required":  ("OCP 3.0", ""),
-    "raid_level":    ("Boot RAID", ""),
+    "raid_level":    ("RAID", ""),
     "dual_psu":      ("Dual PSU", ""),
     "psu_watt":      ("PSU Capacity", "W"),
     "free_pcie":     ("Free PCIe Slot", "EA"),
     "gpu_count":     ("GPU", "EA"),
+    "cpu_cores":     ("CPU Core", "Core"),
+    "disk_count":    ("Disk", "EA"),
+    "disk_size_gb":  ("Disk Size", "GB"),
+    "disk_total_gb": ("Disk Total", "GB"),
+    "disk_media":    ("Disk Type", ""),
+    "disk_iface":    ("Disk Interface", ""),
+    "cpu_ghz":       ("CPU Clock", "GHz"),
+    "memory_type":   ("Memory Type", ""),
+    "nic_media":     ("NIC Interface", ""),
+    "os_spec":       ("OS", ""),
+    "spec_note":     ("기타 조건", ""),
+    "rack_mount":    ("Rack Type", ""),
+    "raid_controller": ("RAID Controller", ""),
 }
 
 VAGUE = re.compile(r"(충분한|충분히|적절한|적정|안정적|고성능|최적|원활|유연한|확장성|우수한|향후\s*고려|등\s*고려|협의)")
@@ -168,15 +181,17 @@ NUM = r"(\d+(?:\.\d+)?)"
 GE = r"(이상|以上|or more|minimum|min\.?|at least|\+)"
 
 
-def _req(key, op, value, line, note="", status="auto"):
+def _req(key, op, value, line, note="", status="auto", **extra):
     label, unit = KEYS[key]
     return {"id": uuid.uuid4().hex[:8], "key": key, "label": label, "op": op,
             "value": value, "unit": unit, "source": line.strip()[:200],
-            "status": status, "note": note}
+            "status": status, "note": note, **extra}
 
 
 def _op(line):
-    return ">=" if re.search(GE, line, re.I) else "="
+    """용량·수량 기준은 '정확히/만/only'가 있을 때만 같음(=), 그 외는 이상(>=).
+    요구사항의 '메모리 128GB'는 보통 최소 기준이라 더 큰 구성을 미충족으로 보면 안 된다."""
+    return "=" if re.search(r"정확히|exactly|\bonly\b|\d\s*(?:gb|tb|w|개|ea|소켓|socket|core|코어)?\s*만\b", line, re.I) else ">="
 
 
 def _to_gb(n: float, unit: str) -> float:
@@ -214,8 +229,14 @@ def _ports(L: str) -> int | None:
     if t:
         return int(t.group(1))
     p = re.search(NUM + r"\s*(?:port|포트|p\b)", L)
-    if not p:
+    word = re.search(r"(single|dual|quad|octa|싱글|듀얼|쿼드)\s*-?\s*(?:port|포트)", L)
+    if not p and not word:
         return None
+    if not p:
+        # 'Dual Port × 2' → 2 × 2
+        n = {"single": 1, "싱글": 1, "dual": 2, "듀얼": 2, "quad": 4, "쿼드": 4, "octa": 8}[word.group(1)]
+        mult = re.search(r"(?:port|포트)[^x×*\d]{0,12}[x×*]\s*(\d+)\s*(?:ea|개|장|식)?", L[word.start():])
+        return n * int(mult.group(1)) if mult else n
     n = int(float(p.group(1)))
     mult = re.search(r"(?:port|포트|p\b)[^x×*\d]{0,12}[x×*]\s*(\d+)\s*(?:ea|개|장|식)?", L[p.start():])
     return n * int(mult.group(1)) if mult else n
@@ -245,36 +266,64 @@ def extract_requirements(text: str) -> list[dict]:
                     found.append(_req("memory_gb", _op(L), _to_gb(float(m.group(1)), m.group(2)), line))
 
         # CPU sockets
-        if re.search(r"cpu|프로세서|processor|소켓|socket|중앙\s*처리", L):
-            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
+        if re.search(r"cpu|프로세서|processor|소켓|socket|중앙\s*처리|xeon|epyc", L):
+            m = re.search(r"[x×*]\s*(\d)\s*(?:ea|개|소켓|socket)?\b(?!\s*(?:ghz|core|코어|gb|tb|mb|w\b))|(?<![\w.])(\d)\s*(socket|소켓|ea|개|way|cpu|p\b|식)|(?:cpu|프로세서)\s*[x×*:]\s*(\d)(?![\d.])\b(?!\s*(?:ghz|core|코어|gb|mb))|dual\s*(socket|cpu)|2\s*-?\s*way", L)
             if m:
                 n = 2 if (m.group(5) or "dual" in L or "2-way" in L) else int(m.group(1) or m.group(2) or m.group(4))
                 if 1 <= n <= 8:
                     found.append(_req("cpu_sockets", _op(L), n, line))
 
-        # FC HBA (NIC보다 먼저)
-        is_fc = re.search(r"\bfc\b|fibre|fiber channel|hba", L) and not re.search(r"sas\s*hba", L)
-        if is_fc:
-            m = re.search(NUM + r"\s*g(?:b|bps|fc)?\b", L)
+        # CPU 코어 수 ("코어 32개 이상", "32C", "32 core") — 'CPU당/소켓당'이 있으면 CPU 1개 기준
+        m = re.search(r"(?:코어|core)\s*(?:수\s*)?[:：]?\s*(\d{1,3})\s*(?:개|ea)?|(\d{1,3})\s*(?:코어|cores?|c\b)(?!\s*(?:ghz|gb))", L)
+        if m and re.search(r"cpu|프로세서|processor|코어|core|xeon|epyc|\d\s*c\b", L):
+            n = int(m.group(1) or m.group(2))
+            if 2 <= n <= 512:
+                # 'Xeon Gold 6430 32C' 처럼 모델 표기 옆의 코어 수는 CPU 1개 기준
+                per = bool(re.search(r"cpu\s*당|소켓\s*당|per\s*(?:cpu|socket|processor)|프로세서\s*당", L)
+                           or (m.group(2) and re.search(r"xeon|epyc|ampere", L)))
+                found.append(_req("cpu_cores", _op(L), n, line, note="CPU당" if per else "총 코어"))
+
+        # 한 줄에 FC와 Ethernet이 같이 있으면 쉼표·슬래시로 나눠 각자 읽는다 ("10GbE 2포트, FC 32Gb 2포트")
+        fc_re = r"\bfc\b|fibre|fiber channel|hba"
+        clauses = [c for c in re.split(r"[,;/]|\s및\s|\s그리고\s", L) if c.strip()]
+        fc_part = " ".join(c for c in clauses if re.search(fc_re, c) and not re.search(r"sas\s*hba", c))
+        eth_part = " ".join(c for c in clauses if not re.search(fc_re, c)) if fc_part else L
+
+        # FC HBA
+        if fc_part:
+            m = re.search(NUM + r"\s*g(?:b|bps|fc)?\b", fc_part)
             if m:
                 found.append(_req("fc_speed_gb", ">=", float(m.group(1)), line))
-            n = _ports(L)
+            n = _ports(fc_part)
             if n:
                 found.append(_req("fc_ports", ">=", n, line))
 
         # NIC (Ethernet)
-        elif re.search(r"nic|gbe|ethernet|이더넷|네트워크|랜카드|lan\b|sfp|nw\s*포트|인터페이스", L) and not re.search(r"ocp", L) or re.search(r"\d+\s*gbe", L):
-            m = re.search(NUM + r"\s*(gbe|gb\s*ethernet|g\s*bps|gbps|g\b)", L)
-            if m:
-                found.append(_req("nic_speed_gb", ">=", float(m.group(1)), line))
-            n = _ports(L)
-            if n:
-                found.append(_req("nic_ports", ">=", n, line))
-            elif re.search(r"port|포트", L):
+        if (re.search(r"nic|gbe|ethernet|이더넷|네트워크|랜카드|lan\b|sfp|nw\s*포트|인터페이스", eth_part) and not re.search(r"ocp", eth_part)
+                or re.search(r"\d+\s*gbe", eth_part)) and not (fc_part and not re.search(r"\d", eth_part)):
+            speed_re = NUM + r"\s*(gbe|gb\s*ethernet|g\s*bps|gbps|g\b|gb(?![a-z]))"
+            eth_clauses = [c for c in clauses if not re.search(fc_re, c)] if fc_part else clauses
+            speed_clauses = [c for c in eth_clauses if re.search(speed_re, c)]
+            m = re.search(speed_re, eth_part)
+            n = _ports(eth_part)
+            if len(speed_clauses) > 1:
+                # "1GbE 4포트 / 10GbE 2포트": 속도별 포트 수를 따로 (포트 수는 그 속도 이상 포트로 검증)
+                for clause in speed_clauses:
+                    sp = float(re.search(speed_re, clause).group(1))
+                    found.append(_req("nic_speed_gb", ">=", sp, line))
+                    cn = _ports(clause)
+                    if cn:
+                        found.append(_req("nic_ports", ">=", cn, line, note=f"{sp:g}GbE 이상 포트", at_speed=sp))
+            else:
+                if m:
+                    found.append(_req("nic_speed_gb", ">=", float(m.group(1)), line))
+                if n:
+                    found.append(_req("nic_ports", ">=", n, line))
+            if not n and len(speed_clauses) <= 1 and re.search(r"port|포트", eth_part):
                 reqs.append({
                     "id": uuid.uuid4().hex[:8], "key": "manual", "label": "NIC Port 수",
                     "op": "?", "value": "", "unit": "", "source": line[:200],
-                    "status": "review", "note": "문서에서 포트 수량 기준을 확인하세요",
+                    "status": "review", "note": "문서에 포트 수가 없습니다 — 필요한 포트 수를 확인하세요 (속도 조건은 자동 검증)",
                 })
 
         # OCP
@@ -283,6 +332,30 @@ def extract_requirements(text: str) -> list[dict]:
             m = re.search(NUM + r"\s*gbe?", L)
             if m and not any(r["key"] == "nic_speed_gb" for r in found):
                 found.append(_req("nic_speed_gb", ">=", float(m.group(1)), line, note="OCP NIC 속도"))
+
+        # 디스크: 개수·한 개 용량·총 용량 (메모리 줄 제외)
+        if re.search(r"ssd|hdd|nvme|디스크|disk|드라이브|drive|스토리지|storage|저장\s*장치|내장\s*저장", L) \
+                and not re.search(r"memory|메모리|\bram\b|dimm|m\.2|boss|캐시|cache", L):
+            boot = "Boot" if re.search(r"boot|부트|\bos(?![a-z])|운영\s*체제", L) else ""
+            total = re.search(r"(?:총|total|합계|전체|가용|usable|실\s*용량)\s*(?:용량)?\s*[:(]?\s*" + NUM + r"\s*(tb|gb)", L)
+            size = re.search(NUM + r"\s*(tb|gb)(?!\s*(?:ram|dimm|ddr))", L)
+            count = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|bays?|베이|장)(?![a-z])|[x×*]\s*(\d{1,3})(?![\d.])(?!\s*(?:tb|gb))", L)
+            if total:
+                usable = bool(re.search(r"가용|usable|실\s*용량", L))
+                found.append(_req("disk_total_gb", ">=", float(total.group(1)) * (1000 if total.group(2) == "tb" else 1), line,
+                                  note="가용 용량(RAID 후) — 확인 필요" if usable else boot, status="review" if usable else "auto"))
+            elif size:
+                found.append(_req("disk_size_gb", ">=", float(size.group(1)) * (1000 if size.group(2) == "tb" else 1), line, note=boot))
+            if count:
+                found.append(_req("disk_count", ">=" if re.search(GE, L) or not re.search(r"정확히|only", L) else "=", int(count.group(1) or count.group(2)), line, note=boot))
+
+        # 폼팩터: 랙형
+        if re.search(r"rack\s*(?:type|mount|형)?|랙\s*(?:형|타입|마운트)", L) and re.search(r"형태|폼\s*팩터|form|type|타입|형\b|rack\s*type|랙형", L) \
+                and not re.search(r"kit|키트|rail|레일", L):
+            found.append(_req("rack_mount", "=", True, line))
+        # RAID 컨트롤러 (수준 표기 없이 '지원/필요')
+        if re.search(r"raid\s*(?:controller|컨트롤러|카드|card)|\b(?:perc|praid)\b|하드웨어\s*raid|hw\s*raid", L):
+            found.append(_req("raid_controller", "=", True, line))
 
         # RAID
         m = re.search(r"raid\s*-?\s*(10|1|5|6|0)\b", L)
@@ -328,6 +401,7 @@ def extract_requirements(text: str) -> list[dict]:
         "nic_speed_gb": (1, 800), "nic_ports": (1, 128),
         "fc_speed_gb": (1, 256), "fc_ports": (1, 64),
         "psu_watt": (100, 10000), "free_pcie": (0, 64), "gpu_count": (0, 32),
+        "cpu_cores": (2, 1024), "disk_count": (1, 64), "disk_size_gb": (100, 100000), "disk_total_gb": (100, 2000000),
     }
     for req in reqs:
         limits = plausible_ranges.get(req["key"])
@@ -441,6 +515,7 @@ def extract_server_groups(text: str) -> list[dict]:
             "name": name,
             "requirements": extract_requirements(group_text),
             "spec": spec_summary(group_text),
+            "text": group_text,
         })
     return unique
 
