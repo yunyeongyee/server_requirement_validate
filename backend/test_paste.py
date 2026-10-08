@@ -321,3 +321,20 @@ class AiNormalizeFieldTests(unittest.TestCase):
         self.assertEqual(A._norm_iface("SATA 6G"), "SATA")
         self.assertEqual(A._attrs({"category": "drive", "name": "SSD SATA 6G 960GB MU 2.5' H-P", "unit_capacity_gb": 960,
                                    "interface": "SATA 6G", "form_factor": "2.5 inch", "media": "SSD"})["ff"], "2.5")
+
+
+class RefineOtherTests(unittest.TestCase):
+    def test_other_is_asked_again_with_context(self):
+        first = {"document_type": "requirement", "common_requirements": [], "ignored_lines": [],
+                 "server_groups": [{"name": "", "quantity": None, "requirements": [
+                     {"lines": [1], "category": "other", "text": "이중전원(Redundant Power) 지원"},
+                     {"lines": [2], "category": "other", "text": "SSO 인증"}]}]}
+        blank = {k: None for k in ("operator", "speed_gbps", "min_ports", "ports_per_card", "card_quantity", "min_capacity_gb",
+                                   "min_count", "min_size_gb", "min_total_gb", "min_cores", "core_scope", "raid_level",
+                                   "watt", "version", "boot")}
+        second = {"items": [{**blank, "lines": [1], "category": "psu", "required": True, "text": ""},
+                            {**blank, "lines": [2], "category": "other", "required": None, "text": "SSO 인증"}]}
+        with patch.dict("os.environ", ENV, clear=False), patch.object(A, "_ask", side_effect=[first, second]):
+            result = A.normalize("requirement", ["이중전원(Redundant Power) 지원", "SSO 인증"])
+        cats = [r["category"] for r in result["server_groups"][0]["requirements"]]
+        self.assertEqual(cats, ["psu", "other"])

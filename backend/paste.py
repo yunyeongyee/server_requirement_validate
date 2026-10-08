@@ -375,21 +375,13 @@ SCHEMAS = {"quotation": QUOTE_SCHEMA, "requirement": REQUIREMENT_SCHEMA}
 _CACHE: dict[str, dict] = {}
 
 
-def normalize(document_type: str, lines: list[str]) -> dict:
-    """원문 줄들 → AI 정규화 JSON. 같은 입력은 다시 부르지 않는다."""
-    st = settings()
-    numbered = "\n".join(f"{i + 1}: {redact(line).replace(chr(9), ' | ')}" for i, line in enumerate(lines) if line.strip())
-    if len(numbered) > MAX_CHARS:
-        raise AIError("too long", f"붙여넣은 내용이 너무 깁니다({len(numbered):,}자) — 서버별로 나눠 붙여넣어 주세요")
-    key = hashlib.sha256(json.dumps([document_type, st["model"], numbered], ensure_ascii=False).encode()).hexdigest()
-    if key in _CACHE:
-        return _CACHE[key]
+def _ask(st: dict, system: str, user: str, name: str, schema: dict):
+    """Responses API 한 번 호출 → 구조화 JSON."""
     body = {
         "model": st["model"],
-        "input": [{"role": "system", "content": [{"type": "input_text", "text": PROMPTS[document_type]}]},
-                  {"role": "user", "content": [{"type": "input_text", "text": numbered}]}],
-        "text": {"format": {"type": "json_schema", "name": f"{document_type}_normalization", "strict": True,
-                            "schema": SCHEMAS[document_type]}},
+        "input": [{"role": "system", "content": [{"type": "input_text", "text": system}]},
+                  {"role": "user", "content": [{"type": "input_text", "text": user}]}],
+        "text": {"format": {"type": "json_schema", "name": name, "strict": True, "schema": schema}},
     }
     if st["effort"] and re.match(r"(gpt-5|o\d)", st["model"]):
         body["reasoning"] = {"effort": st["effort"]}
@@ -399,11 +391,59 @@ def normalize(document_type: str, lines: list[str]) -> dict:
         text = next((c.get("text") for o in payload.get("output", []) if isinstance(o, dict)
                      for c in o.get("content", []) if isinstance(c, dict) and c.get("type") == "output_text"), None)
     try:
-        result = json.loads(text or "")
+        return json.loads(text or "")
     except (TypeError, ValueError) as error:
         raise AIError("bad json", "AI 응답을 읽지 못했습니다 — 다시 시도하거나 AI를 끄고 규칙으로 분석하세요") from error
+
+
+REFINE_SCHEMA = _obj({"items": {"type": "array", "items": _REQ_ITEM}})
+REFINE_PROMPT = _COMMON + (
+    "A first pass could not map the statements below to a measurable requirement (category 'other'). Re-read each one "
+    "WITH the surrounding document for context and decide: if it demands something measurable (redundant/dual power "
+    "'이중전원', RAID controller, rack type, OCP, disk/memory/CPU/NIC/FC amounts, ...), return it with the proper category "
+    "and the values written in the lines. If it is genuinely not a hardware quantity (software, OS, SSO/authentication, "
+    "service or performance wording), return category 'other' with the sentence in 'text'. Return exactly one item per "
+    "statement, citing its line numbers. Categories as before: cpu_sockets, cpu_cores, memory, disk, raid, nic, fc, ocp, "
+    "psu (required=true when redundant/dual power is demanded), rack, raid_controller, gpu, free_pcie, other."
+)
+
+
+def _refine_other(st: dict, numbered: str, result: dict) -> None:
+    """1차에서 '수기 검토(other)'로 남은 항목만 문맥을 주고 AI에게 한 번 더 묻는다. 실패해도 1차 결과를 그대로 쓴다."""
+    holders = [g.get("requirements") or [] for g in result.get("server_groups") or []] + [result.get("common_requirements") or []]
+    pending = [it for items in holders for it in items if it.get("category") == "other"]
+    if not pending:
+        return
+    ask = "\n".join(f"- lines {it.get('lines')}: {it.get('text') or ''}" for it in pending)
+    try:
+        again = _ask(st, REFINE_PROMPT, f"Document:\n{numbered}\n\nUnmapped statements:\n{ask}", "requirement_refine", REFINE_SCHEMA)
+        fresh = [x for x in (again or {}).get("items") or [] if isinstance(x, dict) and x.get("category") != "other"]
+    except AIError:
+        return
+    for items in holders:
+        for k, it in enumerate(list(items)):
+            if it.get("category") != "other":
+                continue
+            lines_ = set(it.get("lines") or [])
+            hit = [x for x in fresh if lines_ & set(x.get("lines") or [])]
+            if hit:
+                items[k:k + 1] = hit
+
+
+def normalize(document_type: str, lines: list[str]) -> dict:
+    """원문 줄들 → AI 정규화 JSON. 같은 입력은 다시 부르지 않는다."""
+    st = settings()
+    numbered = "\n".join(f"{i + 1}: {redact(line).replace(chr(9), ' | ')}" for i, line in enumerate(lines) if line.strip())
+    if len(numbered) > MAX_CHARS:
+        raise AIError("too long", f"붙여넣은 내용이 너무 깁니다({len(numbered):,}자) — 서버별로 나눠 붙여넣어 주세요")
+    key = hashlib.sha256(json.dumps([document_type, st["model"], numbered], ensure_ascii=False).encode()).hexdigest()
+    if key in _CACHE:
+        return _CACHE[key]
+    result = _ask(st, PROMPTS[document_type], numbered, f"{document_type}_normalization", SCHEMAS[document_type])
     if not isinstance(result, dict) or result.get("document_type") != document_type:
         raise AIError("bad shape", "AI 응답 형식이 올바르지 않습니다")
+    if document_type == "requirement":
+        _refine_other(st, numbered, result)
     _CACHE[key] = result
     return result
 
