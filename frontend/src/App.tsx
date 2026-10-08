@@ -138,6 +138,10 @@ export default function App() {
   const config = profile?.config || null;
   /** 문서에서 확인했거나 사용자가 직접 고른 모델만 확정으로 본다 (기본값은 미정) */
   const modelConfirmed = profile?.source === "document" || profile?.source === "manual";
+  /** 문서의 모델명(R660XS)이 카탈로그 모델(R660)과 다르면 같은 모델로 보지 않고 '대체'로 표시한다 */
+  const norm = (text: string) => text.replace(/\s+/g, "").toUpperCase();
+  const modelApprox = modelConfirmed && server && group.model_hint && norm(group.model_hint) !== norm(server.model)
+    ? { hint: group.model_hint, used: `${server.vendor} ${server.model}` } : null;
   const validation = results[group.id] || null;
   // '견적 대비 변경' 표시는 보류 (README 작업 목록 참고). 켜려면 SHOW_QUOTE_DIFF = true
   const diff = useMemo(() => SHOW_QUOTE_DIFF && group.quote ? configDiff(group.quote_config, config) : null, [group.quote, group.quote_config, config]);
@@ -531,6 +535,7 @@ export default function App() {
             error={pasteError}
             result={validation}
             modelConfirmed={modelConfirmed}
+            modelApprox={modelApprox}
             onFocus={(request) => setFocus({ ...request, n: Date.now() })}
             onPaste={(text, mode) => void handlePaste(text, mode)}
             onResolve={handleResolve}
@@ -576,6 +581,7 @@ export default function App() {
             onRedetectBays={redetect}
             diff={diff}
             hasQuote={!!group.quote}
+            modelApprox={modelApprox}
             modelConfirmed={modelConfirmed}
             quoteLabels={group.quote_labels}
             quoteUnresolved={group.quote_unresolved}

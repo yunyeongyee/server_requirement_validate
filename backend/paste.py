@@ -96,7 +96,7 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict], ig
             row["status"] = "skip"
             row["label"] = f"AI가 제외: {ignored[index]}" if ignored[index] else "AI가 제외"
         elif (extract._server_name(raw) and len(raw.split()) <= 8) or HEADING.search(line) or REQ_ID.match(raw.strip()) \
-                or (parts.model_of(raw) and len(raw.split()) <= 4 and not re.search(r"\d\s*(gb|tb|core|코어|ea|개)", raw, re.I)):
+                or (parts.model_of(raw) and not re.search(r"\d\s*(gb|tb|core|코어|ea|개|ghz|port|포트)|이상|이하|필요|지원", raw, re.I)):
             row["status"] = "head"
         elif SOFTWARE.search(raw):
             row["status"] = "skip"

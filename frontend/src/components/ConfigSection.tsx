@@ -31,6 +31,8 @@ interface Props {
   diff?: ConfigDiff | null;
   /** 견적이 적용돼 있는가 (없는 부품은 '미정' 대신 '미사용') */
   hasQuote?: boolean;
+  /** 문서의 모델명과 카탈로그 모델이 다를 때 (R660XS → R660) */
+  modelApprox?: { hint: string; used: string } | null;
   /** 모델이 확정되지 않으면 그림·사양 대신 안내만 */
   modelConfirmed?: boolean;
   /** 그림 라벨·표에 쓸 견적 품명 */
@@ -135,6 +137,7 @@ export default function ConfigSection({
   quotePanel,
   diff,
   hasQuote = false,
+  modelApprox = null,
   modelConfirmed = true,
   quoteLabels,
   quoteUnresolved = [],
@@ -974,18 +977,20 @@ export default function ConfigSection({
   const nicRows = [...(onboard ? [{ name: `${onboard.desc || "온보드 NIC"} (온보드)`, count: 1, ports: onboard.ports, noImg: false }] : []), ...pcieNic];
   const raidText = [config.raid.data ? `Data ${config.raid.data}` : "", config.raid.boot ? `Boot ${config.raid.boot}` : "", config.boss ? "BOSS-N1" : ""].filter(Boolean).join(" · ") || unset;
   const diskText = diskGroups.length || config.boss ? diskSummary : unset;
-  type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean; notes?: string[] };
+  type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean; notes?: string[]; info?: string[]; forced?: string };
   /** 견적에는 있으나 장착하지 못한 항목 / 장착했는데 그림이 연결되지 않은 부품을 그 줄에 이유와 함께 표시 */
   const rowNotes = (cat: string, rows?: Array<{ name: string; noImg: boolean }>) => [
     ...quoteUnresolved.filter((item) => item.category === cat).map((item) => `견적의 '${item.desc}'${item.qty ? ` · ${item.qty} EA` : ""}는 장착하지 않음 — ${item.reason}${item.nearest ? ` (가장 가까운 부품: ${item.nearest}) · 위 '견적' 영역에서 확인` : ""}`),
     ...(rows || []).filter((row) => row.noImg).map((row) => `'${row.name}' 는 연결된 그림이 없어 글자 라벨로 표시됩니다 — 이미지 보관함에서 이 부품에 이미지를 연결하세요`),
   ];
   const specTableRows: SpecRow[] = [
-    { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [] },
+    { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [],
+      ...(modelApprox ? { forced: "확인 필요", notes: [`문서의 ${modelApprox.hint}는 카탈로그에 없어 ${modelApprox.used}로 대체했습니다 — 같은 모델이 아니므로 확인이 필요합니다`] } : {}) },
     { key: "rack", ik: "rack", label: "Rack", text: server.form_factor || unset, reqKeys: ["rack_mount"] },
     { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], edit: "cpu", changed: diff?.spec },
     { key: "mem", ik: "memory", label: "Memory", text: memoryTotal ? memSummary : unset, reqKeys: ["memory_gb", "memory_type"], edit: "mem", changed: diff?.spec },
-    { key: "disk", ik: "disk", label: "Disk", text: diskText, notes: rowNotes("drive"), reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
+    { key: "disk", ik: "disk", label: "Disk", text: diskText, notes: rowNotes("drive"),
+      info: [...new Set(Object.values(quoteLabels?.bays || {}))].map((desc) => `견적 원문: ${desc}`), reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
     { key: "raid", ik: "raid", label: "RAID", text: raidText, reqKeys: ["raid_level", "raid_controller"], edit: "disk" },
     { key: "ocp", ik: "ocp", label: "OCP", text: listText(ocpRows), notes: rowNotes("ocp", ocpRows), reqKeys: ["ocp_required"], part: "nic" },
     { key: "nic", ik: "nic", label: "NIC", text: listText(nicRows), notes: rowNotes("nic", nicRows), reqKeys: ["nic_speed_gb", "nic_media"], part: "nic" },
@@ -996,6 +1001,7 @@ export default function ConfigSection({
     { key: "psu", ik: "psu", label: "PSU", text: `${config.psu_watt}W · ${config.psu_count} EA`, reqKeys: ["dual_psu", "psu_watt"], edit: "psu", changed: diff?.psu },
   ];
   const rowStatus = (row: SpecRow) => {
+    if (row.forced) return { status: row.forced, key: "" };
     const found = requirements.filter((req) => row.reqKeys.includes(req.key) && req.key !== "manual" && !req._new)
       .map((req) => ({ req, status: result?.requirements.find((entry) => entry.id === req.id)?.status || "" })).filter((entry) => entry.status);
     if (!found.length) return null;
@@ -1027,7 +1033,7 @@ export default function ConfigSection({
         return [
           <tr key={row.key} className={bad ? "bad" : ""}>
             <th scope="row"><span className="cmp-item"><ItemIcon k={row.ik} />{row.label}</span></th>
-            <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.notes?.map((note, i) => <small key={i} className="rownote">⚠ {note}</small>)}</td>
+            <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.info?.map((note, i) => <small key={`i${i}`} className="rowinfo">{note}</small>)}{row.notes?.map((note, i) => <small key={i} className="rownote">⚠ {note}</small>)}</td>
             <td className="c">{st ? <span className={`pill p-${tone}`}>{st.status}</span> : <span className="muted">—</span>}</td>
             <td className="act">
               {fix && <button type="button" className="fix" onClick={() => setLocalFocus({ ...fix.request, n: Date.now() })}>{fix.label}</button>}

@@ -785,3 +785,4 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .pill.p-pending{background:#eef1f5;color:#6b7a8c}
 .modeledit{margin-left:auto}
 .modelline{align-items:center}
+.cmp small.rowinfo{display:block;color:var(--mute);font-size:12px;margin-top:2px}

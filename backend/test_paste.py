@@ -507,3 +507,35 @@ class OnboardNicTests(unittest.TestCase):
         out = A._server({"requirements": []}, text)
         os_req = next(r for r in out["requirements"] if r["key"] == "os_spec")
         self.assertEqual(os_req["value"], "RHEL · 64bit · 9.2 이상")
+
+
+class GoldenRequirementTests(unittest.TestCase):
+    """실제 문서에서 문제가 났던 사례를 정답으로 고정한 회귀 테스트.
+    ① 원문 조건을 빠짐없이 추출 ② 원문에 없는 조건을 만들지 않음 ③ 미검증 조건을 '충족'으로 두지 않음."""
+    DOC = ("1. 서버 : PowerEdge R660xs\n가. CPU : 2.8Ghz이상 16코어이상 / 메모리 : 128GB이상\n나. HDD : SSD SATA 1.92TB * 2EA이상\n"
+           "(3) 전원이중화 / 랙타입 / 1GB이상 지원 네트워크 이더넷 포트 필요\n(4) OS : Red Hat Enterprise Linux 64bit 9.2이상\n"
+           "성능 및 유지보수 고려 Dell 서버로 선정 필요")
+    EXPECTED = {("cpu_cores", ">=", 16), ("cpu_ghz", ">=", 2.8), ("memory_gb", ">=", 128.0), ("disk_media", "=", "SSD"), ("disk_iface", "=", "SATA"),
+                ("disk_size_gb", ">=", 1920.0), ("disk_count", ">=", 2), ("dual_psu", "=", True), ("rack_mount", "=", True),
+                ("nic_speed_gb", ">=", 1.0), ("os_spec", "=", "RHEL · 64bit · 9.2 이상")}
+    FORBIDDEN = {"cpu_sockets", "ocp_required", "fc_speed_gb", "fc_ports", "raid_level", "raid_controller", "gpu_count", "nic_ports", "free_pcie", "disk_total_gb"}
+
+    def _out(self):
+        return A._server({"requirements": extract.extract_requirements(self.DOC)}, self.DOC)
+
+    def test_every_source_condition_is_extracted(self):
+        got = {(r["key"], r["op"], r["value"]) for r in self._out()["requirements"] if r["key"] != "manual"}
+        self.assertEqual(got, self.EXPECTED)
+
+    def test_no_condition_is_invented(self):
+        keys = {r["key"] for r in self._out()["requirements"]}
+        self.assertFalse(keys & self.FORBIDDEN, keys & self.FORBIDDEN)
+        manual = {r["label"] for r in self._out()["requirements"] if r["key"] == "manual"}
+        self.assertEqual(manual, {"NIC Port 수"})            # 포트 수만 수기 확인, 속도는 값으로 유지
+
+    def test_model_line_is_a_heading_not_an_unread_line(self):
+        self.assertNotIn("warn", [l["status"] for l in self._out()["lines"]][:1])
+
+    def test_os_is_never_marked_as_met(self):
+        os_req = next(r for r in self._out()["requirements"] if r["key"] == "os_spec")
+        self.assertEqual(os_req["status"], "review")

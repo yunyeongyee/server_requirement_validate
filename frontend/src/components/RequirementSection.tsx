@@ -37,6 +37,8 @@ const SHOWN_NOTES = /^(CPU당|Boot|[\d.]+GbE 이상 포트)$/;
 interface Props {
   /** 모델이 확정되기 전에는 판정하지 않는다 (결과 '대기') */
   modelConfirmed?: boolean;
+  /** 문서 모델명과 카탈로그 모델이 달라 대체한 경우 */
+  modelApprox?: { hint: string; used: string } | null;
   group: RequirementGroup;
   busy: boolean;
   error: string;
@@ -202,7 +204,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 
 export default function RequirementSection({
   group, busy, error,
-  result, modelConfirmed = true, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
+  result, modelConfirmed = true, modelApprox = null, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
   const [showReview, setShowReview] = useState(false);
   const [openGroups, setOpenGroups] = useState<string[]>([]);
@@ -469,8 +471,8 @@ export default function RequirementSection({
           {(group.model_hint || group.suggested_server) && (
             <tr>
               <th scope="row"><span className="cmp-item"><ItemIcon k="model" />서버 모델</span></th>
-              <td>{group.model_hint || "미기재"}{group.suggested_server ? "" : " · 카탈로그에 없음"}</td>
-              <td className="c"><span className="muted">—</span></td><td />
+              <td>{group.model_hint || "미기재"}{group.suggested_server ? "" : " · 카탈로그에 없음"}{modelApprox && <small className="rownote">카탈로그에 {modelApprox.hint}가 없어 {modelApprox.used}로 대체 — 확인 필요</small>}</td>
+              <td className="c">{modelApprox ? <span className="pill p-review">확인 필요</span> : <span className="muted">—</span>}</td><td />
             </tr>
           )}
           {GROUP_DEFS.map(renderGroup)}
