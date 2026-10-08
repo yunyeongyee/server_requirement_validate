@@ -123,6 +123,12 @@ export default function ConfigSection({
   const [selectedBays, setSelectedBays] = useState<number[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** 확대 창으로 보고 있는 면 */
+  const [zoom, setZoom] = useState<"front" | "rear" | null>(null);
+  /** 확대 창 안의 그림 배율 (Ctrl + / Ctrl − / Ctrl 0, Ctrl+휠) */
+  const [scale, setScale] = useState(1);
+  /** 좌표 보정 중 방향키로 움직일 영역 (마지막으로 끌거나 누른 것) */
+  const [calibSel, setCalibSel] = useState<{ view: "front" | "rear"; key: string } | null>(null);
   const [showSlotList, setShowSlotList] = useState(false);
   /** 한 줄 사양 중 펼친 것 (CPU / MEM / Disk / PSU) */
   const [specOpen, setSpecOpen] = useState<"cpu" | "mem" | "disk" | "psu" | null>(null);
@@ -172,7 +178,7 @@ export default function ConfigSection({
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (!target.closest(".tools")) setMenuOpen(false);
-      if (!target.closest(".pop, .bay, .hs, .fix, .sline, select, option")) clearSelection();
+      if (!target.closest(".pop, .zoompanel, .zoomhead, .calibbar, .bay, .hs, .fix, .sline, select, option")) clearSelection();
     };
     window.addEventListener("mousedown", away);
     return () => window.removeEventListener("mousedown", away);
@@ -190,6 +196,84 @@ export default function ConfigSection({
   useEffect(() => {
     setSlotHotspots(savedHotspots(server));
   }, [server]);
+
+  useEffect(() => { if (mode !== "calib") setCalibSel(null); }, [mode]);
+  useEffect(() => { if (zoom === null) setScale(1); }, [zoom]);
+  useEffect(() => {
+    if (zoom === null) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setScale((value) => Math.min(5, Math.max(1, Math.round((value + (event.deltaY < 0 ? 0.25 : -0.25)) * 100) / 100)));
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, [zoom]);
+  // 방향키: 확대 창에서는 선택 이동(Shift 확장), 좌표 보정에서는 영역 이동(Alt 크기) · 기본 0.1%, Shift 1%
+  useEffect(() => {
+    if (!server || !config) return;
+    if (zoom === null && !(mode === "calib" && calibSel)) return;
+    const clamp = (value: number, low: number, high: number) => Math.round(Math.min(high, Math.max(low, value)) * 100) / 100;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
+      if (event.key === "Escape" && zoom !== null) { setZoom(null); return; }
+      if (zoom !== null && (event.ctrlKey || event.metaKey) && ["+", "=", "-", "_", "0"].includes(event.key)) {
+        event.preventDefault();   // 브라우저 전체 확대 대신 그림만 확대
+        setScale((value) => event.key === "0" ? 1 : Math.min(5, Math.max(1, Math.round((value + (event.key === "-" || event.key === "_" ? -0.25 : 0.25)) * 100) / 100)));
+        return;
+      }
+      const dir = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[event.key];
+      if (!dir || event.ctrlKey || event.metaKey) return;
+      if (mode === "calib") {
+        if (!calibSel) return;
+        const cur = calibSel.view === "front" ? frontRects[Number(calibSel.key)] : slotHotspots[calibSel.key];
+        if (!cur) return;
+        event.preventDefault();
+        const step = event.shiftKey ? 1 : 0.1;
+        const next = event.altKey
+          ? { ...cur, w: clamp(cur.w + dir[0] * step, 0.5, 100 - cur.x), h: clamp(cur.h + dir[1] * step, 0.5, 100 - cur.y) }
+          : { ...cur, x: clamp(cur.x + dir[0] * step, 0, 100 - cur.w), y: clamp(cur.y + dir[1] * step, 0, 100 - cur.h) };
+        if (calibSel.view === "front") setFrontRects((current) => current.map((rect, index) => index === Number(calibSel.key) ? next : rect));
+        else setSlotHotspots((current) => ({ ...current, [calibSel.key]: next }));
+        return;
+      }
+      if (zoom === null) return;
+      event.preventDefault();
+      const items: Array<{ id: string; r: Rect }> = zoom === "front"
+        ? frontRects.map((r, index) => ({ id: String(index), r }))
+        : [...server.slots, ...(server.psu_slots || [])].flatMap((slot) => slotHotspots[slot.id] ? [{ id: slot.id, r: slotHotspots[slot.id] }] : []);
+      if (!items.length) return;
+      const center = (r: Rect) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+      const currentId = zoom === "front" ? (anchorBay.current ?? selectedBays[selectedBays.length - 1])?.toString() : selectedSlot || undefined;
+      const from = items.find((item) => item.id === currentId);
+      let pick = from ? undefined : [...items].sort((a, b) => a.r.y - b.r.y || a.r.x - b.r.x)[0];
+      if (from) {
+        const c = center(from.r);
+        let best = Infinity;
+        items.forEach((item) => {
+          if (item === from) return;
+          const o = center(item.r);
+          const dx = o.x - c.x, dy = o.y - c.y;
+          if (dir[0] ? dx * dir[0] <= 0.01 : dy * dir[1] <= 0.01) return;
+          const score = dir[0] ? Math.abs(dx) + 2 * Math.abs(dy) : Math.abs(dy) + 2 * Math.abs(dx);
+          if (score < best) { best = score; pick = item; }
+        });
+      }
+      if (!pick) return;
+      if (zoom === "front") {
+        const index = Number(pick.id);
+        setSelectedSlot(null);
+        setSelectedBays((current) => event.shiftKey && from ? [...new Set([...current, index])].sort((a, b) => a - b) : [index]);
+        anchorBay.current = index;
+      } else {
+        setSelectedBays([]);
+        setSelectedSlot(pick.id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom, mode, calibSel, selectedBays, selectedSlot, frontRects, slotHotspots, server, config]);
 
   useEffect(() => {
     if (!focus || !server || !config) return;
@@ -339,6 +423,7 @@ export default function ConfigSection({
     const box = target.parentElement?.getBoundingClientRect();
     const initial = view === "front" ? currentFrontRects[Number(key)] : slotHotspots[key];
     if (!box || !initial) return;
+    setCalibSel({ view, key });
     drag.current = {
       view, key, box, startX: event.clientX, startY: event.clientY,
       initial: { ...initial },
@@ -627,7 +712,7 @@ export default function ConfigSection({
   };
   /** floating: 그림 위 선택한 칸 옆에 띄움 / 아니면(그림이 없거나 칸 위치를 모를 때) 그림 아래에 그대로 */
   const renderPopover = (view: "front" | "rear", floating: boolean) => {
-    if (mode !== "edit" || (view === "front" ? !selectedBays.length : !selectedSlot)) return null;
+    if (zoom || mode !== "edit" || (view === "front" ? !selectedBays.length : !selectedSlot)) return null;
     const body = view === "front" ? bayPopover() : slotPopover();
     if (!body) return null;
     const rect = popoverRect(view);
@@ -639,16 +724,17 @@ export default function ConfigSection({
     return <div className="pop" style={style} role="dialog" aria-label={view === "front" ? "디스크 선택" : "슬롯 선택"} onPointerDown={(event) => event.stopPropagation()}>{body}</div>;
   };
 
-  const renderStage = (view: "front" | "rear") => {
+  const renderStage = (view: "front" | "rear", big = false) => {
     const info = images?.[view];
     const rendered = renderedImages[view] || info?.item?.url || null;
-    const floatOk = !!rendered && !!popoverRect(view);
+    const floatOk = !big && !zoom && !!rendered && !!popoverRect(view);
     const areas = view === "front"
       ? currentFrontRects.map((area, index) => ({ area, slot: undefined, index }))
       : [...server.slots, ...psuSlots].flatMap((slot, index) => rearSpot(slot.id) ? [{ area: rearSpot(slot.id) as Rect, slot, index }] : []);
     return (
       <figure className="stage" key={view} ref={view === "front" ? frontRef : rearRef}>
-        <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span></figcaption>
+        <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span>
+          {rendered && !big && <button type="button" className="zoombtn" aria-label={`${view === "front" ? "전면" : "후면"} 크게 보기`} data-tip="크게 보기" onClick={() => { setZoom(view); }}>⤢</button>}</figcaption>
         {mode === "calib" && rendered && (
           <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
             {view === "front" ? <>
@@ -690,7 +776,7 @@ export default function ConfigSection({
                   return (
                     <button
                       key={`bay-${index}`}
-                      className={`bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(index) ? "sel" : ""} ${diff?.bays.has(index) ? "diff" : ""}`}
+                      className={`bay ${bay ? "filled" : ""} ${area.w < 2.6 ? "narrow" : ""} ${selectedBays.includes(index) ? "sel" : ""} ${mode === "calib" && calibSel?.view === "front" && calibSel.key === String(index) ? "csel" : ""} ${diff?.bays.has(index) ? "diff" : ""}`}
                       type="button"
                       aria-label={`Bay ${index}${bay ? ` · ${name} · ${bay.role === "boot" ? "Boot" : "Data"}` : " · 비어 있음"}`}
                       aria-pressed={mode === "edit" ? selectedBays.includes(index) : undefined}
@@ -739,7 +825,7 @@ export default function ConfigSection({
                 return (
                   <button
                     key={slot.id}
-                    className={`hs ${isPsu ? `psu ${psuFilled ? "" : "empty"}` : ""} ${off ? "s-off" : ""} ${selectedSlot === slot.id ? "sel" : ""} ${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? "diff" : ""}`}
+                    className={`hs ${isPsu ? `psu ${psuFilled ? "" : "empty"}` : ""} ${off ? "s-off" : ""} ${selectedSlot === slot.id ? "sel" : ""} ${mode === "calib" && calibSel?.view === "rear" && calibSel.key === slot.id ? "csel" : ""} ${(isPsu ? diff?.psu : diff?.slots.has(slot.id)) ? "diff" : ""}`}
                     type="button"
                     aria-label={`${slot.label} · ${off ? "사용 불가" : part}`}
                     aria-pressed={mode === "edit" ? selectedSlot === slot.id : undefined}
@@ -761,7 +847,7 @@ export default function ConfigSection({
               {view === "rear" && Object.entries(slotHotspots).filter(([key]) => key.startsWith("blk:")).map(([key, area]) => (
                 <div
                   key={key}
-                  className="hs blocked"
+                  className={`hs blocked ${mode === "calib" && calibSel?.view === "rear" && calibSel.key === key ? "csel" : ""}`}
                   data-calib-key={key}
                   data-tip={area.reason || BLOCK_REASON}
                   aria-label={`사용할 수 없는 영역: ${area.reason || BLOCK_REASON}`}
@@ -812,9 +898,43 @@ export default function ConfigSection({
             </>}
           </div>
         )}
-        {!floatOk && renderPopover(view, false)}
+        {!floatOk && !big && renderPopover(view, false)}
       </figure>
     );
+  };
+
+  const calibBar = mode === "calib" ? (
+    <div className="calibbar" role="toolbar" aria-label="좌표 보정">
+      <b>좌표 보정 중</b>
+      <span className="muted">영역을 끌어 옮기고, 오른쪽 아래 모서리로 크기 조절 · 방향키 0.1%(Shift 1%) · Alt+방향키 크기 · 베이 {currentFrontRects.length}/{backplane.bays}</span>
+      <span className="calibbar-act">
+        <button type="button" className="btn ghost small" disabled={calibrationBusy} onClick={() => {
+          setFrontRects(images?.bays.rects || []);
+          setSlotHotspots(savedHotspots(server));
+          setMode("edit");
+          setCalibrationMessage("");
+        }}>취소</button>
+        <button type="button" className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>저장하고 끝내기</button>
+      </span>
+    </div>
+  ) : null;
+  const calibMessage = calibrationMessage ? <p className={calibrationMessage.includes("오류") ? "warn small" : "muted small"} role={calibrationMessage.includes("오류") ? "alert" : "status"}>{calibrationMessage}</p> : null;
+  const zoomPanel = () => {
+    if (mode === "calib") {
+      const cur = calibSel ? (calibSel.view === "front" ? currentFrontRects[Number(calibSel.key)] : slotHotspots[calibSel.key]) : null;
+      return <>
+        <p><b>좌표 보정</b></p>
+        {cur && calibSel
+          ? <p className="small">{calibSel.view === "front" ? `Bay ${calibSel.key}` : calibSel.key}<br />x {cur.x.toFixed(1)}% · y {cur.y.toFixed(1)}%<br />폭 {cur.w.toFixed(1)}% · 높이 {cur.h.toFixed(1)}%</p>
+          : <p className="muted small">영역을 눌러 고르세요.</p>}
+        <p className="muted small">방향키: 위치 0.1% · Shift 1%<br />Alt+방향키: 크기<br />끌어서 옮기거나 모서리로 크기 조절도 가능합니다. 저장은 위의 '저장하고 끝내기'를 눌러야 반영됩니다.</p>
+      </>;
+    }
+    const has = zoom === "front" ? selectedBays.length > 0 : !!selectedSlot;
+    return <>
+      {has ? (zoom === "front" ? bayPopover() : slotPopover()) : <p className="muted small">{zoom === "front" ? "베이를 클릭해 고르세요." : "슬롯이나 PSU를 클릭해 고르세요."}</p>}
+      <p className="muted small zoomkeys">방향키: 선택 이동{zoom === "front" ? " · Shift+방향키: 선택 확장 · Shift+클릭/드래그: 여러 칸" : ""}<br />Esc: 닫기 (장착·제거는 바로 반영됩니다)</p>
+    </>;
   };
 
   return (
@@ -849,22 +969,8 @@ export default function ConfigSection({
               </div>
             ))}
           </div>
-        {mode === "calib" && (
-          <div className="calibbar" role="toolbar" aria-label="좌표 보정">
-            <b>좌표 보정 중</b>
-            <span className="muted">영역을 끌어 옮기고, 오른쪽 아래 모서리로 크기 조절 · 베이 {currentFrontRects.length}/{backplane.bays}</span>
-            <span className="calibbar-act">
-              <button type="button" className="btn ghost small" disabled={calibrationBusy} onClick={() => {
-                setFrontRects(images?.bays.rects || []);
-                setSlotHotspots(savedHotspots(server));
-                setMode("edit");
-                setCalibrationMessage("");
-              }}>취소</button>
-              <button type="button" className="btn small" disabled={calibrationBusy} onClick={() => void saveCalibration()}>저장하고 끝내기</button>
-            </span>
-          </div>
-        )}
-        {calibrationMessage && <p className={calibrationMessage.includes("오류") ? "warn small" : "muted small"} role={calibrationMessage.includes("오류") ? "alert" : "status"}>{calibrationMessage}</p>}
+        {!zoom && calibBar}
+        {!zoom && calibMessage}
         {imageBayMismatch && mode !== "calib" && candidates.length < backplane.bays && (
           <div className="hint">
             이 전면 이미지에는 베이가 {candidates.length}개뿐이라 {backplane.name} 구성을 모두 표시할 수 없습니다.
@@ -917,6 +1023,33 @@ export default function ConfigSection({
 
         </div>
       </section>
+      {zoom && (
+        <div className="zoombk" role="dialog" aria-modal="true" aria-label={`${zoom === "front" ? "전면" : "후면"} 크게 보기`}
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setZoom(null); }}>
+          <div className="zoombox">
+            <div className="zoomhead">
+              <b>{zoom === "front" ? "Front" : "Rear"}</b><span className="muted small">{server.vendor} {server.model}</span>
+              <span className="opts" role="group" aria-label="그림 배율">
+                <button type="button" className="opt" aria-label="축소" disabled={scale <= 1} onClick={() => setScale((v) => Math.max(1, v - 0.25))}>−</button>
+                <button type="button" className="opt" aria-label="배율 100%" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
+                <button type="button" className="opt" aria-label="확대" disabled={scale >= 5} onClick={() => setScale((v) => Math.min(5, v + 0.25))}>+</button>
+              </span>
+              <span className="muted small">Ctrl + / − / 0 · Ctrl+휠</span>
+              <span className="opts" role="group" aria-label="작업 종류">
+                <button type="button" className="opt" aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>구성</button>
+                <button type="button" className="opt" aria-pressed={mode === "calib"} onClick={() => setMode("calib")}>좌표 보정</button>
+              </span>
+              <button type="button" className="ico zoomx" autoFocus aria-label="닫기" onClick={() => setZoom(null)}>✕</button>
+            </div>
+            {calibBar}
+            {calibMessage}
+            <div className="zoomgrid">
+              <div className="zoomstage"><div className="zoomscale" style={{ width: `${scale * 100}%` }}>{renderStage(zoom, true)}</div></div>
+              <aside className="zoompanel" aria-label="선택한 항목">{zoomPanel()}</aside>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

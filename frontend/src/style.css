@@ -672,3 +672,21 @@ button.sw{cursor:pointer;text-decoration:underline}
 .tog .sw{width:34px;height:18px;border-radius:9px;background:#b6c2cf;position:relative;display:inline-block}
 .tog .sw:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left .15s}
 .tog.on{border-color:var(--accent)}.tog.on .sw{background:var(--accent)}.tog.on .sw:after{left:18px}
+
+/* ── 확대 창 ── */
+figure.stage figcaption{display:flex;align-items:center;gap:8px}
+.zoombtn{margin-left:auto;font:inherit;font-size:16px;line-height:1;background:transparent;color:#C9D2DB;border:1px solid #4a5661;border-radius:4px;padding:2px 8px;cursor:pointer}
+.zoombtn:hover{color:#fff;border-color:#9CC8F2}
+.zoombk{position:fixed;inset:0;z-index:60;background:rgba(10,15,20,.6);display:flex;align-items:flex-start;justify-content:center;padding:2vh 2vw}
+.zoombox{width:min(98vw,1800px);max-height:96vh;overflow:auto;background:var(--panel);border-radius:10px;padding:10px 14px 14px;display:grid;gap:8px}
+.zoomhead{display:flex;align-items:center;gap:12px}.zoomhead .zoomx{margin-left:auto}
+.zoomgrid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}
+.zoomstage .stage{margin:0}
+.zoompanel{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:8px;font-size:13px;position:sticky;top:0}
+.zoompanel .pop-head .ico{display:none}
+.zoomkeys{border-top:1px solid var(--line);padding-top:8px}
+.hs.csel,.bay.csel{outline:2px solid #ff8a00;outline-offset:1px}
+@media(max-width:900px){.zoomgrid{grid-template-columns:1fr}}
+.zoomstage{overflow:auto;max-height:calc(96vh - 150px);border-radius:6px}
+.zoomscale{min-width:100%}
+.zoomhead .opts{margin-left:0}
