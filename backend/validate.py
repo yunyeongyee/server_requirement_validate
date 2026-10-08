@@ -339,12 +339,11 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
                 actual = f"{name} {'/'.join(have)}"; status = PASS
             else:
                 actual = f"{name} {'/'.join(have)}"
-                # SATA ↔ SAS 는 백플레인이 받더라도 요구와 다른 사양 — 대체 허용 여부를 사람이 확인. 그 밖(HDD↔SSD, NVMe)은 미충족
-                family = {"SATA", "SAS"}
-                if k == "disk_iface" and str(v).upper() in {x.upper() for x in family} and all(x.upper() in {y.upper() for y in family} for x in have):
-                    status = REVIEW; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 대체 허용 여부 확인"
+                # 명시된 조건과 다르면 기본은 미충족. 원문에 '동급/대체 가능'이 있을 때만 확인 필요 (SAS 가 더 고급이라는 이유로 SATA 요구를 충족으로 보지 않는다)
+                if r.get("alt"):
+                    status = REVIEW; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 원문에 '동급/대체 가능' 문구가 있어 대체 허용 여부 확인"
                 else:
-                    status = FAIL
+                    status = FAIL; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 대체 허용 근거가 없어 미충족"
         elif k == "rack_mount":
             ff = str(s.get("form_factor") or "")
             actual = ff or "-"; status = PASS if re.search(r"\d\s*u\b|rack", ff, re.I) else REVIEW
@@ -358,6 +357,9 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             note = "전원·쿨링·Riser는 호환성에서 확인" if status == PASS else ""
         else:
             note = "검증 규칙 없음"
+        if r.get("waiver") and status in (FAIL, REVIEW):
+            basis = (r["waiver"] or {}).get("basis", "") if isinstance(r["waiver"], dict) else str(r["waiver"])
+            note = f"대체 승인 — 근거: {basis} (승인 전 결과: {status}){' · ' + note if note else ''}"; status = PASS
         out.append(_row(r, actual, status, note))
     return out
 

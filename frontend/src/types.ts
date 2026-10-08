@@ -18,6 +18,10 @@ export interface Requirement {
   at_speed?: number;
   /** 사용자가 직접 고치거나 추가한 항목 — 다시 분석해도 남긴다 */
   _user?: boolean;
+  /** 원문에 '동급/대체 가능'이 있어 다른 사양은 확인 필요로 처리 */
+  alt?: boolean;
+  /** 사람이 대체를 승인한 기록 (승인 근거) */
+  waiver?: { basis: string; at: string };
 }
 
 /** 붙여넣은 한 줄을 무엇으로 읽었는지 */

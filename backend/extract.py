@@ -168,6 +168,10 @@ KEYS = {
     "disk_media":    ("Disk Type", ""),
     "disk_iface":    ("Disk Interface", ""),
     "cpu_ghz":       ("CPU Clock", "GHz"),
+    "memory_type":   ("Memory Type", ""),
+    "nic_media":     ("NIC Interface", ""),
+    "os_spec":       ("OS", ""),
+    "spec_note":     ("기타 조건", ""),
     "rack_mount":    ("Rack Type", ""),
     "raid_controller": ("RAID Controller", ""),
 }

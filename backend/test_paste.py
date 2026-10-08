@@ -122,7 +122,10 @@ class SpecSheetTests(unittest.TestCase):
             self.assertIn(item, got)
         self.assertNotIn("cpu_sockets", [k for k, _ in got])  # '6505P' 의 5P 는 소켓 수가 아님
         os_line = next(l for l in sv["lines"] if "Red Hat" in l["text"])
-        self.assertEqual(os_line["status"], "skip")
+        self.assertEqual(os_line["status"], "req")   # OS 는 지우지 않고 요구사항(확인 필요)으로 남긴다
+        os_req = next(r for r in sv["requirements"] if r["key"] == "os_spec")
+        self.assertEqual(os_req["status"], "review")
+        self.assertIn("RHEL", str(os_req["value"]))
 
 
 class RaidTests(unittest.TestCase):
@@ -389,6 +392,41 @@ class SpecConditionTests(unittest.TestCase):
         by = {x["requirement"]: x["status"] for x in V.validate(server, cfg, reqs, {})["requirements"]}
         self.assertEqual(by["CPU Clock >= 2.8GHz"], "미충족")        # 6430 은 2.1GHz
         self.assertEqual(by["Disk Type SSD"], "충족")
-        self.assertEqual(by["Disk Interface SATA"], "확인 필요")      # SAS ≠ SATA — 대체 허용 여부 확인
+        self.assertEqual(by["Disk Interface SATA"], "미충족")        # 대체 허용 근거 없으면 SAS ≠ SATA
         self.assertEqual(by["Disk Size >= 1.92e+03GB"] if "Disk Size >= 1.92e+03GB" in by else by[[k for k in by if k.startswith("Disk Size")][0]], "충족")
         self.assertTrue(res)
+
+
+class PreservedConditionTests(unittest.TestCase):
+    TEXT = ("가. CPU : 2.8Ghz이상 16코어이상 / 메모리 : DDR5 RDIMM 128GB이상\n나. SSD SATA 1.92TB * 2EA이상\n"
+            "다. NIC : 10GbE 이상 SFP+ 2포트\n라. OS : Red Hat Enterprise Linux 64bit 9.2 이상")
+
+    def _by_key(self):
+        out = A._server({"requirements": extract.extract_requirements(self.TEXT)}, self.TEXT)
+        return {r["key"]: r for r in out["requirements"]}
+
+    def test_unverified_conditions_are_kept_as_review(self):
+        r = self._by_key()
+        self.assertEqual((r["memory_type"]["value"], r["memory_type"]["status"]), ("DDR5 RDIMM", "review"))
+        self.assertEqual((r["nic_media"]["value"], r["nic_media"]["status"]), ("SFP+", "review"))
+        self.assertIn("9.2", r["os_spec"]["value"])
+
+    def test_sata_vs_sas_is_fail_unless_text_allows_substitute(self):
+        from . import validate as V
+        import json
+        with open("data/servers.json", encoding="utf-8") as f:
+            server = next(s for s in json.load(f)["servers"] if s["id"] == "dell_r660")
+        cfg = {"cpu_model": "Xeon Gold 6430", "cpu_count": 2, "memory": [], "raid": {"boot": "", "data": ""},
+               "bays": {"0": {"drive": "ssd1920_sas", "role": "data"}}, "slots": {}, "risers": [], "psu_watt": 1100, "psu_count": 2,
+               "backplane": server["backplanes"][0]["id"], "boss": False}
+        def status(text, waiver=None):
+            out = A._server({"requirements": extract.extract_requirements(text)}, text)
+            reqs = [r for r in out["requirements"] if r["key"] == "disk_iface"]
+            if waiver:
+                reqs[0]["waiver"] = waiver
+            return V.validate(server, cfg, reqs, {})["requirements"][0]
+        self.assertEqual(status("SSD SATA 1.92TB 2EA 이상")["status"], "미충족")
+        self.assertEqual(status("SSD SATA 1.92TB 2EA 이상 (동급 이상 대체 가능)")["status"], "확인 필요")
+        waived = status("SSD SATA 1.92TB 2EA 이상", {"basis": "고객 메일 승인"})
+        self.assertEqual(waived["status"], "충족")
+        self.assertIn("고객 메일 승인", waived["note"])

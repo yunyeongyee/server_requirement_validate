@@ -112,11 +112,21 @@ def _tag_lines(lines: list[str], requirements: list[dict], items: list[dict], ig
 _DISK_LINE = re.compile(r"ssd|hdd|nvme|디스크|disk|드라이브|drive|스토리지|storage|저장\s*장치|내장\s*저장", re.I)
 _NOT_DISK = re.compile(r"memory|메모리|\bram\b|dimm|m\.2|boss|캐시|cache", re.I)
 _CPU_LINE = re.compile(r"cpu|프로세서|processor|xeon|epyc|코어|core", re.I)
+_MEM_LINE = re.compile(r"memory|메모리|\bram\b|dimm|ddr[345]", re.I)
+_NIC_LINE = re.compile(r"nic|네트워크|이더넷|ethernet|\blan\b|랜카드|\d+\s*gbe|\d+\s*g\b|\d+\s*gb\s*(?:이더넷|ethernet)|transceiver|트랜시버", re.I)
+_OS_LINE = re.compile(r"^\W*(?:[가-힣]\.\s*)?(?:os|o/s|운영\s*체제)\s*[:：]|red\s*hat|rhel|windows\s*server|ubuntu|suse|rocky|centos|oracle\s*linux|vmware|esxi", re.I)
+_ALT = re.compile(r"동급|동등|대체\s*(?:가능|허용|승인)|or\s+equivalent|equivalent|이상의?\s*사양|또는\s*동급", re.I)
+_OS_NAMES = [(r"red\s*hat\s*enterprise\s*linux|\brhel\b", "RHEL"), (r"windows\s*server", "Windows Server"), (r"ubuntu", "Ubuntu"),
+             (r"suse|sles", "SUSE Linux"), (r"rocky", "Rocky Linux"), (r"centos", "CentOS"), (r"oracle\s*linux", "Oracle Linux"),
+             (r"esxi|vmware|vsphere", "VMware ESXi")]
+# 이름만으로는 해석·검증하지 못하는 조건 — 지우지 않고 원문 근거와 함께 '확인 필요'로 남긴다
+_WATCH = re.compile(r"\b(ecc|sed|fips|hot[-\s]?plug|핫\s*플러그|nl-?sas|\d+\s*k\s*rpm|mixed\s*use|read\s*intensive|write\s*intensive|self[-\s]?encrypt\w*|tpm|secure\s*boot)\b", re.I)
 
 
 def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict]:
-    """원문 줄에 적힌 사양 조건(GHz·SSD/HDD·SATA/SAS/NVMe·용량·수량) 중 요구사항에서 빠진 것을 규칙으로 보충한다.
-    AI 든 규칙이든 같은 줄에서 일부만 읽었을 때, 남은 조건이 '충족'으로 가려지지 않게 한다."""
+    """원문 줄에 적힌 사양 조건을 요구사항에 빠짐없이 보존한다.
+    ① 검증할 수 있는 조건(GHz·SSD/HDD·SATA/SAS/NVMe·용량·수량)은 값으로 보충해 자동 검증하고,
+    ② 아직 자동 검증하지 못하는 조건(DDR5·SFP+/RJ45·OS 종류/버전·ECC 등)은 지우지 않고 원문 근거와 함께 '확인 필요'로 남긴다."""
     out = list(requirements)
     norms = [_norm(line) for line in lines]
     for i, raw in enumerate(lines):
@@ -128,16 +138,19 @@ def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict
         keys = {r["key"] for r in rel}
         boot = "Boot" if re.search(r"boot|부트|\bos(?![a-z])|운영\s*체제", low) else ""
 
-        def add(key, op, value, note=""):
-            r = extract._req(key, op, value, raw, note=note)
+        def add(key, op, value, note="", status="auto"):
+            r = extract._req(key, op, value, raw, note=note, status=status)
             r.update({"line": i, "lines": [i], "how": "rule"})
             out.append(r)
             keys.add(key)
+            return r
+        is_os = bool(_OS_LINE.search(raw))
+        # ── 검증하는 조건 ──
         ghz = re.search(r"(\d+(?:\.\d+)?)\s*ghz", low)
         if ghz and "cpu_ghz" not in keys and (keys & {"cpu_cores", "cpu_sockets"} or _CPU_LINE.search(low)):
             le = re.search(r"이하|or less|max", low) and not re.search(r"이상", low)
             add("cpu_ghz", "<=" if le else ">=", float(ghz.group(1)))
-        if _DISK_LINE.search(low) and not _NOT_DISK.search(low) and (keys & {"disk_count", "disk_size_gb", "disk_total_gb"} or re.search(r"ssd|hdd|nvme|sata|sas", low)):
+        if not is_os and _DISK_LINE.search(low) and not _NOT_DISK.search(low) and (keys & {"disk_count", "disk_size_gb", "disk_total_gb"} or re.search(r"ssd|hdd|nvme|sata|sas", low)):
             if "disk_media" not in keys:
                 media = "SSD" if re.search(r"\bssd\b|nvme", low) else "HDD" if re.search(r"\bhdd\b|\d+\s*k\s*rpm|nl-?sas", low) else None
                 if media:
@@ -145,7 +158,9 @@ def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict
             if "disk_iface" not in keys:
                 iface = "NVMe" if "nvme" in low else "SATA" if re.search(r"\bsata\b", low) else "SAS" if re.search(r"\bsas\b|nl-?sas", low) else None
                 if iface:
-                    add("disk_iface", "=", iface, boot)
+                    r = add("disk_iface", "=", iface, boot)
+                    if _ALT.search(raw):
+                        r["alt"] = True      # 원문에 '동급/대체 가능'이 있어 다른 인터페이스는 확인 필요
             if not keys & {"disk_size_gb", "disk_total_gb"}:
                 m = re.search(r"(\d+(?:\.\d+)?)\s*(tb|gb)\b(?!\s*(?:ram|dimm|ddr))", low)
                 if m:
@@ -154,6 +169,29 @@ def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict
                 m = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|장)(?![a-z])|[x×*]\s*(\d{1,3})(?![\d.])(?!\s*(?:tb|gb))", low)
                 if m:
                     add("disk_count", ">=", int(m.group(1) or m.group(2)), boot)
+        # ── 아직 자동 검증하지 않는 조건: 보존 + 확인 필요 ──
+        if _MEM_LINE.search(low) and "memory_type" not in keys:
+            t = [x for x in (re.search(r"ddr[345]", low), re.search(r"\b(?:lr|r|u|nv)dimm\b", low)) if x]
+            if t:
+                add("memory_type", "=", " ".join(x.group(0).upper() for x in t), "메모리 종류는 자동 검증하지 않음 — 견적에서 확인", "review")
+        if _NIC_LINE.search(low) and not is_os and "nic_media" not in keys:
+            m = re.findall(r"qsfp28|qsfp\+?|sfp28|sfp\+|sfp56|rj-?45|base-?t|utp|광\s*포트|구리|copper|optical", low)
+            if m:
+                add("nic_media", "=", " / ".join(dict.fromkeys(x.upper().replace("RJ-45", "RJ45") for x in m)), "포트 종류는 자동 검증하지 않음 — 견적에서 확인", "review")
+        if is_os and "os_spec" not in keys:
+            name = next((label for pat, label in _OS_NAMES if re.search(pat, low)), None)
+            body = re.sub(r"^\W*(?:[가-힣]\.\s*)?(?:os|o/s|운영\s*체제)\s*[:：]\s*", "", raw.strip(), flags=re.I)
+            ver = re.search(r"(?<![\w.])(\d+(?:\.\d+)+|\d{1,2})(?!\s*-?\s*bit|\s*비트|\w)\s*(이상|이하|or\s+later|\+)?", re.sub(r"64\s*-?\s*bit|32\s*-?\s*bit", "", body, flags=re.I), re.I)
+            bit = re.search(r"(?:32|64)\s*-?\s*bit", body, re.I)
+            parts = [name or body[:60]]
+            if bit: parts.append(bit.group(0).replace(" ", "").lower())
+            if ver: parts.append(f"{ver.group(1)}{' ' + {'이상': '이상', '이하': '이하', '+': '이상'}.get(ver.group(2).lower().replace(' ', ''), '이상') if ver.group(2) else ''}")
+            add("os_spec", "=", " · ".join(parts), "견적의 OS 종류·버전 및 라이선스 포함 여부 확인", "review")
+        watch = [] if is_os else sorted({w.group(0).lower() for w in _WATCH.finditer(raw)})
+        if watch:
+            for w in watch:
+                if not any(r["key"] == "spec_note" and r.get("value") == w for r in out if i in (r.get("lines") or [])):
+                    add("spec_note", "=", w, f"'{w}' 조건은 자동 검증하지 않음 — 견적에서 확인", "review")
     return out
 
 

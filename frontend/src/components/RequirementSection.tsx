@@ -12,6 +12,10 @@ const KEY_DEFS: Record<string, [string, string]> = {
   disk_media: ["Disk Type", ""],
   disk_iface: ["Disk Interface", ""],
   cpu_ghz: ["CPU Clock", "GHz"],
+  memory_type: ["Memory Type", ""],
+  nic_media: ["NIC Interface", ""],
+  os_spec: ["OS", ""],
+  spec_note: ["기타 조건", ""],
   raid_level: ["RAID", ""],
   raid_controller: ["RAID Controller", ""],
   rack_mount: ["Rack Type", ""],
@@ -83,8 +87,8 @@ export function ItemIcon({ k }: { k: string }) {
 }
 
 /** 화면에 보여 줄 항목 순서: 서버 → CPU → 메모리 → 디스크 → RAID → 네트워크 → 전원 */
-const KEY_ORDER = ["rack_mount", "cpu_sockets", "cpu_ghz", "cpu_cores", "memory_gb", "disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb", "raid_level", "raid_controller",
-  "nic_speed_gb", "nic_ports", "ocp_required", "fc_speed_gb", "fc_ports", "gpu_count", "free_pcie", "dual_psu", "psu_watt", "manual"];
+const KEY_ORDER = ["rack_mount", "cpu_sockets", "cpu_ghz", "cpu_cores", "memory_gb", "memory_type", "disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb", "raid_level", "raid_controller",
+  "nic_speed_gb", "nic_media", "nic_ports", "ocp_required", "fc_speed_gb", "fc_ports", "gpu_count", "free_pcie", "dual_psu", "psu_watt", "os_spec", "spec_note", "manual"];
 export const keyRank = (key: string) => { const i = KEY_ORDER.indexOf(key); return i < 0 ? KEY_ORDER.length - 1 : i; };
 
 /** AI 와 규칙이 다르게 읽은 줄: 기본은 AI 해석을 쓰고, 확인용으로 접어 둔다. 원문에서 확인 못 한 값이 있는 줄만 펼쳐 경고한다. */
@@ -119,7 +123,7 @@ export function ConflictList({ conflicts, onResolve, what }: { conflicts: AiConf
 }
 
 const GROUPS: Record<string, string> = {
-  rack_mount: "Rack", cpu_sockets: "CPU", cpu_cores: "CPU", cpu_ghz: "CPU", disk_media: "Disk", disk_iface: "Disk", memory_gb: "Memory", disk_count: "Disk", disk_size_gb: "Disk", disk_total_gb: "Disk",
+  rack_mount: "Rack", cpu_sockets: "CPU", cpu_cores: "CPU", cpu_ghz: "CPU", disk_media: "Disk", disk_iface: "Disk", memory_type: "Memory", nic_media: "NIC", os_spec: "OS", spec_note: "기타 조건", memory_gb: "Memory", disk_count: "Disk", disk_size_gb: "Disk", disk_total_gb: "Disk",
   raid_level: "RAID", raid_controller: "RAID", nic_speed_gb: "NIC", nic_ports: "NIC Port", ocp_required: "OCP", fc_speed_gb: "FC HBA", fc_ports: "FC Port",
   gpu_count: "GPU", free_pcie: "PCIe", dual_psu: "PSU", psu_watt: "PSU", manual: "수기 검토",
 };
@@ -143,15 +147,17 @@ export function reqCondition(item: Requirement): string {
 const GROUP_DEFS: Array<{ id: string; label: string; ik: string; keys: string[] }> = [
   { id: "rack", label: "Rack", ik: "rack_mount", keys: ["rack_mount"] },
   { id: "cpu", label: "CPU", ik: "cpu_sockets", keys: ["cpu_sockets", "cpu_ghz", "cpu_cores"] },
-  { id: "mem", label: "Memory", ik: "memory_gb", keys: ["memory_gb"] },
+  { id: "mem", label: "Memory", ik: "memory_gb", keys: ["memory_gb", "memory_type"] },
   { id: "disk", label: "Disk", ik: "disk_count", keys: ["disk_media", "disk_iface", "disk_size_gb", "disk_total_gb", "disk_count"] },
   { id: "raid", label: "RAID", ik: "raid_level", keys: ["raid_level", "raid_controller"] },
-  { id: "nic", label: "NIC", ik: "nic_speed_gb", keys: ["nic_speed_gb", "nic_ports"] },
+  { id: "nic", label: "NIC", ik: "nic_speed_gb", keys: ["nic_speed_gb", "nic_media", "nic_ports"] },
   { id: "ocp", label: "OCP", ik: "ocp_required", keys: ["ocp_required"] },
   { id: "fc", label: "FC HBA", ik: "fc_speed_gb", keys: ["fc_speed_gb", "fc_ports"] },
   { id: "gpu", label: "GPU", ik: "gpu_count", keys: ["gpu_count"] },
   { id: "pcie", label: "PCIe", ik: "free_pcie", keys: ["free_pcie"] },
   { id: "psu", label: "PSU", ik: "dual_psu", keys: ["dual_psu", "psu_watt"] },
+  { id: "os", label: "OS", ik: "os", keys: ["os_spec"] },
+  { id: "etc", label: "기타 조건", ik: "spec_note", keys: ["spec_note"] },
 ];
 const gbText = (gb: number) => gb >= 1000 ? `${+(gb / 1000).toFixed(2)}TB` : `${gb}GB`;
 /** 그룹의 요구 조건 한 줄. 원문에 없는 조건은 추정하지 않고 '미지정'으로 적는다 */
@@ -174,9 +180,12 @@ function groupCondition(id: string, items: Requirement[]): string {
   if (id === "nic" || id === "fc") {
     const speed = by(id === "nic" ? "nic_speed_gb" : "fc_speed_gb"), ports = by(id === "nic" ? "nic_ports" : "fc_ports");
     parts.push(speed ? `${num(speed)}${id === "nic" ? "GbE" : "Gb"}${op(speed)}` : "속도 미지정");
+    const media = by("nic_media");
+    if (media) parts.push(String(media.value));
     parts.push(ports ? `${num(ports)} Port${op(ports)}${ports.at_speed ? ` (${ports.at_speed}G 이상 포트)` : ""}` : "포트 수 미지정");
     return parts.join(" · ");
   }
+  if (id === "etc") return items.map((item) => String(item.value)).join(" · ");
   const order = GROUP_DEFS.find((def) => def.id === id)?.keys || [];
   return order.map((key) => by(key)).filter((item): item is Requirement => !!item).map((item) => reqCondition(item)).join(" · ");
 }
@@ -348,9 +357,16 @@ export default function RequirementSection({
         return (
           <tr key={item.id} className="subrow">
             <th scope="row">{KEY_DEFS[item.key]?.[0] || item.label}</th>
-            <td>{reqCondition(item)}{row ? <small>실제 {row.actual}{row.note ? ` · ${row.note}` : ""}</small> : null}</td>
+            <td>{reqCondition(item)}{row ? <small>{row.actual && row.actual !== "-" ? `실제 ${row.actual}` : ""}{row.actual && row.actual !== "-" && row.note ? " · " : ""}{row.note}</small> : item.note ? <small>{item.note}</small> : null}
+              {item.source && <small className="src">원문: “{item.source}”</small>}
+              {item.waiver && <small className="waive">대체 승인 기록 · 근거: {item.waiver.basis}</small>}</td>
             <td className="c"><span className={`pill p-${t}`}>{st}</span></td>
             <td className="act"><span className="rtools-inline always">
+              {!item.waiver && ["미충족", "확인 필요"].includes(st) && item.key !== "spec_note" && item.key !== "os_spec" && <button type="button" className="lnk small" title="고객이 다른 사양으로 대체하는 것을 승인한 경우에만 — 근거를 함께 기록합니다" onClick={() => {
+                const basis = window.prompt("대체를 승인한 근거를 입력하세요 (예: 고객 이메일 2026-10-08, 담당자 확인)");
+                if (basis && basis.trim()) update(item.id, { waiver: { basis: basis.trim(), at: new Date().toISOString() } });
+              }}>대체 승인…</button>}
+              {item.waiver && <button type="button" className="lnk small" onClick={() => update(item.id, { waiver: undefined })}>승인 취소</button>}
               <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
               <button className="ico" aria-label="삭제" onClick={() => remove(item.id)}>✕</button>
             </span></td>
