@@ -187,6 +187,7 @@ export interface ValidationResult {
     issues: ValidationIssue[];
   }>;
   requirements: Array<{
+    id: string;
     requirement: string;
     actual: string;
     status: string;

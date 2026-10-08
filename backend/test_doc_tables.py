@@ -17,6 +17,15 @@ def xlsx(sheets):
 
 
 class FormatVarietyTests(unittest.TestCase):
+    def test_explicit_quote_without_prices_preserves_configuration(self):
+        data = b"Description,Qty\nPowerEdge R760 Base Unit 8x2.5,1\n64GB RDIMM DDR5 4800,4\n"
+        normal = D.analyze_document("quote.csv", data, "")
+        quote = D.analyze_document("quote.csv", data, "", force_quote=True)
+        self.assertNotEqual(normal["doc_role"], "quote")
+        self.assertEqual(quote["doc_role"], "quote")
+        self.assertEqual(quote["groups"][0]["proposed"]["memory"]["total_gb"], 256)
+        self.assertEqual(quote["groups"][0]["requirements"], [])
+
     def test_summary_sheet_plus_detail_sheets(self):
         p = SAMPLES / "quote_kgict.xlsx"
         if not p.exists():

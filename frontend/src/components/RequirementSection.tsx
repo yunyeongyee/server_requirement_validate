@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import type { ReactNode } from "react";
-import type { ExtractionInfo, Requirement, RequirementGroup, Server } from "../types";
+import type { ExtractionInfo, Requirement, RequirementGroup, Server, ValidationResult } from "../types";
 import ProposalPanel from "./ProposalPanel";
+import { comparisonRequirements, itemLabel, requirementCondition, requirementResult } from "../lib/comparison";
+import { ItemIcon, StatusBadge } from "./ComparisonUI";
 
 const KEY_DEFS: Record<string, [string, string]> = {
   memory_gb: ["Memory", "GB"],
@@ -20,13 +22,9 @@ const KEY_DEFS: Record<string, [string, string]> = {
   manual: ["수기 검토", ""],
 };
 const BOOLEAN_KEYS = new Set(["ocp_required", "dual_psu"]);
-const SPEC_KIND_LABELS: Record<string, string> = {
-  configuration: "실제 구성",
-  quote: "견적 품목",
-  common_option: "공통 옵션",
-};
-
 interface Props {
+  result: ValidationResult | null;
+  validating: boolean;
   groups: RequirementGroup[];
   activeGroupId: string;
   documentName: string;
@@ -47,18 +45,12 @@ interface Props {
 
 function formatRequirement(requirement: Requirement): string {
   const [label, unit] = KEY_DEFS[requirement.key] || [requirement.label, requirement.unit || ""];
-  if (requirement.key === "manual") return requirement.label || "수기 검토";
+  if (requirement.key === "manual") return requirement.label && requirement.label !== "수기 검토" ? requirement.label : requirement.source || "수기 검토";
   if (BOOLEAN_KEYS.has(requirement.key) || requirement.value === true) return `${label} 필요`;
   if (requirement.value === "" || requirement.value == null) return label;
   const value = typeof requirement.value === "number" ? +requirement.value.toFixed(2) : requirement.value;
   const operator = ({ ">=": "≥", "<=": "≤", "=": "", "?": "" } as Record<string, string>)[requirement.op] ?? requirement.op;
   return `${label} ${operator ? `${operator} ` : ""}${value}${unit ? ` ${unit}` : ""}`;
-}
-
-function specKindLabel(item: { kind?: string; confidence?: number }): string | null {
-  if (!item.kind) return null;
-  const label = SPEC_KIND_LABELS[item.kind] || item.kind;
-  return item.confidence != null && item.confidence < 0.75 ? `확인 필요 · ${label}` : label;
 }
 
 function renderHighlightedSource(text: string, sources: string[]) {
@@ -89,6 +81,8 @@ function renderHighlightedSource(text: string, sources: string[]) {
 }
 
 export default function RequirementSection({
+  result,
+  validating,
   groups,
   activeGroupId,
   documentName,
@@ -106,6 +100,7 @@ export default function RequirementSection({
   applyingGroupId,
   onApplyProposal,
 }: Props) {
+  const [hidePassed, setHidePassed] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -148,6 +143,7 @@ export default function RequirementSection({
       _new: true,
     }]);
     setEditingId(id);
+    setEditingKey("memory_gb");
   };
 
   const removeRequirement = (id: string) => {
@@ -180,16 +176,24 @@ export default function RequirementSection({
     setEditingKey(item.key);
   };
 
-  const automatic = requirements.filter((item) => item.status !== "review");
-  const review = requirements.filter((item) => item.status === "review");
+  const automatic = requirements.filter((item) => item.status !== "review" && item.key !== "manual");
+  const rows = comparisonRequirements(requirements);
+  const passed = rows.filter(item => requirementResult(item, result)?.status === "충족").length;
+  const failed = rows.filter(item => ["미충족", "호환 불가"].includes(requirementResult(item, result)?.status || "")).length;
+  const review = requirements.filter((item) => item.status === "review" || item.key === "manual");
   const sourceHighlights = [
     ...requirements.map((item) => item.source),
     ...spec.flatMap((group) => group.items.map((item) => item.source)),
   ];
 
   return (
-    <section id="s1" className="panel">
-      <h2><span className="n">1</span>요구사항</h2>
+    <section id="s1" className="panel requirement-panel">
+      <div className="comparison-heading">
+        <h2><ItemIcon label="문서" />요구사항 <small>· {activeGroup?.name || "서버 1"}</small></h2>
+        <div className="comparison-counts" aria-live="polite">
+          {validating ? <span className="comparison-status pending">검증 중…</span> : <><span className="comparison-status ok">충족 {passed}</span><span className="comparison-status fail">미충족 {failed}</span><span className="comparison-status review">확인 {review.length + rows.filter(item => requirementResult(item, result)?.status === "확인 필요").length}</span></>}
+        </div>
+      </div>
       {!documentName && (
         <label
           className={`drop ${dragging ? "over" : ""}`}
@@ -242,98 +246,36 @@ export default function RequirementSection({
               busy={applyingGroupId === activeGroup.id}
               onApply={() => onApplyProposal(activeGroup.id)}
             />
-          ) : !!activeGroup?.evidence?.length && (
-            <p className={`muted small group-evidence ${(activeGroup.confidence ?? 1) < 0.75 ? "low" : ""}`}>
-              서버 구분 근거: {activeGroup.evidence.join(" · ")}{activeGroup.notes?.length ? ` · ⚠ ${activeGroup.notes.join(" · ")}` : ""}
-            </p>
-          )}
-          <div className="document-spec">
-            <div className="reqhead">
-              <h3>핵심 요구 사양 <span className="muted">· {activeGroup?.name || "서버"}</span></h3>
-            </div>
-            <div className="core-specs">
-              {spec.flatMap((group) => group.items.map((item, index) => {
-                const exact = requirements.filter((requirement) => requirement.source === item.source);
-                const status = exact.some((requirement) => requirement.status === "review") ? "review" : exact.length ? "matched" : "";
-                return { id: `${group.category}-${index}`, category: group.category, item, status };
-              })).slice(0, 8).map(({ id, category, item, status }) => (
-                <div className="core-spec" key={id}>
-                  <span className="core-label">{category}</span>
-                  <strong>{specKindLabel(item) && <span className="spec-kind">{specKindLabel(item)}</span>} {item.value}</strong>
-                  <span className={`core-status ${status}`} aria-label={status === "review" ? "확인 필요" : status ? "추출 완료" : ""}>{status === "review" ? "⚠" : status ? "✓" : ""}</span>
-                  {item.source && <details className="source-detail"><summary>원문</summary><p>{item.source}</p></details>}
-                </div>
-              ))}
-              {!spec.length && <p className="muted spec-empty">핵심 사양을 찾지 못했습니다. 요구사항 목록 또는 원문을 확인해 주세요.</p>}
-            </div>
-            {spec.reduce((count, group) => count + group.items.length, 0) > 8 && (
-              <details className="sub">
-                <summary>원문에서 추출한 세부 품목 {spec.reduce((count, group) => count + group.items.length, 0)}개 보기</summary>
-                <div className="specgrid">
-                  {spec.flatMap((group) => group.items.map((item, index) => (
-                    <div className="specitem" key={`${group.category}-${index}`}>
-                      <span className="specitem-label">{group.category}</span>
-                      <strong>{specKindLabel(item) && <span className="spec-kind">{specKindLabel(item)}</span>} {item.value}</strong>
-                      {item.source && <details className="source-detail"><summary>원문</summary><p>{item.source}</p></details>}
-                    </div>
-                  )))}
-                </div>
-              </details>
-            )}
-          </div>
+          ) : null}
         </>
       )}
-      <div>
-        <div className="reqhead">
-          <h3>요구사항 <span className="docstat">{automatic.length} 자동</span>{review.length > 0 && <span className="docstat review-stat">{review.length} 확인 필요</span>}</h3>
-          <button className="btn ghost small" onClick={addRequirement}>+ 요구사항 추가</button>
-        </div>
-        <details className="requirement-details">
-          <summary>검증 조건 {requirements.length}개 보기</summary>
-          <ul className="reqs">
-          {automatic.length ? automatic.map((item) => (
-            <li className={`req ${editingId === item.id ? "editing" : ""}`} key={item.id}>
-              {editingId === item.id ? (
-                <form onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
-                  <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)}>
-                    {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
-                  </select>
-                  <select name="op" defaultValue={item.op}>
-                    {[">=", "=", "<="].map((operator) => <option key={operator} value={operator}>{operator}</option>)}
-                  </select>
-                  <input name="value" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} placeholder="값" />
-                  <label className="chk"><input type="checkbox" name="review" defaultChecked={item.status === "review"} /> 확인 필요</label>
-                  <button className="btn small" type="submit">저장</button>
-                  <button className="btn ghost small" type="button" onClick={() => {
-                    if (item._new) removeRequirement(item.id);
-                    setEditingId(null);
-                    setEditingKey("");
-                  }}>취소</button>
-                </form>
-              ) : (
-                <>
-                  <span className="rtext">{formatRequirement(item)}</span>
-                  {item.status === "review" && item.note && <span className="rnote">{item.note}</span>}
-                  {(item.sources?.length || item.source) && <details className="source-detail req-source"><summary>근거 보기</summary>{(item.sources?.length ? item.sources : [item.source]).map((source, index) => <p key={`${item.id}-source-${index}`}>{source}</p>)}{item.note && <p className="rnote">{item.note}</p>}</details>}
-                  <span className="ract">
-                    <button className="ico" aria-label="편집" onClick={() => beginEdit(item)}>✎</button>
-                    <button className="ico" aria-label="삭제" onClick={() => removeRequirement(item.id)}>✕</button>
-                  </span>
-                </>
-              )}
-            </li>
-          )) : <li className="empty muted">{documentName ? "자동으로 인식된 요구사항이 없습니다. 직접 추가할 수 있습니다." : "문서를 올리면 요구사항이 여기에 정리됩니다."}</li>}
-          </ul>
-        </details>
+      <div className="comparison-table-wrap">
+        <table className="comparison-table requirements-table">
+          <caption className="sr-only">요구사항과 실제 구성 검증 결과</caption>
+          <thead><tr><th scope="col">항목</th><th scope="col">요구사항</th><th scope="col">결과</th></tr></thead>
+          <tbody>{rows.filter(item => !hidePassed || requirementResult(item, result)?.status !== "충족").map(item => {
+            const checked = requirementResult(item, result);
+            return <tr key={item.id} className={checked && ["미충족", "호환 불가"].includes(checked.status) ? "comparison-failed" : ""}>
+              <th scope="row"><span className="comparison-item"><ItemIcon label={itemLabel(item)} />{itemLabel(item)}</span></th>
+              <td><strong>{requirementCondition(item)}</strong><small>실제 {checked?.actual || "검증 대기"}</small></td>
+              <td><StatusBadge status={validating ? "검증 중" : checked?.status} /></td>
+            </tr>;
+          })}
+          {!rows.length && <tr><td colSpan={3} className="comparison-empty">문서를 올리면 요구사항이 항목별로 표시됩니다.</td></tr>}
+          {!!rows.length && hidePassed && passed === rows.length && <tr><td colSpan={3} className="comparison-empty">모든 요구사항을 충족했습니다.</td></tr>}
+          </tbody>
+        </table>
+      </div>
         {!!review.length && (
-          <div>
-            <h3 className="rv">확인 필요 <span className="muted">자동 판정이 어려운 항목</span></h3>
+          <div className="manual-review">
+            <h3>⚠ 수기 검토 <span className="comparison-status review">확인 {review.length}</span></h3>
             <ul className="reqs">{review.map((item) => (
               <li className={`req isreview ${editingId === item.id ? "editing" : ""}`} key={item.id}>
                 {editingId === item.id ? (
                   <form onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
                     <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)}>
-                      {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
+                      {!KEY_DEFS[item.key] && <option value={item.key}>{item.label}</option>}
+                    {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
                     </select>
                     <select name="op" defaultValue={item.op}><option>&gt;=</option><option>=</option><option>&lt;=</option></select>
                     <input name="value" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} />
@@ -356,6 +298,54 @@ export default function RequirementSection({
             ))}</ul>
           </div>
         )}
+      <div className="comparison-tools">
+        <button className="lnk" onClick={() => setHidePassed(!hidePassed)} aria-pressed={hidePassed}>{hidePassed ? "충족 항목 펼치기" : "충족 항목 접기"} ({passed}개)</button>
+        <button className="lnk" onClick={addRequirement}>+ 직접 추가</button>
+      </div>
+      <div>
+        <div className="reqhead">
+          <h3>요구사항 <span className="docstat">{automatic.length} 자동</span>{review.length > 0 && <span className="docstat review-stat">{review.length} 확인 필요</span>}</h3>
+          <button className="btn ghost small" onClick={addRequirement}>+ 요구사항 추가</button>
+        </div>
+        <details className="requirement-details" open={editingId !== null || undefined}>
+          <summary>요구사항 수정 · {automatic.length}개</summary>
+          <ul className="reqs">
+          {automatic.length ? automatic.map((item) => (
+            <li className={`req ${editingId === item.id ? "editing" : ""}`} key={item.id}>
+              {editingId === item.id ? (
+                <form onSubmit={(event) => { event.preventDefault(); saveEdit(item, event.currentTarget); }}>
+                  <select name="key" value={editingKey} onChange={(event) => setEditingKey(event.target.value)}>
+                    {!KEY_DEFS[item.key] && <option value={item.key}>{item.label}</option>}
+                    {Object.entries(KEY_DEFS).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                  <select name="op" defaultValue={item.op}>
+                    {[">=", "=", "<="].map((operator) => <option key={operator} value={operator}>{operator}</option>)}
+                  </select>
+                  <input name="value" defaultValue={typeof item.value === "boolean" ? (item.value ? "필요" : "") : item.value ?? ""} disabled={BOOLEAN_KEYS.has(editingKey)} placeholder="값" />
+                  <label className="chk"><input type="checkbox" name="review" defaultChecked={item.status === "review" || item.key === "manual"} /> 확인 필요</label>
+                  <button className="btn small" type="submit">저장</button>
+                  <button className="btn ghost small" type="button" onClick={() => {
+                    if (item._new) removeRequirement(item.id);
+                    setEditingId(null);
+                    setEditingKey("");
+                  }}>취소</button>
+                </form>
+              ) : (
+                <>
+                  <span className="rtext">{formatRequirement(item)}</span>
+                  {item.status === "review" && item.note && <span className="rnote">{item.note}</span>}
+                  {(item.sources?.length || item.source) && <details className="source-detail req-source"><summary>근거 보기</summary>{(item.sources?.length ? item.sources : [item.source]).map((source, index) => <p key={`${item.id}-source-${index}`}>{source}</p>)}{item.note && <p className="rnote">{item.note}</p>}</details>}
+                  <span className="ract">
+                    <button className="ico" aria-label="편집" onClick={() => beginEdit(item)}>✎</button>
+                    <button className="ico" aria-label="삭제" onClick={() => removeRequirement(item.id)}>✕</button>
+                  </span>
+                </>
+              )}
+            </li>
+          )) : <li className="empty muted">{documentName ? "자동으로 인식된 요구사항이 없습니다. 직접 추가할 수 있습니다." : "문서를 올리면 요구사항이 여기에 정리됩니다."}</li>}
+          </ul>
+        </details>
+
       </div>
       {showDocument && (
         <dialog open className="document-dialog">

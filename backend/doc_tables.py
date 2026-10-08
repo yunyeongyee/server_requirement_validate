@@ -469,12 +469,12 @@ def clean_name(name: str) -> str:
     return n.strip(" -:()[]") or name
 
 
-def analyze_document(filename: str, data: bytes, text: str) -> dict:
+def analyze_document(filename: str, data: bytes, text: str, *, force_quote: bool = False) -> dict:
     """업로드 문서 → 통합 그룹 구조. 견적서는 제안 구성, 그 외는 요구사항."""
     from . import extract
     res = analyze(filename, data)
     groups = []
-    if res["doc_role"] == "quote" and res["groups"]:
+    if (res["doc_role"] == "quote" or force_quote) and res["groups"]:
         for g in res["groups"]:
             spec = {}
             for it in g["items"]:

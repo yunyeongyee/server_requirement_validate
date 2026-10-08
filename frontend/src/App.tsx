@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyProposal,
   extractRequirements,
@@ -13,6 +13,8 @@ import {
   validateServer,
 } from "./api";
 import type { Component, ExtractionInfo, ImageStatus, ProjectSummary, Requirement, RequirementGroup, Server, ServerConfig, ValidationResult } from "./types";
+import QuoteSection from "./components/QuoteSection";
+import { ItemIcon } from "./components/ComparisonUI";
 import ConfigSection from "./components/ConfigSection";
 import RequirementSection from "./components/RequirementSection";
 import ResultSection from "./components/ResultSection";
@@ -102,8 +104,11 @@ export default function App() {
   const [apiReady, setApiReady] = useState<boolean | null>(null);
   const [apiRetry, setApiRetry] = useState(0);
   const [proposalNotes, setProposalNotes] = useState<Record<string, string[]>>({});
+  const configurationEditor = useRef<HTMLDetailsElement>(null);
+  const [quoteApplications, setQuoteApplications] = useState<Record<string, { at: string; notes: string[] }>>({});
   const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
 
+  const activeGroup = groups.find(item => item.id === activeGroupId) || groups[0];
   const profile = profiles[activeGroupId];
   const server = useMemo(
     () => servers.find((item) => item.id === profile?.serverId) || null,
@@ -211,6 +216,7 @@ export default function App() {
     setGroups(normalized);
     setProfiles(nextProfiles);
     setProposalNotes({});
+    setQuoteApplications({});
     setResults({});
     setActiveGroupId(normalized[0].id);
     setImageStatus(null);
@@ -267,6 +273,7 @@ export default function App() {
       const { config: nextConfig, notes } = await applyProposal(groupServer.id, group.proposed, groupProfile.config, base?.attrs || null);
       setProfiles((current) => ({ ...current, [groupId]: { serverId: groupServer.id, config: nextConfig } }));
       setProposalNotes((current) => ({ ...current, [groupId]: notes }));
+      setQuoteApplications(current => ({ ...current, [groupId]: { at: new Date().toISOString(), notes } }));
       setRenderedImages({ front: null, rear: null });
     } catch (reason) {
       setUploadError(reason instanceof Error ? reason.message : String(reason));
@@ -275,7 +282,35 @@ export default function App() {
     }
   };
 
+  const handleQuoteApply = async (quote: RequirementGroup) => {
+    if (!quote.proposed || !server || !config) throw new Error("견적을 적용할 서버 구성이 없습니다.");
+    const groupId = activeGroupId;
+    const { config: nextConfig, notes } = await applyProposal(server.id, quote.proposed, config,
+      quote.items?.find(item => item.category === "base")?.attrs || null);
+    if (quote.model_hint && quote.model_hint.replace(/\s/g, "").toLowerCase() !== server.model.replace(/\s/g, "").toLowerCase()) {
+      notes.unshift(`견적 모델 ${quote.model_hint}을 선택한 모델 ${server.model}에 반영했습니다. 부품 대체 및 호환성을 확인해 주세요.`);
+    }
+    setProfiles(current => ({ ...current, [groupId]: { serverId: server.id, config: nextConfig } }));
+    setResults(current => { const next = { ...current }; delete next[groupId]; return next; });
+    setQuoteApplications(current => ({ ...current, [groupId]: { at: new Date().toISOString(), notes } }));
+    setRenderedImages({ front: null, rear: null });
+  };
+  const openConfiguration = (key?: string) => {
+    if (!configurationEditor.current) return;
+    configurationEditor.current.open = true;
+    configurationEditor.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => {
+      const target = key?.startsWith("fc_") || key?.startsWith("nic_") || key === "ocp_required"
+        ? configurationEditor.current?.querySelector<HTMLSelectElement>('[id^="slot-"]')
+        : configurationEditor.current?.querySelector<HTMLSelectElement>("#s4 select");
+      const details = target?.closest("details");
+      if (details) details.open = true;
+      target?.focus({ preventScroll: true });
+    }, 100);
+  };
+
   const handleRequirementsChange = (groupId: string, requirements: Requirement[]) => {
+    setResults(current => { const next = { ...current }; delete next[groupId]; return next; });
     setGroups((current) => current.map((group) => group.id === groupId ? { ...group, requirements } : group));
   };
 
@@ -283,6 +318,7 @@ export default function App() {
     const nextServer = servers.find((item) => item.id === id);
     if (!nextServer) return;
     setProfiles((current) => ({ ...current, [activeGroupId]: { serverId: id, config: defaultConfig(nextServer) } }));
+    setQuoteApplications(current => { const next = { ...current }; delete next[activeGroupId]; return next; });
     setResults((current) => {
       const next = { ...current };
       delete next[activeGroupId];
@@ -293,6 +329,7 @@ export default function App() {
   };
 
   const handleConfigChange = (nextConfig: ServerConfig) => {
+    setResults(current => { const next = { ...current }; delete next[activeGroupId]; return next; });
     setProfiles((current) => {
       const currentProfile = current[activeGroupId];
       return currentProfile ? { ...current, [activeGroupId]: { ...currentProfile, config: nextConfig } } : current;
@@ -355,16 +392,15 @@ export default function App() {
       )}
       {apiReady === null && <div className="stale" role="status">백엔드 API에 연결하는 중입니다…</div>}
       <div className="layout">
-        <nav className="rail" aria-label="작업 단계">
-          <a href="#s1"><b>1</b>요구사항</a>
-          <a href="#s2"><b>2</b>서버 모델 · 이미지</a>
-          <a href="#s3"><b>3</b>서버 구성</a>
-          <a href="#s4"><b>4</b>서버 사양</a>
-          <a href="#s5"><b>5</b>호환성 검증</a>
-          <a href="#s6"><b>6</b>최종 결과표</a>
-        </nav>
         <main>
+          <nav className="server-tabs workspace-tabs" aria-label="서버 선택">
+            {groups.map(group => <button key={group.id} className={group.id === activeGroupId ? "on" : ""} onClick={() => setActiveGroupId(group.id)}>{group.name}{group.quantity ? ` · ${group.quantity}대` : ""}</button>)}
+            <a className="lnk" href="#s6">전체 결과 ›</a>
+          </nav>
+          <div className="comparison-layout">
           <RequirementSection
+            result={validation}
+            validating={validationBusy}
             groups={groups}
             activeGroupId={activeGroupId}
             documentName={documentName}
@@ -382,6 +418,29 @@ export default function App() {
             applyingGroupId={applyingGroupId}
             onApplyProposal={(groupId) => void handleApplyProposal(groupId)}
           />
+          <div className="comparison-right">
+            <QuoteSection key={`${documentName}:${documentText}`} group={activeGroup} server={server} config={config} components={components}
+              result={validation} validating={validationBusy} appliedAt={quoteApplications[activeGroupId]?.at}
+              notes={quoteApplications[activeGroupId]?.notes} onApply={handleQuoteApply} onEdit={openConfiguration}>
+              <section className="panel server-diagram">
+                <h2><ItemIcon label="서버"/>서버 구성도</h2>
+                {(["front", "rear"] as const).map(view => {
+                  const url = renderedImages[view] || imageStatus?.[view].item?.url;
+                  const bays = server?.backplanes.find(item => item.id === config?.backplane)?.bays || 0;
+                  const usedDisks = Object.keys(config?.bays || {}).length;
+                  const usedPCIe = server?.slots.filter(slot => slot.type === "pcie" && config?.slots[slot.id]).length || 0;
+                  const usedOCP = server?.slots.filter(slot => slot.type === "ocp" && config?.slots[slot.id]).length || 0;
+                  return <figure key={view} className="comparison-stage">
+                    <figcaption>{view === "front" ? "Front · 서버 전면 그림" : "Rear · 서버 후면 그림"}</figcaption>
+                    {url ? <img src={url} alt={`${server?.model || "서버"} ${view === "front" ? "전면" : "후면"} 구성`}/> : <p className="muted">{imageError || "서버 이미지를 준비하고 있습니다. 이미지가 없어도 구성을 편집할 수 있습니다."}</p>}
+                    <p>{view === "front" ? `Disk 사용 ${usedDisks} / 여유 ${Math.max(0, bays - usedDisks)}` : `PCIe 사용 ${usedPCIe} / 여유 ${validation?.summary.free_pcie ?? "—"} · OCP 사용 ${usedOCP} · 예상 소비전력 ${validation?.summary.power_est_w ?? "—"}W`}</p>
+                  </figure>;
+                })}
+                <button className="lnk" onClick={() => openConfiguration()}>서버 그림에서 구성 편집</button>
+              </section>
+            </QuoteSection>
+            <details className="configuration-editor" ref={configurationEditor}>
+              <summary>서버 모델 · 부품 · 이미지 편집</summary>
           <ServerSection
             servers={servers}
             components={components}
@@ -406,6 +465,9 @@ export default function App() {
             onSaveCalibration={saveCalibration}
             onRedetectBays={redetect}
           />
+            </details>
+          </div>
+          </div>
           <ResultSection
             server={server}
             result={validation}

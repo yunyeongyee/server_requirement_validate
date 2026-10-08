@@ -2,6 +2,7 @@
 # API Endpoint / 서버 실행
 import asyncio, json, logging
 from pathlib import Path
+from typing import Literal
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -75,7 +76,7 @@ def _analyze_requirements(text: str, context: dict | None = None, ai_allowed: bo
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), document_role: Literal["auto", "quote"] = "auto"):
     ext = Path(file.filename).suffix.lower()
     if ext not in DOC_TYPES:
         raise HTTPException(400, f"지원 형식: {', '.join(sorted(DOC_TYPES))}")
@@ -88,7 +89,7 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(422, "본문 텍스트가 없습니다 (스캔 PDF라면 OCR 필요)")
     # 1) 양식 무관 구조 해석(표·시트·서버 그룹·견적 여부) — 규칙만 사용, 외부 전송 없음
     try:
-        doc = await asyncio.to_thread(doc_tables.analyze_document, file.filename, data, text)
+        doc = await asyncio.to_thread(doc_tables.analyze_document, file.filename, data, text, force_quote=document_role == "quote")
     except Exception:
         logger.exception("document structure analysis failed")
         doc = None
