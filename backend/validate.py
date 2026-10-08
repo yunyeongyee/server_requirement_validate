@@ -165,6 +165,9 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
     mem = sum(int(m.get("size_gb", 0)) * int(m.get("qty", 0)) for m in cfg.get("memory", []))
     dimms = sum(int(m.get("qty", 0)) for m in cfg.get("memory", []))
     nics = [c for c in eff if c["category"] in ("NIC", "OCP NIC")]
+    ob = cfg.get("onboard_nic")   # 온보드·PCIe·OCP 를 모두 네트워크 장치로 집계
+    if ob and ob.get("ports") and ob.get("speed_gb"):
+        nics = [{"category": "NIC", "form": "onboard", "name": ob.get("desc") or "온보드 NIC", "speed_gb": float(ob["speed_gb"]), "ports": int(ob["ports"])}, *nics]
     fcs = [c for c in eff if c["category"] == "FC HBA"]
     usable_free = sum(1 for r in slot_results
                       if r["component"] is None and r["usable"] and r["slot"] != "OCP")

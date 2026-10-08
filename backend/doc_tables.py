@@ -490,7 +490,19 @@ def proposal(items: list[dict]) -> dict:
         s = x["attrs"].get("size_gb")
         if s:
             dimms[s] = dimms.get(s, 0) + q(x)
+    onboard = None
+    for x in items:
+        d = x.get("desc") or ""
+        if re.search(r"온보드|on-?board|\blom\b", d, re.I):
+            sp = re.search(r"(\d+(?:\.\d+)?)\s*(?:gbe|gb|g)\b", d, re.I)
+            word = re.search(r"듀얼|dual|쿼드|quad|싱글|single", d, re.I)
+            n = re.search(r"(\d+)\s*(?:포트|port|p\b)", d, re.I)
+            ports = {"듀얼": 2, "dual": 2, "쿼드": 4, "quad": 4, "싱글": 1, "single": 1}.get(word.group(0).lower()) if word else (int(n.group(1)) if n else None)
+            if sp and ports:
+                onboard = {"desc": re.sub(r"\s*포함.*$", "", re.sub(r"^.*?(?=Broadcom|Intel|Marvell|Realtek|[A-Z]{3,})", "", d))[:80] or d[:80], "speed_gb": float(sp.group(1)), "ports": ports}
+                break
     return {
+        "onboard": onboard,
         "cpu": {"model": cpu[0]["attrs"].get("model") if cpu else None,
                 "count": int(sum(q(x) for x in cpu)) if cpu else 0,
                 "cores": cpu[0]["attrs"].get("cores") if cpu else None},

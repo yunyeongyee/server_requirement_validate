@@ -212,6 +212,8 @@ export interface Server {
 }
 
 export interface ServerConfig {
+  /** 본체에 달린 온보드(LOM) NIC — 견적 본체 품명에서 읽는다 */
+  onboard_nic?: { desc?: string; ports: number; speed_gb: number };
   cpu_model: string;
   cpu_count: number;
   memory: Array<{ size_gb: number; qty: number }>;

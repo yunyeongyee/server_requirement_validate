@@ -147,18 +147,20 @@ export function reqCondition(item: Requirement): string {
 }
 
 /** 표의 한 줄 = 한 부품 종류. 안에 든 조건은 각각 따로 검증하고, 하나라도 미충족/확인 필요면 그 줄도 그렇게 표시한다 */
-const GROUP_DEFS: Array<{ id: string; label: string; ik: string; keys: string[] }> = [
-  { id: "rack", label: "Rack", ik: "rack_mount", keys: ["rack_mount"] },
-  { id: "cpu", label: "CPU", ik: "cpu_sockets", keys: ["cpu_sockets", "cpu_ghz", "cpu_cores"] },
-  { id: "mem", label: "Memory", ik: "memory_gb", keys: ["memory_gb", "memory_type"] },
-  { id: "disk", label: "Disk", ik: "disk_count", keys: ["disk_media", "disk_iface", "disk_size_gb", "disk_total_gb", "disk_count"] },
-  { id: "raid", label: "RAID", ik: "raid_level", keys: ["raid_level", "raid_controller"] },
-  { id: "nic", label: "NIC", ik: "nic_speed_gb", keys: ["nic_speed_gb", "nic_media", "nic_ports"] },
-  { id: "ocp", label: "OCP", ik: "ocp_required", keys: ["ocp_required"] },
-  { id: "fc", label: "FC HBA", ik: "fc_speed_gb", keys: ["fc_speed_gb", "fc_ports"] },
-  { id: "gpu", label: "GPU", ik: "gpu_count", keys: ["gpu_count"] },
+const GROUP_DEFS: Array<{ id: string; label: string; ik: string; keys: string[]; base?: boolean }> = [
+  { id: "rack", label: "Rack", ik: "rack_mount", keys: ["rack_mount"], base: true },
+  { id: "cpu", label: "CPU", ik: "cpu_sockets", keys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], base: true },
+  { id: "mem", label: "Memory", ik: "memory_gb", keys: ["memory_gb", "memory_type"], base: true },
+  { id: "disk", label: "Disk", ik: "disk_count", keys: ["disk_media", "disk_iface", "disk_size_gb", "disk_total_gb", "disk_count"], base: true },
+  { id: "raid", label: "RAID", ik: "raid_level", keys: ["raid_level", "raid_controller"], base: true },
+  { id: "ocp", label: "OCP", ik: "ocp_required", keys: ["ocp_required"], base: true },
+  { id: "nic", label: "NIC", ik: "nic_speed_gb", keys: ["nic_speed_gb", "nic_media"], base: true },
+  { id: "nicp", label: "NIC Port", ik: "nic_speed_gb", keys: ["nic_ports"], base: true },
+  { id: "fc", label: "FC HBA", ik: "fc_speed_gb", keys: ["fc_speed_gb"], base: true },
+  { id: "fcp", label: "FC Port", ik: "fc_speed_gb", keys: ["fc_ports"], base: true },
+  { id: "gpu", label: "GPU", ik: "gpu_count", keys: ["gpu_count"], base: true },
+  { id: "psu", label: "PSU", ik: "dual_psu", keys: ["dual_psu", "psu_watt"], base: true },
   { id: "pcie", label: "PCIe", ik: "free_pcie", keys: ["free_pcie"] },
-  { id: "psu", label: "PSU", ik: "dual_psu", keys: ["dual_psu", "psu_watt"] },
   { id: "os", label: "OS", ik: "os", keys: ["os_spec"] },
   { id: "etc", label: "기타 조건", ik: "spec_note", keys: ["spec_note"] },
 ];
@@ -181,12 +183,15 @@ function groupCondition(id: string, items: Requirement[]): string {
     return parts.join(" · ");
   }
   if (id === "nic" || id === "fc") {
-    const speed = by(id === "nic" ? "nic_speed_gb" : "fc_speed_gb"), ports = by(id === "nic" ? "nic_ports" : "fc_ports");
-    parts.push(speed ? `${num(speed)}${id === "nic" ? "GbE" : "Gb"}${op(speed)}` : "속도 미지정");
+    const speed = by(id === "nic" ? "nic_speed_gb" : "fc_speed_gb");
     const media = by("nic_media");
-    if (media) parts.push(String(media.value));
-    parts.push(ports ? `${num(ports)} Port${op(ports)}${ports.at_speed ? ` (${ports.at_speed}G 이상 포트)` : ""}` : "포트 수 미지정");
-    return parts.join(" · ");
+    if (speed) parts.push(`${num(speed)}${id === "nic" ? "GbE" : "Gb"}${op(speed)}`);
+    if (media && id === "nic") parts.push(String(media.value));
+    return parts.length ? parts.join(" · ") : "속도 미지정";
+  }
+  if (id === "nicp" || id === "fcp") {
+    const ports = by(id === "nicp" ? "nic_ports" : "fc_ports");
+    return ports ? `${num(ports)} Port${op(ports)}${ports.at_speed ? ` (${ports.at_speed}G 이상 포트)` : ""}` : "포트 수 미지정";
   }
   if (id === "etc") return items.map((item) => String(item.value)).join(" · ");
   const order = GROUP_DEFS.find((def) => def.id === id)?.keys || [];
@@ -340,6 +345,16 @@ export default function RequirementSection({
   };
   const renderGroup = (def: typeof GROUP_DEFS[number]) => {
     const items = sortedReqs.filter((item) => def.keys.includes(item.key) && item.key !== "manual");
+    // 포트 수가 원문에 없어 수기 확인으로 남긴 항목은 NIC Port 줄에 붙인다
+    const portNote = def.id === "nicp" ? sortedReqs.find((item) => item.key === "manual" && String(item.label).startsWith("NIC Port")) : undefined;
+    if (!items.length && def.base) return (
+      <tr key={def.id} className="unspecified">
+        <th scope="row"><span className="cmp-item"><span className="caret" aria-hidden="true" />{<ItemIcon k={def.ik} />}{def.label}</span></th>
+        <td className="empty">{portNote ? "미지정 — 필요한 포트 수를 확인하세요" : "미지정"}</td>
+        <td className="c">{portNote ? <span className="pill p-review">확인 필요</span> : <span className="muted">—</span>}</td>
+        <td />
+      </tr>
+    );
     if (!items.length) return null;
     const status = aggregate(items);
     const tone = STATUS_CLASS[status] || "review";

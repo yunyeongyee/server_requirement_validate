@@ -169,6 +169,12 @@ def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict
                 m = re.search(r"(?<![\d.])(\d{1,3})\s*(?:개|ea|본|drives?|disks?|장)(?![a-z])|[x×*]\s*(\d{1,3})(?![\d.])(?!\s*(?:tb|gb))", low)
                 if m:
                     add("disk_count", ">=", int(m.group(1) or m.group(2)), boot)
+        # 네트워크 속도는 있는데 포트 수가 없으면: 속도는 자동 검증하고, 포트 수만 수기 확인으로 분리한다
+        if _NIC_LINE.search(low) and not is_os and re.search(r"port|포트", low) and "nic_speed_gb" in keys and "nic_ports" not in keys \
+                and not any(r["key"] == "manual" and str(r.get("label", "")).startswith("NIC Port") for r in out):
+            r = extract._req("memory_gb", "?", "", raw, note="문서에 포트 수가 없습니다 — 필요한 포트 수를 확인하세요 (속도 조건은 자동 검증)", status="review")
+            r.update({"key": "manual", "label": "NIC Port 수", "unit": "", "line": i, "lines": [i], "how": "rule"})
+            out.append(r)
         # ── 아직 자동 검증하지 않는 조건: 보존 + 확인 필요 ──
         if _MEM_LINE.search(low) and "memory_type" not in keys:
             t = [x for x in (re.search(r"ddr[345]", low), re.search(r"\b(?:lr|r|u|nv)dimm\b", low)) if x]
@@ -180,8 +186,8 @@ def complete_conditions(requirements: list[dict], lines: list[str]) -> list[dict
                 add("nic_media", "=", " / ".join(dict.fromkeys(x.upper().replace("RJ-45", "RJ45") for x in m)), "포트 종류는 자동 검증하지 않음 — 견적에서 확인", "review")
         if is_os and "os_spec" not in keys:
             name = next((label for pat, label in _OS_NAMES if re.search(pat, low)), None)
-            body = re.sub(r"^\W*(?:[가-힣]\.\s*)?(?:os|o/s|운영\s*체제)\s*[:：]\s*", "", raw.strip(), flags=re.I)
-            ver = re.search(r"(?<![\w.])(\d+(?:\.\d+)+|\d{1,2})(?!\s*-?\s*bit|\s*비트|\w)\s*(이상|이하|or\s+later|\+)?", re.sub(r"64\s*-?\s*bit|32\s*-?\s*bit", "", body, flags=re.I), re.I)
+            body = re.sub(r"^\W*(?:(?:[가-힣]|\d+)[.)]\s*|\(\d+\)\s*)?(?:os|o/s|운영\s*체제)\s*[:：]\s*", "", raw.strip(), flags=re.I)
+            ver = re.search(r"(?<![\w.])(\d+(?:\.\d+)+|\d{1,2})(?![\d.]|\s*-?\s*bit|\s*비트)\s*(이상|이하|or\s+later|\+)?", re.sub(r"64\s*-?\s*bit|32\s*-?\s*bit", "", body, flags=re.I), re.I)
             bit = re.search(r"(?:32|64)\s*-?\s*bit", body, re.I)
             parts = [name or body[:60]]
             if bit: parts.append(bit.group(0).replace(" ", "").lower())

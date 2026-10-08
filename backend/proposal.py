@@ -88,6 +88,10 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
     unresolved: list[dict] = []                # 정확히 같은 부품이 없어 장착하지 않은 항목 (임의 대체 금지)
     labels: dict = {"slots": {}, "bays": {}, "psu": (proposed.get("psu") or {}).get("desc")}
 
+    if proposed.get("onboard"):
+        cfg["onboard_nic"] = proposed["onboard"]      # 본체에 달린 온보드(LOM) NIC — 속도·포트 수 검증에 포함
+    else:
+        cfg.pop("onboard_nic", None)
     cpu = proposed.get("cpu") or {}
     if cpu.get("count"):
         cfg["cpu_count"] = min(cpu["count"], server["cpu_sockets"])

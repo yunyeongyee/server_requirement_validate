@@ -969,7 +969,9 @@ export default function ConfigSection({
   };
   const listText = (rows: Array<{ name: string; count: number }>) => rows.length ? rows.map((row) => `${row.name} · ${row.count} EA`).join(" / ") : unset;
   const portText = (rows: Array<{ ports: number }>) => { const total = rows.reduce((sum, row) => sum + row.ports, 0); return total ? `${total} Port` : unset; };
-  const ocpRows = partRows(["OCP NIC"]), nicRows = partRows(["NIC"]), fcRows = partRows(["FC HBA"]), gpuRows = partRows(["GPU"]);
+  const onboard = config.onboard_nic;   // 본체의 온보드(LOM) NIC — PCIe·OCP 와 함께 네트워크로 집계
+  const ocpRows = partRows(["OCP NIC"]), pcieNic = partRows(["NIC"]), fcRows = partRows(["FC HBA"]), gpuRows = partRows(["GPU"]);
+  const nicRows = [...(onboard ? [{ name: `${onboard.desc || "온보드 NIC"} (온보드)`, count: 1, ports: onboard.ports, noImg: false }] : []), ...pcieNic];
   const raidText = [config.raid.data ? `Data ${config.raid.data}` : "", config.raid.boot ? `Boot ${config.raid.boot}` : "", config.boss ? "BOSS-N1" : ""].filter(Boolean).join(" · ") || unset;
   const diskText = diskGroups.length || config.boss ? diskSummary : unset;
   type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean; notes?: string[] };

@@ -475,3 +475,35 @@ class NoSilentSubstitutionTests(unittest.TestCase):
         self.assertEqual({v["role"] for v in res["config"]["bays"].values()}, {"data"})
         boot = self._apply([{**a, "desc": "Boot SSD SATA 960GB"}, b])
         self.assertEqual(sum(1 for v in boot["config"]["bays"].values() if v["role"] == "boot"), 2)
+
+
+class OnboardNicTests(unittest.TestCase):
+    def test_onboard_lom_counts_as_network_device(self):
+        from fastapi.testclient import TestClient
+        import json
+        c = TestClient(app)
+        quote = "PowerEdge R660xs 마더보드 Broadcom 5720 듀얼 포트 1Gb 온보드 LOM 포함\t1\nIntel Xeon Gold 6430\t2"
+        sv = c.post("/api/paste", json={"text": quote, "kind": "quote"}).json()["server"]
+        self.assertEqual((sv["proposed"]["onboard"]["ports"], sv["proposed"]["onboard"]["speed_gb"]), (2, 1.0))
+        with open("data/servers.json", encoding="utf-8") as f:
+            server = next(s for s in json.load(f)["servers"] if s["id"] == "dell_r660")
+        base = {"cpu_model": server["cpu_options"][0], "cpu_count": 2, "memory": [], "backplane": server["backplanes"][0]["id"], "bays": {},
+                "raid": {"boot": "", "data": ""}, "boss": False, "psu_watt": 1100, "psu_count": 2, "risers": [], "slots": {}}
+        cfg = c.post("/api/proposal/apply", json={"server_id": server["id"], "proposed": sv["proposed"], "base_config": base}).json()["config"]
+        reqs = [{"id": "a", "key": "nic_speed_gb", "label": "NIC Speed", "op": ">=", "value": 1.0, "unit": "GbE", "source": "", "status": "auto", "note": ""},
+                {"id": "b", "key": "nic_ports", "label": "NIC Port", "op": ">=", "value": 2, "unit": "Port", "source": "", "status": "auto", "note": ""}]
+        res = c.post("/api/validate", json={"server_id": server["id"], "config": cfg, "requirements": reqs}).json()["requirements"]
+        self.assertEqual([r["status"] for r in res], ["충족", "충족"])
+
+    def test_speed_kept_and_only_port_count_goes_to_review(self):
+        text = "(3) 전원이중화 / 랙타입 / 1GB이상 지원 네트워크 이더넷 포트 필요"
+        out = A._server({"requirements": extract.extract_requirements(text)}, text)
+        keys = [r["key"] for r in out["requirements"]]
+        self.assertIn("nic_speed_gb", keys)
+        self.assertEqual([r["label"] for r in out["requirements"] if r["key"] == "manual"], ["NIC Port 수"])
+
+    def test_os_version_ignores_paragraph_number(self):
+        text = "(4) OS : Red Hat Enterprise Linux 64bit 9.2이상"
+        out = A._server({"requirements": []}, text)
+        os_req = next(r for r in out["requirements"] if r["key"] == "os_spec")
+        self.assertEqual(os_req["value"], "RHEL · 64bit · 9.2 이상")

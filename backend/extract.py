@@ -301,7 +301,7 @@ def extract_requirements(text: str) -> list[dict]:
         # NIC (Ethernet)
         if (re.search(r"nic|gbe|ethernet|이더넷|네트워크|랜카드|lan\b|sfp|nw\s*포트|인터페이스", eth_part) and not re.search(r"ocp", eth_part)
                 or re.search(r"\d+\s*gbe", eth_part)) and not (fc_part and not re.search(r"\d", eth_part)):
-            speed_re = NUM + r"\s*(gbe|gb\s*ethernet|g\s*bps|gbps|g\b)"
+            speed_re = NUM + r"\s*(gbe|gb\s*ethernet|g\s*bps|gbps|g\b|gb(?![a-z]))"
             eth_clauses = [c for c in clauses if not re.search(fc_re, c)] if fc_part else clauses
             speed_clauses = [c for c in eth_clauses if re.search(speed_re, c)]
             m = re.search(speed_re, eth_part)
@@ -319,11 +319,11 @@ def extract_requirements(text: str) -> list[dict]:
                     found.append(_req("nic_speed_gb", ">=", float(m.group(1)), line))
                 if n:
                     found.append(_req("nic_ports", ">=", n, line))
-            if not n and not speed_clauses and re.search(r"port|포트", eth_part):
+            if not n and len(speed_clauses) <= 1 and re.search(r"port|포트", eth_part):
                 reqs.append({
                     "id": uuid.uuid4().hex[:8], "key": "manual", "label": "NIC Port 수",
                     "op": "?", "value": "", "unit": "", "source": line[:200],
-                    "status": "review", "note": "문서에서 포트 수량 기준을 확인하세요",
+                    "status": "review", "note": "문서에 포트 수가 없습니다 — 필요한 포트 수를 확인하세요 (속도 조건은 자동 검증)",
                 })
 
         # OCP
