@@ -1,3 +1,4 @@
+import { pasteTable } from "../lib/clipboardTable";
 import { useState } from "react";
 import type { RequirementGroup, Server } from "../types";
 import { ConflictList } from "./RequirementSection";
@@ -40,7 +41,7 @@ export default function QuotePanel({ quote, busy, error, notes, applying, diffCo
   if (!quote || editing) return (
     <div className="quotebox">
       <b>견적 붙여넣기</b> <span className="muted small">견적 표를 엑셀에서 그대로 긁어 붙여넣으면 아래 서버 그림에 장착됩니다</span>
-      <textarea aria-label="견적 붙여넣기" rows={editing ? 8 : 4} value={text} onChange={(event) => setText(event.target.value)} autoFocus={editing}
+      <textarea aria-label="견적 붙여넣기" rows={editing ? 8 : 4} value={text} onChange={(event) => setText(event.target.value)} onPaste={(event) => pasteTable(event, setText)} autoFocus={editing}
         placeholder="견적사항을 붙여넣으세요 — 엑셀 견적 표를 그대로 복사해서 Ctrl+V" />
       <div className="row">
         <button type="button" className="btn small" disabled={busy || !text.trim()} onClick={() => { onPaste(text); setEditing(false); }}>{busy ? "읽는 중…" : "견적 적용"}</button>

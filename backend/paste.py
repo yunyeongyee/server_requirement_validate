@@ -874,6 +874,38 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
 
 
 def analyze(text: str, suggest, kind: str = "requirement", use_ai: bool = False, rule_lines=()) -> dict:
+    """표로 붙여넣은 요구사항은 행마다 한 문장(사양)으로 풀어 같은 파이프라인에 태우고,
+    근거(source)에는 붙여넣은 표의 행 위치와 원본 행을 남긴다."""
+    back: dict = {}
+    if kind == "requirement" and "\t" in text:
+        text, back = doc_tables.requirement_tables_to_sentences(text)
+    out = _analyze(text, suggest, kind, use_ai, rule_lines)
+    if back:
+        _restore_sources(out, back)
+    return out
+
+
+def _restore_sources(out: dict, back: dict) -> None:
+    def fix(node):
+        if isinstance(node, dict):
+            got = back.get(node.get("source"))
+            if got:
+                node["source"] = f"{got[1]} · 원본: {got[0]}"
+            if isinstance(node.get("sources"), list):
+                node["sources"] = [f"{back[x][1]} · 원본: {back[x][0]}" if x in back else x for x in node["sources"]
+                                   if not str(x).startswith("※ 표 머리글")]
+            if str(node.get("text", "")).startswith("※ 표 머리글") and "status" in node:
+                node["status"], node["label"] = "skip", "표 머리글 — 열 의미 해석에 사용"
+                node.pop("hint", None)
+            for v in node.values():
+                fix(v)
+        elif isinstance(node, list):
+            for v in node:
+                fix(v)
+    fix(out)
+
+
+def _analyze(text: str, suggest, kind: str = "requirement", use_ai: bool = False, rule_lines=()) -> dict:
     """kind = 어느 칸에 붙여넣었는지. 판정하지 않고 칸이 정한다 (요구사항을 견적으로, 견적을 요구사항으로 잘못 읽지 않게).
       requirement: 요구사항 / quote: 견적 표(품목 → 제안 구성). 서버가 여럿이면 나누기 제안
     use_ai: AI 로 정규화(기본값) — 규칙 파서 결과와 다르면 ai.conflicts 로 돌려준다. 실패하면 규칙 결과 + 안내.

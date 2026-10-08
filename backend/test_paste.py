@@ -539,3 +539,35 @@ class GoldenRequirementTests(unittest.TestCase):
     def test_os_is_never_marked_as_met(self):
         os_req = next(r for r in self._out()["requirements"] if r["key"] == "os_spec")
         self.assertEqual(os_req["status"], "review")
+
+
+class TableEquivalenceTests(unittest.TestCase):
+    """같은 사양을 문장·표(열 순서/머리글 이름/빈 칸 달라도)로 써도 같은 조건이 나와야 한다."""
+
+    WANT = {("disk_media", "SSD"), ("disk_iface", "SATA"), ("disk_size_gb", 1920.0), ("disk_count", 2)}
+
+    def specs(self, text):
+        out = A.analyze(text, lambda *a, **k: None, "requirement", False)
+        return {(r["key"], r["value"]) for r in out["server"]["requirements"]}
+
+    def test_same_spec_many_formats(self):
+        docs = [
+            "Disk : SSD SATA 개당 1.92TB 이상 2개 이상",
+            "종류\\t인터페이스\\t용량\\t수량\\nSSD\\tSATA\\t1.92TB\\t2".replace("\\t", "\t").replace("\\n", "\n"),
+            "수량\t용량\t인터페이스\t종류\n2\t1.92TB\tSATA\tSSD",
+            "항목\t종류\t인터페이스\t최소 개당 용량\t최소 수량\t비고\nDisk\tSSD\tSATA\t1.92TB\t2\t",
+            "구분\t종류\t인터페이스\t용량\t수량\nDisk\tSSD\t\t\t\n",
+        ]
+        for doc in docs[:4]:
+            self.assertTrue(self.WANT <= self.specs(doc), doc)
+        # 빈 칸은 임의로 채우지 않는다
+        got = self.specs(docs[4])
+        self.assertIn(("disk_media", "SSD"), got)
+        self.assertFalse({k for k, _ in got} & {"disk_iface", "disk_size_gb", "disk_count"})
+
+    def test_source_has_table_position(self):
+        text = "종류\t인터페이스\t용량\t수량\nSSD\tSATA\t1.92TB\t2"
+        out = A.analyze(text, lambda *a, **k: None, "requirement", False)
+        src = out["server"]["requirements"][0]["source"]
+        self.assertIn("붙여넣은 표 2행", src)
+        self.assertIn("원본 엑셀 좌표 아님", src)

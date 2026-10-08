@@ -124,3 +124,15 @@ class PasteTests(unittest.TestCase):
         text = "서버 요구사항\nCPU 2소켓 이상\n메모리 512GB 이상\n"
         r = D.analyze_document("붙여넣기.tsv", text.encode(), text)
         self.assertEqual(r["doc_role"], "requirement")
+
+
+class QuoteColumnSafetyTests(unittest.TestCase):
+    def test_amount_not_read_as_quantity_and_position_recorded(self):
+        from . import doc_tables as D
+        text = "품명\t금액\t수량\nPowerEdge R660 Server\t5000000\t1\nSSD 1.92TB SATA\t800000\t800000\nSSD 1.92TB SATA\t800000\t2\n"
+        res = D.analyze("붙여넣기.tsv", text.encode())
+        items = [i for g in res["groups"] for i in g["items"]]
+        bad = next(i for i in items if "확인 필요" in i["where"])
+        self.assertIsNone(bad["qty"])
+        self.assertIn("수량 3열", bad["where"])
+        self.assertEqual([i["qty"] for i in items if i is not bad and "SSD" in i["desc"]], [2.0])

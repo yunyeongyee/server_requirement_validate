@@ -1,3 +1,4 @@
+import { pasteTable } from "../lib/clipboardTable";
 import { useState } from "react";
 import type { AiConflict, PasteLine, Requirement, RequirementGroup, ValidationResult } from "../types";
 import type { FocusRequest } from "./ConfigSection";
@@ -285,6 +286,7 @@ export default function RequirementSection({
         rows={mode === "first" ? 10 : 6}
         value={pasted}
         onChange={(event) => setPasted(event.target.value)}
+        onPaste={(event) => pasteTable(event, setPasted)}
         placeholder={mode === "append" ? "추가할 내용을 붙여넣으세요 — 지금 내용 뒤에 붙습니다"
           : "고객 요구사항을 긁어서 여기에 붙여넣으세요 (Ctrl+V)\n\nCPU: 2소켓, 코어 32개 이상\n메모리 512GB 이상\nSSD 1.92TB 4개 이상 RAID5\n10GbE 2포트 이상, FC 32Gb 2포트"}
         autoFocus={mode !== "first"}
