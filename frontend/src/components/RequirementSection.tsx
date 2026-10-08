@@ -43,7 +43,7 @@ interface Props {
 
 const STATUS_CLASS: Record<string, string> = { "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
 /** 미충족 요구사항을 고칠 곳 */
-function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> } | null {
+export function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> } | null {
   if (key.startsWith("fc_")) return { label: "FC HBA 추가", request: { kind: "slot", part: "fc" } };
   if (key.startsWith("nic_") || key === "ocp_required") return { label: "NIC 추가", request: { kind: "slot", part: "nic" } };
   if (key === "gpu_count") return { label: "GPU 추가", request: { kind: "slot", part: "gpu" } };
@@ -54,7 +54,7 @@ function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> 
   return null;
 }
 
-function formatRequirement(requirement: Requirement): string {
+export function formatRequirement(requirement: Requirement): string {
   const [label, unit] = KEY_DEFS[requirement.key] || [requirement.label, requirement.unit || ""];
   if (requirement.key === "manual") return requirement.label && requirement.label !== "수기 검토" ? `수기 검토 · ${requirement.label}` : "수기 검토";
   const note = requirement.note && SHOWN_NOTES.test(requirement.note) ? ` (${requirement.note})` : "";
@@ -66,6 +66,17 @@ function formatRequirement(requirement: Requirement): string {
   if (unit === "GB" && typeof value === "number" && value >= 1000 && requirement.key.startsWith("disk_")) { value = +(value / 1000).toFixed(2); shownUnit = "TB"; }
   const operator = ({ ">=": "≥", "<=": "≤", "=": "", "?": "" } as Record<string, string>)[requirement.op] ?? requirement.op;
   return `${label} ${operator ? `${operator} ` : ""}${value}${shownUnit ? ` ${shownUnit}` : ""}${note}`;
+}
+
+/** 항목 종류별 작은 아이콘 */
+export function ItemIcon({ k }: { k: string }) {
+  const kind = /psu/.test(k) ? "power" : /^cpu/.test(k) ? "cpu" : /^(disk|raid)/.test(k) ? "disk" : "box";
+  return <svg className="item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {kind === "power" ? <><path d="M12 2v9" /><path d="M7 4a9 9 0 1 0 10 0" /></>
+      : kind === "cpu" ? <><rect x="6" y="6" width="12" height="12" rx="2" /><rect x="9" y="9" width="6" height="6" />{[8, 12, 16].map((n) => <path key={n} d={`M${n} 3v3M${n} 18v3M3 ${n}h3M18 ${n}h3`} />)}</>
+      : kind === "disk" ? <><rect x="5" y="3" width="14" height="18" rx="2" /><circle cx="12" cy="10" r="3" /><path d="M8 17h.01M16 17h.01" /></>
+      : <><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M7 10h3M7 14h3M15 10h2M15 14h2" /></>}
+  </svg>;
 }
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 12);
@@ -253,7 +264,7 @@ export default function RequirementSection({
             <li key={item.id} className={`reqrow s-${tone}`} tabIndex={editingId === item.id ? undefined : 0}>
               {editingId === item.id ? renderEdit(item) : (
                 <>
-                  <span className="rq">{formatRequirement(item)}</span>
+                  <span className="rq"><ItemIcon k={item.key} />{formatRequirement(item)}</span>
                   <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
                   <span className="rs">
                     <span className={`pill p-${tone}`}>{status}</span>

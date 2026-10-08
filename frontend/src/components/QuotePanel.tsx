@@ -1,6 +1,9 @@
 import { useState } from "react";
 import type { RequirementGroup, Server } from "../types";
 import ProposalPanel from "./ProposalPanel";
+import { ItemIcon } from "./RequirementSection";
+
+export interface CompareRow { id: string; key: string; label: string; need: string; actual: string; status: string; note?: string; fix?: string; }
 
 interface Props {
   quote: RequirementGroup | undefined;
@@ -19,10 +22,13 @@ interface Props {
   onSplit: () => void;
   onKeepOne: () => void;
   onMarkLine: (line: number, mark: "skip" | null) => void;
+  /** 요구사항별 견적(실제 구성) 비교 */
+  compare: CompareRow[];
+  onFix: (key: string, need: string) => void;
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne }: Props) {
+export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, compare, onFix }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
@@ -89,6 +95,21 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
             </div>
           ))}
         </div>
+      )}
+      {compare.length > 0 && (
+        <table className="cmp" aria-label="요구사항 대비 견적 구성">
+          <thead><tr><th>항목</th><th>견적 구성 (실제)</th><th>결과</th><th>조치</th></tr></thead>
+          <tbody>{compare.map((row) => {
+            const bad = row.status === "미충족" || row.status === "호환 불가";
+            const tone = bad ? "fail" : row.status === "충족" ? "ok" : "review";
+            return <tr key={row.id} className={bad ? "bad" : ""}>
+              <th scope="row"><ItemIcon k={row.key} />{row.label}</th>
+              <td>{row.actual}{row.note ? <small>{row.note}</small> : null}</td>
+              <td><span className={`pill p-${tone}`}>{row.status}</span></td>
+              <td>{bad && row.fix ? <button type="button" className="fix" onClick={() => onFix(row.key, row.need)}>{row.fix}</button> : <span className="muted">—</span>}</td>
+            </tr>;
+          })}</tbody>
+        </table>
       )}
       <ProposalPanel group={quote} server={server} servers={servers} notes={notes} busy={applying} onApply={onReapply} />
     </div>

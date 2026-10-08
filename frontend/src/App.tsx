@@ -23,6 +23,8 @@ import ResultSection from "./components/ResultSection";
 import ServerSection from "./components/ServerSection";
 import ServerBar from "./components/ServerBar";
 import QuotePanel from "./components/QuotePanel";
+import type { CompareRow } from "./components/QuotePanel";
+import { fixFor, formatRequirement } from "./components/RequirementSection";
 import { configDiff } from "./configDiff";
 
 export type ModelSource = "document" | "manual" | "default";
@@ -485,6 +487,14 @@ export default function App() {
   };
 
 
+  const compareRows: CompareRow[] = group.quote ? group.requirements
+    .filter((item) => item.status !== "review" && item.key !== "manual" && !item._new)
+    .map((item) => {
+      const row = validation?.requirements.find((entry) => entry.id === item.id);
+      return { id: item.id, key: item.key, label: formatRequirement(item), need: formatRequirement(item),
+        actual: row?.actual ?? "검증 대기", status: row?.status ?? "확인 필요", note: row?.note || undefined, fix: fixFor(item.key)?.label };
+    }) : [];
+
   return (
     <>
       <header className="top">
@@ -577,6 +587,8 @@ export default function App() {
               onSplit={() => void handleQuoteSplit()}
               onKeepOne={handleQuoteKeepOne}
               onMarkLine={handleQuoteMark}
+              compare={compareRows}
+              onFix={(key, need) => { const fix = fixFor(key); if (fix) setFocus({ ...fix.request, need, n: Date.now() }); }}
             />}
           />}
           {view === "all" && <ResultSection
