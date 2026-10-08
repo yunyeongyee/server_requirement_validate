@@ -363,7 +363,7 @@ PROMPTS = {
         "core_scope per_cpu if per CPU/socket else total), memory (min_capacity_gb total), disk (min_count disks, min_size_gb per disk, "
         "min_total_gb total; boot=true for OS/boot disks), raid (raid_level like 'RAID1'; boot flag), nic and fc (speed_gbps; "
         "min_ports = total ports demanded if stated, else ports_per_card and card_quantity separately), ocp (required, version), "
-        "psu (required=true when redundant/dual power is demanded; watt), rack (rack type required), raid_controller (a RAID "
+        "psu (required=true when redundant/dual power is demanded, e.g. 이중전원/Redundant Power; watt), rack (rack type required), raid_controller (a RAID "
         "controller is required), gpu (min_count), free_pcie (min_count). operator is '>=' for 'N 이상/at least/minimum', "
         "'=' for exact, '<=' for 'N 이하'. Anything hardware-related that cannot be expressed numerically (e.g. 'sufficient performance') "
         "must be category 'other' with the sentence in 'text' — never drop it. Requirements that apply to all servers go to "
@@ -499,7 +499,7 @@ def requirement_items(item: dict, lines: list[str]) -> list[dict]:
             add("ocp_required", True)
         add("nic_speed_gb", num("speed_gbps"), "OCP NIC 속도", op_override=">=")
     elif cat == "psu":
-        if item.get("required"):
+        if item.get("required") or (item.get("required") is None and not item.get("watt")):
             add("dual_psu", True)
         add("psu_watt", num("watt"))
     elif cat == "rack":
@@ -572,13 +572,15 @@ def requirements_from_ai(result: dict, lines: list[str], rule_reqs: list[dict], 
             continue
         if not rule_sig and not ai_rs:
             continue
+        # AI가 '수기 검토'로만 남겼는데 규칙은 값을 명확히 읽은 줄: 규칙 값을 쓰고 사용자에게 묻지 않는다
+        auto = not ai_sig and bool(rule_sig) and not unverified
         conflicts.append({
             "line": i, "text": lines[i].strip(),
             "kind": "unverified" if unverified and ai_sig == rule_sig else "diff",
             "ai": " · ".join(_fmt_req(r) for r in ai_rs) or "읽지 않음",
             "rule": " · ".join(_fmt_req(r) for r in rule_rs) or "읽지 않음",
             "unverified": sorted(set(unverified)),
-            "can_use_rule": bool(rule_rs), "using": "rule" if i in rule_lines else "ai",
+            "can_use_rule": bool(rule_rs), "using": "rule" if i in rule_lines or auto else "ai", "auto": auto,
         })
     # 사용자가 규칙 값을 고른 줄: AI 항목을 빼고 규칙 항목을 넣는다
     for c in conflicts:
@@ -594,11 +596,22 @@ def requirements_from_ai(result: dict, lines: list[str], rule_reqs: list[dict], 
             target["requirements"] += replacement
         else:
             common += replacement
-    return {"groups": groups, "common": common, "ignored": ignored, "conflicts": conflicts}
+    return {"groups": groups, "common": common, "ignored": ignored, "conflicts": [c for c in conflicts if not c["auto"]]}
 
 
 # ───────────────────────────── 견적: AI JSON → 기존 품목·구성 구조 ─────────────────────────────
 NON_HARDWARE = {"accessory", "license", "transceiver", "unknown", "boot_module"}
+
+
+def _norm_ff(v) -> str | None:
+    """AI가 '2.5"', '2.5 inch', 'SFF' 처럼 적어도 카탈로그의 2.5 / 3.5 / M.2 로 맞춘다."""
+    t = str(v or "").lower()
+    return "M.2" if "m.2" in t else "3.5" if ("3.5" in t or "lff" in t) else "2.5" if ("2.5" in t or "sff" in t) else None
+
+
+def _norm_iface(v) -> str | None:
+    t = str(v or "").lower()
+    return "NVMe" if ("nvme" in t or "pcie" in t) else "SAS" if "sas" in t else "SATA" if "sata" in t else None
 
 
 def _attrs(c: dict) -> dict:
@@ -614,7 +627,8 @@ def _attrs(c: dict) -> dict:
         t = re.search(r"ddr[45]", name, re.I)
         a = {"size_gb": c.get("unit_capacity_gb"), "type": t.group(0).upper() if t else None}
     elif cat == "drive":
-        a = {"size_gb": c.get("unit_capacity_gb"), "iface": c.get("interface"), "ff": c.get("form_factor"), "media": c.get("media")}
+        a = {"size_gb": c.get("unit_capacity_gb"), "iface": _norm_iface(c.get("interface")), "ff": _norm_ff(c.get("form_factor") or c.get("name")),
+             "media": "HDD" if str(c.get("media") or "").upper() == "HDD" else "SSD" if c.get("media") else None}
     elif cat in ("nic", "ocp", "fc"):
         a = {"speed_gb": c.get("speed_gbps"), "ports": c.get("ports_per_card"), "height": c.get("height"), "media": c.get("media")}
     elif cat == "psu":

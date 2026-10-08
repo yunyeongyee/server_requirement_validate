@@ -311,3 +311,13 @@ class FallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AiNormalizeFieldTests(unittest.TestCase):
+    def test_drive_form_factor_variants(self):
+        for raw in ('2.5"', "2.5 inch", "SFF", "2.5' H-P"):
+            self.assertEqual(A._norm_ff(raw), "2.5")
+        self.assertEqual(A._norm_ff("3.5 LFF"), "3.5")
+        self.assertEqual(A._norm_iface("SATA 6G"), "SATA")
+        self.assertEqual(A._attrs({"category": "drive", "name": "SSD SATA 6G 960GB MU 2.5' H-P", "unit_capacity_gb": 960,
+                                   "interface": "SATA 6G", "form_factor": "2.5 inch", "media": "SSD"})["ff"], "2.5")
