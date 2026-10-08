@@ -22,7 +22,7 @@ interface Props {
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, onMarkLine }: Props) {
+export default function QuotePanel({ quote, busy, error, servers, server, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
@@ -90,31 +90,7 @@ export default function QuotePanel({ quote, busy, error, servers, server, notes,
           ))}
         </div>
       )}
-      <details className="quotefold">
-        <summary className="muted small">견적 상세 보기{replaced ? ` — 대체 ${replaced}건 확인` : ""}</summary>
-        <ProposalPanel group={quote} server={server} servers={servers} notes={notes} busy={applying} onApply={onReapply} />
-        <ul className="plines">
-          {lines.map((line) => {
-            const st = state(line.n, line.status);
-            return (
-              <li key={line.n} className={`pl pl-${st === "part" ? "part" : st}`}>
-                <span className="pl-ic" aria-hidden="true">{st === "part" ? "✓" : st === "warn" ? "⚠" : st === "head" ? "" : "–"}</span>
-                <div className="pl-body">
-                  <div className="pl-text">{line.text}
-                    {st === "skip" && <span className="pl-tag">{line.label?.split(" · ")[0] || "검증 대상 아님"}</span>}
-                    {st === "skip" && marks[line.n] === "skip" && <button type="button" className="lnk small" onClick={() => onMarkLine(line.n, null)}>되돌리기</button>}
-                  </div>
-                  {st === "part" && <div className="pl-chips"><span className="rchip c-part">{line.label}</span></div>}
-                  {st === "warn" && <div className="pl-acts">
-                    <span className="pl-hint">품목으로 읽지 못했습니다 — 그림에서 직접 장착하거나</span>
-                    <button type="button" className="btn ghost small" onClick={() => onMarkLine(line.n, "skip")}>장착 대상 아님</button>
-                  </div>}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </details>
+      <ProposalPanel group={quote} server={server} servers={servers} notes={notes} busy={applying} onApply={onReapply} />
     </div>
   );
 }

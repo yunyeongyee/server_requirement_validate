@@ -626,3 +626,21 @@ main.work{padding-bottom:72px}
 .cf-opts .opt.on{border-color:var(--accent);background:#E6F0FA;font-weight:600}
 .cf-opts .opt:disabled{opacity:.45;cursor:default}
 .cf-why{font-size:12px;color:#8A5300}
+
+/* ── 팝오버·한 줄 요약·사양 행 ── */
+.tools .dots{font-size:20px;line-height:1;padding:0 8px}
+.tools .menu button:disabled{opacity:.4;cursor:default}
+.specrows{display:grid;border:1px solid var(--line);border-radius:6px;margin:8px 0;background:var(--panel)}
+.specrows .sr+.sr{border-top:1px solid var(--line)}
+.sr-h{display:flex;gap:10px;align-items:center;width:100%;font:inherit;background:transparent;border:0;padding:6px 10px;cursor:pointer;text-align:left;color:var(--ink)}
+.sr-h b{width:44px;flex:none}.sr-h>span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-b{padding:4px 10px 10px;display:grid;gap:6px}
+.sline{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13px;margin:4px 0 12px}
+.sw{font:inherit;font-size:12.5px;background:transparent;border:0;padding:0;color:var(--warn,#b45309)}
+button.sw{cursor:pointer;text-decoration:underline}
+.sok{color:var(--ok,#15803d)}
+.pop{position:absolute;z-index:12;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:8px 10px;display:grid;gap:6px;min-width:210px;max-width:300px;font-size:13px}
+.pop.flow{position:static;max-width:none;margin-top:6px}
+.pop-head{display:flex;gap:8px;align-items:center}.pop-head .ico{margin-left:auto}
+.pop-need{background:color-mix(in srgb,var(--warn,#b45309) 12%,transparent);padding:3px 6px;border-radius:4px}
+.reqmet{list-style:none;padding:4px 0}

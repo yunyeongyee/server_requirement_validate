@@ -48,9 +48,9 @@ function fixFor(key: string): { label: string; request: Omit<FocusRequest, "n"> 
   if (key.startsWith("nic_") || key === "ocp_required") return { label: "NIC 추가", request: { kind: "slot", part: "nic" } };
   if (key === "gpu_count") return { label: "GPU 추가", request: { kind: "slot", part: "gpu" } };
   if (key === "dual_psu" || key === "psu_watt") return { label: "PSU 변경", request: { kind: "slot", part: "psu" } };
-  if (key === "raid_level" || key === "raid_controller") return { label: "RAID 변경", request: { kind: "bays" } };
+  if (key === "raid_level" || key === "raid_controller") return { label: "RAID 변경", request: { kind: "bays", part: "raid" } };
   if (key.startsWith("disk_")) return { label: "디스크 추가", request: { kind: "bays" } };
-  if (["memory_gb", "cpu_sockets", "cpu_cores"].includes(key)) return { label: "사양 수정", request: { kind: "spec" } };
+  if (["memory_gb", "cpu_sockets", "cpu_cores"].includes(key)) return { label: "사양 수정", request: { kind: "spec", part: key === "memory_gb" ? "memory" : "cpu" } };
   return null;
 }
 
@@ -74,6 +74,7 @@ export default function RequirementSection({
   group, busy, error,
   result, onFocus, onPaste, onResolve, onChange, onMarkLine, onSplit, onKeepOne,
 }: Props) {
+  const [showMet, setShowMet] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [pasteMode, setPasteMode] = useState<"replace" | "append" | null>(null);
@@ -242,7 +243,7 @@ export default function RequirementSection({
         </div>
       )}
       <ul className="reqrows">
-        {[...requirements].sort((a, b) => (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
+        {[...requirements].filter((item) => showMet || statusOf(item) !== "충족").sort((a, b) => (a.line ?? 9999) - (b.line ?? 9999)).map((item) => {
           const status = statusOf(item);
           const tone = STATUS_CLASS[status] || "review";
           const fix = status !== "충족" ? fixFor(item.key) : null;
@@ -256,7 +257,7 @@ export default function RequirementSection({
                   <span className="ra">{row ? <>실제 <b>{row.actual}</b>{row.note ? ` · ${row.note}` : ""}</> : item.note || ""}</span>
                   <span className="rs">
                     <span className={`pill p-${tone}`}>{status}</span>
-                    {fix && <button type="button" className="fix" onClick={() => onFocus(fix.request)}>{fix.label}</button>}
+                    {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
                   </span>
                   <span className="rtools">
                     <button className="ico" aria-label="고치기" onClick={() => { setEditingId(item.id); setEditingKey(item.key); }}>✎</button>
@@ -268,6 +269,8 @@ export default function RequirementSection({
             </li>
           );
         })}
+        {!showMet && count("충족") > 0 && <li className="reqmet"><button type="button" className="lnk" onClick={() => setShowMet(true)}>충족 {count("충족")}개 보기</button></li>}
+        {showMet && count("충족") > 0 && <li className="reqmet"><button type="button" className="lnk" onClick={() => setShowMet(false)}>충족 항목 접기</button></li>}
         {!requirements.length && <li className="reqempty muted">인식된 요구사항이 없습니다. 직접 추가하거나 원문을 확인하세요.</li>}
       </ul>
       <div className="reqfoot">

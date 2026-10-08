@@ -12,11 +12,9 @@ interface Props {
 const pct = (value?: number) => (value == null ? "" : `${Math.round(value * 100)}%`);
 
 /** 견적서에서 읽은 서버 1종의 제안 구성 요약 + 판단 근거 + '구성에 적용'. 가격은 표시하지 않는다. */
-export default function ProposalPanel({ group, server, servers, notes, busy, onApply }: Props) {
+export default function ProposalPanel({ group, notes }: Props) {
   const p = group.proposed;
-  const suggested = servers.find((item) => item.id === group.suggested_server);
   const lowConfidence = (group.confidence ?? 1) < 0.75;
-  const unknown = (group.items || []).filter((item) => item.category === "unknown");
   if (!p) return null;
   const line = (label: string, value: string | null | undefined) => value ? <div className="pp-row"><dt>{label}</dt><dd>{value}</dd></div> : null;
   // 같은 품목이 여러 줄로 나뉘어 있으면 수량을 합쳐 한 번만
@@ -48,26 +46,6 @@ export default function ProposalPanel({ group, server, servers, notes, busy, onA
         {line("Riser", p.riser?.length ? list(p.riser) : null)}
         {line("PSU", p.psu.count ? `${p.psu.watt ?? "-"}W × ${p.psu.count}` : null)}
       </dl>
-      <details className="sub">
-        <summary>판단 근거 {group.evidence?.length || 0}개{group.notes?.length ? ` · 주의 ${group.notes.length}개` : ""}</summary>
-        <ul className="pp-ev">
-          {(group.evidence || []).map((text, index) => <li key={`e-${index}`}>{text}</li>)}
-          {(group.notes || []).map((text, index) => <li key={`n-${index}`} className="rnote">⚠ {text}</li>)}
-          {unknown.map((item, index) => <li key={`u-${index}`} className="rnote">해석 안 됨: {item.code} {item.desc} ({item.where})</li>)}
-        </ul>
-      </details>
-      <div className="row">
-        <button className="btn ghost small" disabled={busy || !server} onClick={onApply}>
-          {busy ? "적용 중…" : `${group.doc_role === "config" ? "구성도" : "견적"}대로 다시 적용 (${server ? server.model : "모델 선택 필요"})`}
-        </button>
-        {group.model_hint && !suggested && (
-          <span className="muted small">견적 모델 '{group.model_hint}' 은 서버 카탈로그에 없습니다 — 선택한 모델로 가장 가까운 부품을 배치합니다.</span>
-        )}
-        {suggested && server?.id !== suggested.id && <span className="muted small">추천 모델: {suggested.vendor} {suggested.model}</span>}
-      </div>
-      {!!notes?.length && (
-        <ul className="pp-notes">{notes.map((text, index) => <li key={index}>{text}</li>)}</ul>
-      )}
     </details>
   );
 }
