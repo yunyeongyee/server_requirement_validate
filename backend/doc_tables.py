@@ -181,6 +181,11 @@ def _verify_roles(roles: dict[int, str], rows) -> dict[int, str]:
     return roles
 
 
+def _is_subheader(cells) -> bool:
+    vals = [c.strip() for c in cells if c.strip()]
+    return bool(vals) and all(re.fullmatch(r"[(\[（].{0,12}[)\]）]|ea|원|개|대|krw|usd|단위|vat\s*별도", v, re.I) for v in vals)
+
+
 def find_header(rows) -> tuple[int, dict[int, str]] | None:
     """표 머리글 행(인덱스)과 열 역할. 머리글이 없으면 열 내용 형태로 추정."""
     best = None
@@ -195,6 +200,15 @@ def find_header(rows) -> tuple[int, dict[int, str]] | None:
                 best = (idx, roles, score)
     if best:
         return best[0], _verify_roles(best[1], rows[best[0] + 1:])
+    # 머리글이 두 줄(예: 위 '수량' / 아래 '(EA)', 또는 위 그룹명 / 아래 세부명)이면 칸별로 이어 붙여 다시 본다
+    for idx in range(len(rows) - 1):
+        a, b = rows[idx][1], rows[idx + 1][1]
+        merged = [f"{x} {y}".strip() for x, y in zip(a + [""] * (len(b) - len(a)), b + [""] * (len(a) - len(b)))]
+        roles = _header_roles(merged)
+        kinds = set(roles.values())
+        nxt = rows[idx + 2: idx + 5]
+        if len(kinds & {"code", "desc", "qty"}) >= 2 and nxt and any(any(_cell_kind(c) in ("int_small", "code", "text") for c in r[1]) for r in nxt):
+            return idx + 1, _verify_roles(roles, rows[idx + 2:])
     return _infer_roles(rows)
 
 
@@ -294,7 +308,9 @@ def table_blocks(t: Table) -> list[Block]:
     title = title or next((x for x in reversed(t.titles) if ROLE_WORDS.search(x)), None)
     blocks: list[Block] = []
     cur = Block(title, "표 제목" if title else "", [], t.source, has_price)
-    for n, cells in rows[hi + 1:]:
+    for k, (n, cells) in enumerate(rows[hi + 1:]):
+        if k == 0 and hi >= 0 and _is_subheader(cells):
+            continue  # 머리글 둘째 줄(단위·보조 설명)은 품목이 아니다
         txt = _row_text(cells)
         if TOTAL_ROW.search(cells[0] if cells else "") or TOTAL_ROW.fullmatch(txt.split(" ")[0] or ""):
             continue

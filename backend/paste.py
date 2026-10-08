@@ -529,16 +529,27 @@ def _refine_other(st: dict, numbered: str, result: dict) -> None:
                 items[k:k + 1] = hit
 
 
+def _cells(line: str) -> str:
+    """탭으로 나뉜 표 줄은 칸 번호를 붙여 보낸다 — 빈 칸도 자리를 유지해 열 의미(머리글 ↔ 값)가 밀리지 않게."""
+    if "\t" not in line:
+        return line
+    return " ".join(f"[C{n}]{c.strip()}" for n, c in enumerate(line.split("\t"), 1))
+
+
+TABLE_RULE = ("표 줄은 [C1][C2]… 칸 번호가 붙어 있고 빈 칸도 유지된다. 머리글 줄의 칸 의미를 같은 번호의 값 칸에 적용하라. "
+              "금액·단가 열은 수량이 아니다. 빈 칸·불확실한 칸은 추측하지 말고 확인 필요로 남겨라.")
+
+
 def normalize(document_type: str, lines: list[str]) -> dict:
     """원문 줄들 → AI 정규화 JSON. 같은 입력은 다시 부르지 않는다."""
     st = settings()
-    numbered = "\n".join(f"{i + 1}: {redact(line).replace(chr(9), ' | ')}" for i, line in enumerate(lines) if line.strip())
+    numbered = "\n".join(f"{i + 1}: {_cells(redact(line))}" for i, line in enumerate(lines) if line.strip())
     if len(numbered) > MAX_CHARS:
         raise AIError("too long", f"붙여넣은 내용이 너무 깁니다({len(numbered):,}자) — 서버별로 나눠 붙여넣어 주세요")
     key = hashlib.sha256(json.dumps([document_type, st["model"], numbered], ensure_ascii=False).encode()).hexdigest()
     if key in _CACHE:
         return _CACHE[key]
-    result = _ask(st, PROMPTS[document_type], numbered, f"{document_type}_normalization", SCHEMAS[document_type])
+    result = _ask(st, PROMPTS[document_type] + ((" " + TABLE_RULE) if "[C1]" in numbered else ""), numbered, f"{document_type}_normalization", SCHEMAS[document_type])
     if not isinstance(result, dict) or result.get("document_type") != document_type:
         raise AIError("bad shape", "AI 응답 형식이 올바르지 않습니다")
     if document_type == "requirement":

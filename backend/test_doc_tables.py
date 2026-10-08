@@ -136,3 +136,14 @@ class QuoteColumnSafetyTests(unittest.TestCase):
         self.assertIsNone(bad["qty"])
         self.assertIn("수량 3열", bad["where"])
         self.assertEqual([i["qty"] for i in items if i is not bad and "SSD" in i["desc"]], [2.0])
+
+
+class TwoLineHeaderTests(unittest.TestCase):
+    def test_two_line_header_and_ai_cells(self):
+        from . import doc_tables as D, paste
+        text = "구분\t품명\t수\t단가\n\t\t량\t(원)\n서버\tPowerEdge R660 Server\t1\t5000000\n서버\tSSD 1.92TB SATA\t2\t400000\n"
+        text = "No\t품명\t수량\t금액\n\t(모델)\t(EA)\t(원)\n1\tPowerEdge R660 Server\t1\t5000000\n2\tSSD 1.92TB SATA\t2\t800000\n"
+        res = D.analyze("붙여넣기.tsv", text.encode())
+        items = [i for g in res["groups"] for i in g["items"]]
+        self.assertEqual([i["qty"] for i in items], [1.0, 2.0])
+        self.assertEqual(paste._cells("a\t\tb"), "[C1]a [C2] [C3]b")
