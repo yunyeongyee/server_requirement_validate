@@ -37,6 +37,20 @@ def suggest_server(model_hint: str | None, servers: list[dict]) -> str | None:
     return max(near, key=lambda s: len(s["model"]))["id"] if near else None
 
 
+def _cpu_option(desc: str, options: list[str]) -> str | None:
+    """견적 CPU 표기('인텔 제온 골드 5415+ 2.9G' 등) → 카탈로그 CPU. 모델 번호(5415+, 6430, 8462Y+)가 정확히 같은 것만."""
+    low = desc.lower().replace("intel ", "")
+    for o in options:
+        if low in o.lower() or o.lower() in low:
+            return o
+    nums = re.findall(r"(?<![\d.])(\d{4}[a-z]?\+?)(?![\d.])", low)
+    for n in nums:
+        hits = [o for o in options if re.search(rf"(?<![\d.]){re.escape(n)}(?![\w+])", o.lower())]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
 def _nearest(options, value, prefer_ge=True):
     if not options or value is None:
         return None
@@ -116,12 +130,13 @@ def to_config(server: dict, proposed: dict, catalog: dict, base_cfg: dict, backp
         if cpu["count"] > server["cpu_sockets"]:
             notes.append(f"CPU {cpu['count']}개 → 서버 소켓 {server['cpu_sockets']}개로 제한")
     if cpu.get("model"):
-        hit = next((o for o in server["cpu_options"] if cpu["model"].lower().replace("intel ", "") in o.lower()
-                    or o.lower() in cpu["model"].lower()), None)
+        hit = _cpu_option(cpu["model"], server["cpu_options"])
         if hit:
             cfg["cpu_model"] = hit
         else:
             notes.append(f"CPU '{cpu['model']}' 는 이 모델의 CPU 목록에 없음 — CPU 모델은 직접 확인")
+            unresolved.append({"category": "cpu", "desc": cpu["model"], "qty": cpu.get("count"), "nearest": None,
+                               "reason": f"이 모델의 CPU 목록에 없어 그림·검증은 {cfg.get('cpu_model')} 기준 — CPU 모델은 직접 확인"})
 
     for d in (proposed.get("memory") or {}).get("dimms", []):
         size = d["size_gb"]

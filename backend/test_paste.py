@@ -706,3 +706,12 @@ class RequantifyTests(unittest.TestCase):
         items = [item("cpu", 2, {}), item("memory", 4, {"size_gb": 32}), item("memory", 4, {"size_gb": 32})]
         res = TestClient(app).post("/api/quote/requantify", json={"items": items}).json()
         self.assertEqual((res["proposed"]["cpu"]["count"], res["proposed"]["memory"]["total_gb"]), (2, 256))
+
+
+class CpuMatchTests(unittest.TestCase):
+    def test_cpu_by_model_number_and_unlisted_is_flagged(self):
+        from . import proposal
+        opts = ["Xeon Gold 6430", "Xeon Platinum 8462Y+"]
+        self.assertEqual(proposal._cpu_option("인텔 제온 골드 6430 2.1G 32C", opts), "Xeon Gold 6430")
+        self.assertIsNone(proposal._cpu_option("Xeon Platinum 8462Y", opts))    # 8462Y ≠ 8462Y+
+        self.assertIsNone(proposal._cpu_option("인텔 제온 골드 5415+ 2.9G", opts))

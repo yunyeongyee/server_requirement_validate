@@ -796,3 +796,8 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .qtable{margin:8px 0 4px}.qtable th{width:84px;white-space:nowrap}.qtable td.q{width:120px;white-space:nowrap}
 .qtable .qwarn{color:var(--review);font-weight:600}.qtable tr.absent td,.qtable tr.absent th{color:#8a97a6}
 .qtable tr.qscope td{background:#fffaf0;font-size:12.5px}
+
+.rowwarn{border:0;background:none;color:var(--review);font-weight:700;cursor:pointer;padding:0 4px;margin-left:4px;font-size:14px;line-height:1}
+.quote-issues{margin:8px 0 2px;font-size:13px}.quote-issues>summary{cursor:pointer;font-weight:600;color:var(--review)}
+.quote-issues .cf{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 0;border-top:1px solid #f0e2c4}
+.quote-issues .cf-text{flex:1 1 220px;min-width:0}.quote-issues .cf-why{flex-basis:100%;font-size:12px;color:var(--review)}

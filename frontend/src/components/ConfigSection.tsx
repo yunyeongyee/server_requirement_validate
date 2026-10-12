@@ -166,6 +166,8 @@ export default function ConfigSection({
   const [showSlotList, setShowSlotList] = useState(false);
   /** 한 줄 사양 중 펼친 것 (CPU / MEM / Disk / PSU) */
   const [specOpen, setSpecOpen] = useState<"cpu" | "mem" | "disk" | "psu" | null>(null);
+  /** 행의 ⚠ 를 눌러 펼친 안내 (평소에는 아이콘만) */
+  const [noteOpen, setNoteOpen] = useState<string | null>(null);
   /** 팝오버에 보여 줄 '이 요구사항 때문에 왔다' · 맞는 자리가 없을 때 안내 */
   const [need, setNeed] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ view: "front" | "rear"; text: string } | null>(null);
@@ -985,14 +987,15 @@ export default function ConfigSection({
   type SpecRow = { key: string; ik: string; label: string; text: string; reqKeys: string[]; edit?: "cpu" | "mem" | "disk" | "psu"; part?: FocusRequest["part"]; changed?: boolean; notes?: string[]; info?: string[]; forced?: string };
   /** 견적에는 있으나 장착하지 못한 항목 / 장착했는데 그림이 연결되지 않은 부품을 그 줄에 이유와 함께 표시 */
   const rowNotes = (cat: string, rows?: Array<{ name: string; noImg: boolean }>) => [
-    ...quoteUnresolved.filter((item) => item.category === cat).map((item) => `견적의 '${item.desc}'${item.qty ? ` · ${item.qty} EA` : ""}는 장착하지 않음 — ${item.reason}${item.nearest ? ` (가장 가까운 부품: ${item.nearest}) · 위 '견적' 영역에서 확인` : ""}`),
+    ...quoteUnresolved.filter((item) => item.category === cat && cat === "cpu").map((item) => `견적 CPU '${item.desc}' — ${item.reason}`),
+    ...quoteUnresolved.filter((item) => item.category === cat && cat !== "cpu").map((item) => `견적의 '${item.desc}'${item.qty ? ` · ${item.qty} EA` : ""}는 장착하지 않음 — ${item.reason}${item.nearest ? ` (가장 가까운 부품: ${item.nearest}) · 위 '견적' 영역에서 확인` : ""}`),
     ...(rows || []).filter((row) => row.noImg).map((row) => `'${row.name}' 는 연결된 그림이 없어 글자 라벨로 표시됩니다 — 이미지 보관함에서 이 부품에 이미지를 연결하세요`),
   ];
   const specTableRows: SpecRow[] = [
     { key: "model", ik: "model", label: "서버 모델", text: `${server.vendor} ${server.model}`, reqKeys: [],
       ...(modelApprox ? { forced: "확인 필요", notes: [`문서의 ${modelApprox.hint}는 카탈로그에 없어 ${modelApprox.used}로 대체했습니다 — 같은 모델이 아니므로 확인이 필요합니다`] } : {}) },
     { key: "rack", ik: "rack", label: "Rack", text: server.form_factor || unset, reqKeys: ["rack_mount"] },
-    { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, reqKeys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], edit: "cpu", changed: diff?.spec },
+    { key: "cpu", ik: "cpu_sockets", label: "CPU", text: `${config.cpu_model} · ${config.cpu_count} EA`, notes: rowNotes("cpu"), reqKeys: ["cpu_sockets", "cpu_ghz", "cpu_cores"], edit: "cpu", changed: diff?.spec },
     { key: "mem", ik: "memory", label: "Memory", text: memoryTotal ? memSummary : unset, reqKeys: ["memory_gb", "memory_type"], edit: "mem", changed: diff?.spec },
     { key: "disk", ik: "disk", label: "Disk", text: diskText, notes: rowNotes("drive"),
       info: [...new Set(Object.values(quoteLabels?.bays || {}))].map((desc) => `견적 원문: ${desc}`), reqKeys: ["disk_media", "disk_iface", "disk_count", "disk_size_gb", "disk_total_gb"], edit: "disk" },
@@ -1042,7 +1045,8 @@ export default function ConfigSection({
         return [
           <tr key={row.key} className={`${bad ? "bad" : ""} ${act ? "clickable" : ""}`} title={act ? "클릭해서 바꾸기" : undefined} onClick={act ?? undefined}>
             <th scope="row"><span className="cmp-item"><ItemIcon k={row.ik} />{row.label}</span></th>
-            <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.info?.map((note, i) => <small key={`i${i}`} className="rowinfo">{note}</small>)}{row.notes?.map((note, i) => <small key={i} className="rownote">⚠ {note}</small>)}</td>
+            <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.info?.map((note, i) => <small key={`i${i}`} className="rowinfo">{note}</small>)}{!!row.notes?.length && <button type="button" className="rowwarn" title={row.notes.join("\n")} aria-label="확인 필요 — 펼치기" aria-expanded={noteOpen === row.key} onClick={(event) => { event.stopPropagation(); setNoteOpen(noteOpen === row.key ? null : row.key); }}>⚠</button>}
+              {noteOpen === row.key && row.notes?.map((note, i) => <small key={i} className="rownote">{note}</small>)}</td>
             <td className="c">{st ? <span className={`pill p-${tone}`}>{st.status}</span> : <span className="muted">—</span>}</td>
           </tr>,
           row.edit && specOpen === row.edit && (row.key === "cpu" || row.key === "mem" || row.key === "disk" || row.key === "psu") ? <tr key={`${row.key}-b`} className="editing"><td colSpan={3}>{specBody(row.edit)}</td></tr> : null,
