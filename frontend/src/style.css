@@ -339,7 +339,7 @@ dialog::backdrop{background:rgba(10,15,20,.55)}
 .layout{display:block;max-width:1500px;padding:16px 20px 40px}
 .rail{display:none}
 main{display:flex;flex-direction:column;gap:16px}
-main.work{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px;align-items:start}
+main.work{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,6fr);gap:16px;align-items:start}
 @media (max-width:900px){main.work{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
 .cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line)}
@@ -786,3 +786,5 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .modeledit{margin-left:auto}
 .modelline{align-items:center}
 .cmp small.rowinfo{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+
+.cmp.spec tr.clickable{cursor:pointer}.cmp.spec tr.clickable:hover td,.cmp.spec tr.clickable:hover th{background:#F3F7FB}

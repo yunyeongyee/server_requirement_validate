@@ -1011,7 +1011,7 @@ export default function ConfigSection({
   };
   const pendingTable = (
     <table className="cmp spec" aria-label="견적 구성">
-      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th><th /></tr></thead>
+      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th></tr></thead>
       <tbody>{["서버 모델", "Rack", "CPU", "Memory", "Disk", "RAID", "OCP", "NIC", "NIC Port", "FC HBA", "FC Port", "GPU", "PSU"].map((label) => (
         <tr key={label}>
           <th scope="row"><span className="cmp-item"><ItemIcon k={label === "서버 모델" ? "model" : label === "CPU" ? "cpu_sockets" : label === "PSU" ? "psu" : "box"} />{label}</span></th>
@@ -1023,25 +1023,24 @@ export default function ConfigSection({
   );
   const specTable = !modelConfirmed ? pendingTable : (
     <table className="cmp spec" aria-label="견적 구성">
-      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th><th /></tr></thead>
+      <thead><tr><th>항목</th><th>견적 구성</th><th className="c">결과</th></tr></thead>
       <tbody>{specTableRows.map((row) => {
         const st = rowStatus(row);
         const bad = st?.status === "미충족" || st?.status === "호환 불가";
         const tone = bad ? "fail" : st?.status === "충족" ? "ok" : "review";
         const fix = bad && st ? fixFor(st.key) : null;
         const empty = row.text === "미정" || row.text === "미사용";
+        // 표 안에 버튼 열을 두지 않는다: 행을 누르면 고칠 수 있는 곳(확대 화면의 슬롯·베이, 또는 아래 편집 칸)으로 간다
+        const act = fix ? () => setLocalFocus({ ...fix.request, n: Date.now() })
+          : row.edit ? () => setSpecOpen(specOpen === row.edit ? null : row.edit as "cpu" | "mem" | "disk" | "psu")
+          : row.part ? () => setLocalFocus({ kind: "slot", part: row.part, n: Date.now() }) : null;
         return [
-          <tr key={row.key} className={bad ? "bad" : ""}>
+          <tr key={row.key} className={`${bad ? "bad" : ""} ${act ? "clickable" : ""}`} title={act ? "클릭해서 바꾸기" : undefined} onClick={act ?? undefined}>
             <th scope="row"><span className="cmp-item"><ItemIcon k={row.ik} />{row.label}</span></th>
             <td className={empty ? "empty" : ""}>{empty && row.notes?.some((n) => n.includes("장착하지 않음")) ? "미장착" : row.text}{row.changed ? <i className="l-diff" title="견적 대비 변경" /> : null}{row.info?.map((note, i) => <small key={`i${i}`} className="rowinfo">{note}</small>)}{row.notes?.map((note, i) => <small key={i} className="rownote">⚠ {note}</small>)}</td>
             <td className="c">{st ? <span className={`pill p-${tone}`}>{st.status}</span> : <span className="muted">—</span>}</td>
-            <td className="act">
-              {fix && <button type="button" className="fix" onClick={() => setLocalFocus({ ...fix.request, n: Date.now() })}>{fix.label}</button>}
-              {row.edit && <button type="button" className="lnk" aria-expanded={specOpen === row.edit} onClick={() => setSpecOpen(specOpen === row.edit ? null : row.edit as "cpu" | "mem" | "disk" | "psu")}>{specOpen === row.edit ? "닫기" : "바꾸기"}</button>}
-              {!row.edit && row.part && <button type="button" className="lnk" onClick={() => setLocalFocus({ kind: "slot", part: row.part, n: Date.now() })}>슬롯에서 바꾸기</button>}
-            </td>
           </tr>,
-          row.edit && specOpen === row.edit && (row.key === "cpu" || row.key === "mem" || row.key === "disk" || row.key === "psu") ? <tr key={`${row.key}-b`} className="editing"><td colSpan={4}>{specBody(row.edit)}</td></tr> : null,
+          row.edit && specOpen === row.edit && (row.key === "cpu" || row.key === "mem" || row.key === "disk" || row.key === "psu") ? <tr key={`${row.key}-b`} className="editing"><td colSpan={3}>{specBody(row.edit)}</td></tr> : null,
         ];
       })}</tbody>
     </table>
