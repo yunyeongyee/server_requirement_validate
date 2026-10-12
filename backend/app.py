@@ -113,6 +113,16 @@ class ProposalIn(BaseModel):
     substitute: list[str] = []   # 사용자가 대체 배치를 승인한 견적 품명
 
 
+class RequantIn(BaseModel):
+    items: list[dict]
+
+
+@app.post("/api/quote/requantify")
+def requantify(body: RequantIn):
+    """사용자가 수량(또는 대당/합계)을 확인·수정한 품목으로 제안 구성을 다시 만든다. 수량은 사용자가 정한 값 그대로 쓴다."""
+    return {"proposed": doc_tables.proposal(body.items)}
+
+
 @app.post("/api/proposal/apply")
 def apply_proposal(body: ProposalIn):
     """견적서 제안 구성 → 선택한 모델의 서버 구성(배치 제안 + 옮기지 못한 항목 안내)."""

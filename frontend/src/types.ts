@@ -58,6 +58,10 @@ export interface QuoteItem {
   confidence: number;
   how?: string;
   where: string;
+  /** 문서에 적힌 부품 수량 원본 / 대당·합계 범위 / 수량 출처 */
+  component_qty?: number | null;
+  quantity_scope?: "per_server" | "group_total" | "unknown" | null;
+  qty_source?: string | null;
 }
 
 export interface ProposedConfig {
@@ -91,6 +95,8 @@ export interface RequirementGroup {
   /** 납품·장비 목록에서 연결한 항목 이름 */
   inventory_link?: string | null;
   items?: QuoteItem[];
+  server_quantity?: number | null;
+  quantity_scope?: "per_server" | "group_total" | "unknown";
   proposed?: ProposedConfig;
   /** 이 서버에 붙여넣은 원문과 줄마다 결과 */
   text?: string;

@@ -695,3 +695,11 @@ class SegmentTests(unittest.TestCase):
         self.assertEqual([n for _, n in sent], [[0, 1], [2, 3]])
         out = A.quote_from_ai(result, lines, [], set())
         self.assertEqual([[i["qty"] for i in g["items"]] for g in out["groups"]], [[2.0], [1.0]])
+
+
+class RequantifyTests(unittest.TestCase):
+    def test_user_quantities_rebuild_proposal(self):
+        item = lambda cat, qty, attrs: {"code": "", "desc": cat, "qty": qty, "category": cat, "attrs": attrs}
+        items = [item("cpu", 2, {}), item("memory", 4, {"size_gb": 32}), item("memory", 4, {"size_gb": 32})]
+        res = TestClient(app).post("/api/quote/requantify", json={"items": items}).json()
+        self.assertEqual((res["proposed"]["cpu"]["count"], res["proposed"]["memory"]["total_gb"]), (2, 256))

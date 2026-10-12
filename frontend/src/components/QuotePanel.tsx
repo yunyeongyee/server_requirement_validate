@@ -27,13 +27,16 @@ interface Props {
   /** 서버 모델이 정해지지 않아 견적을 그림에 장착하지 못한 상태 */
   needModel?: boolean;
   onApprove?: (desc: string) => void;
+  /** 수량 확인: 대당/합계 선택 또는 품목별 수량 입력 */
+  onQuantity?: (change: { scope?: "per_server" | "group_total"; qty?: Record<number, number> }) => void;
 }
 
 /** 오른쪽 위: 견적 붙여넣기 → 이 서버 그림에 장착. 견적 요약은 한 줄, 상세는 접어 둔다. */
-export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, unresolved = [], needModel = false, onApprove }: Props) {
+export default function QuotePanel({ quote, busy, error, notes, applying, diffCount, onPaste, onResolve, onReapply, onClear, onSplit, onKeepOne, unresolved = [], needModel = false, onApprove, onQuantity }: Props) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const marks = quote?.line_marks || {};
+  const [typed, setTyped] = useState<Record<number, string>>({});
 
   if (busy) return (
     <div className="quotebox"><div className="pastebusy" role="status"><span className="spin" aria-hidden="true" />견적을 읽는 중… 실패하면 입력한 내용을 그대로 다시 보여 드립니다.</div></div>
@@ -87,6 +90,33 @@ export default function QuotePanel({ quote, busy, error, notes, applying, diffCo
       {quote.ai?.notice && <p className="warn small" role="status">{quote.ai.notice}</p>}
       {needModel && <p className="warn small pad" role="status">서버 모델이 정해지지 않아 견적을 그림에 장착하지 않았습니다 — 위 [구성 편집]에서 모델을 선택하면 견적대로 장착합니다.</p>}
       <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
+      {(() => {
+        const items = quote.items || [];
+        const scopeUnknown = items.filter((item) => item.quantity_scope === "unknown");
+        const serverQty = quote.server_quantity || 1;
+        const missing = items.map((item, index) => ({ item, index })).filter(({ item }) => item.qty == null && !["base", "accessory", "unknown", "license"].includes(item.category));
+        if (!scopeUnknown.length && !missing.length) return null;
+        return (
+          <div className="warnlist qtyfix" role="region" aria-label="수량 확인">
+            {scopeUnknown.length > 0 && (
+              <div className="cf">
+                <div className="cf-text">서버 {serverQty}대 견적 — 부품 수량이 대당입니까, 합계입니까?</div>
+                <div className="cf-why">{scopeUnknown.slice(0, 3).map((item) => `${item.desc.replace(/^[^:]{2,14}:\s*/, "").slice(0, 24)} ${item.component_qty}개`).join(" · ")}</div>
+                <button type="button" className="btn ghost small" onClick={() => onQuantity?.({ scope: "per_server" })}>대당 그대로</button>
+                <button type="button" className="btn ghost small" onClick={() => onQuantity?.({ scope: "group_total" })}>합계 → 대당 ÷{serverQty}</button>
+              </div>
+            )}
+            {missing.map(({ item, index }) => (
+              <div key={index} className="cf">
+                <div className="cf-text" title={item.desc}>{item.desc}</div>
+                <div className="cf-why">수량 표기 없음</div>
+                <input type="number" min={1} className="qtyin" aria-label={`${item.desc} 수량`} value={typed[index] ?? ""} onChange={(event) => setTyped({ ...typed, [index]: event.target.value })} />
+                <button type="button" className="btn ghost small" disabled={!(Number(typed[index]) >= 1)} onClick={() => onQuantity?.({ qty: { [index]: Number(typed[index]) } })}>수량 입력</button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       {unresolved.length > 0 && (
         <div className="warnlist unres" role="region" aria-label="장착하지 않은 견적 항목">
           <b>⚠ 견적과 정확히 같은 부품이 없어 장착하지 않은 항목 {unresolved.length}개</b> <span className="muted small">— 다른 사양을 임의로 꽂지 않습니다. 확인 후 승인하면 가장 가까운 부품으로 배치합니다.</span>

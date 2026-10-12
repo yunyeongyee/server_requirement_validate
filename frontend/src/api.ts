@@ -126,6 +126,11 @@ export function redetectBays(serverId: string, backplaneId: string): Promise<unk
   return request(`/api/images/${encodeURIComponent(serverId)}/bays/${encodeURIComponent(backplaneId)}/detect`, { method: "POST" });
 }
 
+/** 사용자가 확인한 수량으로 제안 구성을 다시 만든다. */
+export function requantify(items: unknown[]): Promise<{ proposed: ProposedConfig }> {
+  return sendJson("/api/quote/requantify", { items });
+}
+
 /** 견적서의 제안 구성을 선택한 모델의 서버 구성으로 옮긴다(배치 제안 + 옮기지 못한 항목 안내). */
 export function applyProposal(
   serverId: string,

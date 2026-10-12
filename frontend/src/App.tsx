@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   applyProposal,
+  requantify,
   checkAi,
   getAiStatus,
   pasteText,
@@ -339,6 +340,30 @@ export default function App() {
       setQuoteBusy(false);
     }
   };
+  /** 수량이 불확실한 품목: 사용자가 정한 수량(또는 대당/합계)으로 제안 구성을 다시 만들어 장착한다 */
+  const handleQuoteQuantity = async (change: { scope?: "per_server" | "group_total"; qty?: Record<number, number> }) => {
+    const target = group;
+    const quote = target.quote;
+    if (!quote?.items) return;
+    const serverQty = quote.server_quantity || 1;
+    const items = quote.items.map((item, index) => {
+      if (item.category === "base") return item;
+      if (change.qty && index in change.qty) return { ...item, qty: change.qty[index], qty_source: "user", quantity_scope: "per_server" as const };
+      if (change.scope && item.quantity_scope === "unknown" && item.component_qty != null) {
+        return { ...item, qty: change.scope === "group_total" ? item.component_qty / serverQty : item.component_qty, quantity_scope: change.scope, qty_source: "user" };
+      }
+      return item;
+    });
+    try {
+      const { proposed } = await requantify(items);
+      const nextQuote: RequirementGroup = { ...quote, items, proposed, quantity_scope: change.scope || quote.quantity_scope };
+      setGroups((current) => current.map((item) => item.id === target.id ? { ...item, quote: nextQuote } : item));
+      const prof = profiles[target.id];
+      if (prof && prof.source !== "default") await applyQuote(target.id, nextQuote, prof);
+    } catch (reason) {
+      setQuoteError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   /** AI 와 규칙이 다른 줄에서 어느 쪽 값을 쓸지 고르면, 같은 원문으로 다시 분석한다 (AI 응답은 서버가 기억해 다시 부르지 않음) */
   const nextRuleLines = (current: number[] | undefined, line: number, use: "ai" | "rule") =>
     use === "rule" ? [...new Set([...(current || []), line])] : (current || []).filter((n) => n !== line);
@@ -611,6 +636,7 @@ export default function App() {
               unresolved={group.quote_unresolved || []}
               needModel={!modelConfirmed}
               onApprove={(desc) => void handleApproveSubstitute(desc)}
+              onQuantity={(change) => void handleQuoteQuantity(change)}
               onClear={handleClearQuote}
               onSplit={() => void handleQuoteSplit()}
               onKeepOne={handleQuoteKeepOne}
