@@ -788,3 +788,5 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .cmp small.rowinfo{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 
 .cmp.spec tr.clickable{cursor:pointer}.cmp.spec tr.clickable:hover td,.cmp.spec tr.clickable:hover th{background:#F3F7FB}
+
+.sdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;flex:none;background:#c5ced8}.sdot.d-ok{background:var(--ok)}.sdot.d-fail,.sdot.d-incomp{background:var(--fail)}.sdot.d-review{background:var(--review)}.sdot.d-pending,.sdot.d-none{background:#c5ced8}

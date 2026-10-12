@@ -571,3 +571,28 @@ class TableEquivalenceTests(unittest.TestCase):
         src = out["server"]["requirements"][0]["source"]
         self.assertIn("붙여넣은 표 2행", src)
         self.assertIn("원본 엑셀 좌표 아님", src)
+
+
+class QuoteSentenceListTests(unittest.TestCase):
+    """항목 기호('가. 나.')·'CPU :' 머리말·'* 2EA' 수량으로 쓴 문장형 견적: 한 줄에 이어 붙어도, 줄마다 나뉘어도 같은 결과."""
+    LINE = ("가. CPU : 인텔 제온 골드 5415+ 2.9G, 8C/16T * 2EA 나. MEM : 32GB RDIMM, 4800MT/s * 4EA "
+            "다. SSD : 960GB SSD SATA 2.5in * 2EA 라. HDD : 4TB SAS 3.5in * 6EA")
+
+    def items(self, text):
+        out = A.analyze(text, lambda *a, **k: None, "quote", False)
+        self.assertIsNone(out.get("error"))
+        return [(i["category"], i["qty"]) for i in out["server"]["items"]]
+
+    def test_one_line_and_many_lines_agree(self):
+        want = [("cpu", 2.0), ("memory", 4.0), ("drive", 2.0), ("drive", 6.0)]
+        self.assertEqual(self.items(self.LINE), want)
+        self.assertEqual(self.items(self.LINE.replace(" 나. ", "\n나. ").replace(" 다. ", "\n다. ").replace(" 라. ", "\n라. ")), want)
+
+    def test_size_is_not_quantity(self):
+        # 2.5in / 960GB 는 수량이 아니다 — 수량 표기가 없으면 None
+        got = self.items("SSD 960GB SATA 2.5in")
+        self.assertEqual(got, [("drive", None)])
+
+    def test_error_is_specific(self):
+        out = A.analyze("안녕하세요 견적 문의드립니다", lambda *a, **k: None, "quote", False)
+        self.assertIn("1줄을 봤지만", out["error"])

@@ -1054,10 +1054,21 @@ def _requirement_response(groups, common, text, suggest, ignored, rule) -> dict:
     return {"server": _server(whole, text, ignored), "split": split, "common_lines": len(common)}
 
 
+def _quote_error(text: str) -> str:
+    """읽지 못한 이유를 구체적으로: 몇 줄을 봤고, 부품(CPU·Memory·Disk 등)으로 알아본 줄이 몇 개인지."""
+    lines = [l for l in text.splitlines() if l.strip()]
+    if not lines:
+        return "붙여넣은 내용이 비어 있습니다"
+    shown = lines[0].strip()
+    shown = shown[:40] + "…" if len(shown) > 40 else shown
+    return (f"견적 항목을 찾지 못했습니다 — {len(lines)}줄을 봤지만 CPU·Memory·Disk 같은 부품으로 알아본 줄이 없습니다 (첫 줄: {shown}). "
+            "부품마다 '품명 … 수량'(예: SSD 960GB SATA * 2EA)이 한 줄씩 있거나, 품명·수량 열이 있는 표인지 확인해 주세요")
+
+
 def _quote_response(groups, text, suggest, ignored, common_note) -> dict:
     if not groups:
         return {"server": None, "split": [], "common_lines": 0,
-                "error": "견적 표로 읽지 못했습니다 — 품명과 수량이 있는 표를 엑셀에서 그대로 긁어 붙여넣으세요"}
+                "error": _quote_error(text)}
     lines = text.splitlines()
     split = []
     if len(groups) > 1:
@@ -1080,18 +1091,54 @@ def _quote_response(groups, text, suggest, ignored, common_note) -> dict:
     return {"server": _server(whole, text, ignored), "split": split, "common_lines": 0}
 
 
+_ENUM = re.compile(r"(?:(?<=\s)|^)(?:[가-힣]\.|\(?\d{1,2}[.)]|[①-⑳]|[-•▪■□◦●○]|\(?[a-zA-Z][.)])\s+")
+_LABEL = re.compile(r"^\s*[A-Za-z가-힣/ ]{2,14}\s*[:：]\s*")
+_QTY_TAIL = re.compile(r"(?:[*xX×]\s*|수량\s*[:：]?\s*)?(\d{1,3})\s*(?:EA|ea|Ea|개|대|set|SET|pcs)\s*$|[*xX×]\s*(\d{1,3})\s*$")
+
+
+def _split_enumerated(line: str) -> list[str]:
+    """한 줄에 '가. … 나. … 다. …'처럼 항목이 이어 붙어 있으면 항목별로 나눈다 (항목 기호가 둘 이상일 때만)."""
+    marks = [m for m in _ENUM.finditer(line)]
+    if len(marks) < 2:
+        return [line]
+    starts = [m.start() for m in marks]
+    pieces = [line[a:b].strip() for a, b in zip(starts, starts[1:] + [len(line)])]
+    head = line[:starts[0]].strip()
+    return ([head] if head else []) + pieces
+
+
+def _line_item(raw: str):
+    """한 항목 문장 → (품명, 수량). 기호('가.')·'CPU :' 머리말·끝의 '* 2EA' 를 걷어 낸다. 수량이 불확실하면 None (임의로 1로 두지 않는다)."""
+    text = _ENUM.sub("", raw.strip(), count=1).strip()
+    qty = None
+    m = _QTY_TAIL.search(text)
+    if m:
+        qty = float(m.group(1) or m.group(2))
+        text = text[:m.start()].rstrip(" *xX×,;")
+    return text, qty
+
+
 def _quote_by_lines(text: str) -> list[dict]:
-    """표 머리글을 못 찾은 짧은 목록: 줄마다 품명·품번·수량을 읽어 견적 1대로 (본체가 여럿이면 나눔)."""
+    """표 머리글을 못 찾은 목록(문장형·항목 기호형 포함): 항목마다 품명·수량을 읽어 견적 1대로 (본체가 여럿이면 나눔).
+    수량을 못 읽은 항목은 None 으로 두고 확인 대상으로 남긴다."""
     blocks, items = [], []
     for n, raw in enumerate(text.splitlines(), 1):
-        cells = re.split(r"\t|\s{2,}", raw.strip())
-        desc, code, qty = doc_tables._guess_row(cells)
-        if not desc and not code:
-            continue
-        it = doc_tables.Item(code, desc or code, qty, "", f"붙여넣기 {n}행", parts.interpret(code, desc or code))
-        if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in items):
-            blocks.append(items); items = []
-        items.append(it)
+        for piece in _split_enumerated(raw):
+            if "\t" in piece or re.search(r"\s{2,}", piece.strip()):
+                cells = re.split(r"\t|\s{2,}", piece.strip())
+                desc, code, qty = doc_tables._guess_row(cells)
+            else:
+                desc, qty = _line_item(piece)
+                code = ""
+            if not desc and not code:
+                continue
+            interp = parts.interpret(code, desc or code)
+            if interp["category"] == "unknown" and _LABEL.match(desc):
+                interp = parts.interpret(code, _LABEL.sub("", desc))
+            it = doc_tables.Item(code, desc or code, qty, "", f"붙여넣기 {n}행", interp)
+            if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in items):
+                blocks.append(items); items = []
+            items.append(it)
     if items:
         blocks.append(items)
     hardware = [b for b in blocks if any(i.interp["category"] in doc_tables.HARDWARE | {"base"} for i in b)]
