@@ -244,7 +244,7 @@ export default function App() {
           img.src = url;
         });
         return Promise.all([preload(front.url), preload(rear.url)]).then(() => {
-          if (active) setRenderedImages({ front: front.url, rear: rear.url, config });
+          if (active) setRenderedImages({ front: front.url, rear: rear.url, config, noImage: rear.labels?.filter((text) => !/^\d+(\.\d+)?W$/.test(text)) });
         });
       }).catch((reason: unknown) => {
         if (active) setImageError(reason instanceof Error ? reason.message : String(reason));

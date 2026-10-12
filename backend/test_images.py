@@ -52,3 +52,14 @@ class CardByModelTests(unittest.TestCase):
         with patch.object(I, "library", lambda: lib):
             self.assertEqual(I._by_model({"short": "HBA465e", "name": "HBA465e External SAS (LP)"})["id"], "a")
             self.assertIsNone(I._by_model({"short": "HBA465f", "name": "HBA465f"}))
+
+
+class CardModelTokenTests(unittest.TestCase):
+    def test_pcie_vs_ocp_and_similar_models(self):
+        lib = [{"id": "a", "file": "x", "name": "Intel X710 10GbE 4P SFP+", "category": "other"},
+               {"id": "b", "file": "x", "name": "NVIDIA L40S", "category": "other"}]
+        with patch.object(I, "library", lambda: lib):
+            self.assertEqual(I._by_model({"name": "Intel X710 10GbE 4P SFP+ PCIe (LP)", "form": "pcie"})["id"], "a")
+            self.assertIsNone(I._by_model({"name": "Intel X710 10GbE 4P OCP 3.0", "form": "ocp"}))
+            self.assertIsNone(I._by_model({"name": "NVIDIA L4 24GB", "short": "NVIDIA L4", "form": "pcie"}))
+            self.assertEqual(I._by_model({"name": "NVIDIA L40S 48GB", "form": "pcie"})["id"], "b")

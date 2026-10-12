@@ -213,18 +213,43 @@ def comp_item(comp: dict) -> tuple[dict | None, bool]:
     return _by_model(comp), True
 
 
+_GENERIC = re.compile(r"^(\d+(\.\d+)?(gbe|gb|g|w|p|tb|gbase\w*|x\d*)|\d+x\d+\w*|lp|fh|sfp\w*|pcie|ocp\d*|nic|hba|raid|gpu|external|internal|single|double|width|"
+                      r"broadcom|intel|nvidia|mellanox|emulex|qlogic|marvell|dell|perc|fc|sas|sata|nvme|qsfp\w*)$")
+
+
+def _tokens(text: str) -> list[str]:
+    return re.sub(r"[^0-9a-z]+", " ", (text or "").casefold()).split()
+
+
+def _pairs(tokens: list[str]) -> list[str]:
+    """CX-6 → cx, 6, cx6 처럼 붙여 쓴 형태도 같은 모델로 본다."""
+    return tokens + [a + b for a, b in zip(tokens, tokens[1:]) if re.fullmatch(r"[a-z]{1,3}", a) and re.fullmatch(r"\d{1,2}", b)]
+
+
+def _model_tokens(comp: dict) -> list[str]:
+    """부품명에서 '모델을 가리키는 토큰'(숫자가 든 영숫자, 속도·포트·폼팩터 표현 제외): X710, 57414, H965e, HBA465e, LPe35002, L4 …"""
+    out = []
+    for t in _pairs(_tokens(comp.get("name", ""))) + _tokens(comp.get("short", "")):
+        if re.search(r"\d", t) and re.search(r"[a-z]", t + "x") and not _GENERIC.match(t) and t not in out and not re.fullmatch(r"\d{1,2}", t):
+            out.append(t)
+    return out
+
+
 def _by_model(comp: dict) -> dict | None:
-    """스텐실 이름이 없는 카드(HBA 등): 보관함에 부품명/약칭과 '정확히 같은 모델 토큰'이 이름에 든 이미지가 하나뿐일 때만 자동 연결.
-    HBA465e ↔ HBA465i 처럼 한 글자만 달라도 다른 부품이므로 토큰 단위로 비교하고, 후보가 여럿이면 고르지 않는다."""
-    norm = lambda t: re.sub(r"[^0-9a-z]+", " ", (t or "").casefold()).split()
-    wanted = {" ".join(norm(v)) for v in (comp.get("short"), comp.get("name")) if v}
-    wanted = {w for w in wanted if len(w.replace(" ", "")) >= 4}
+    """스텐실 이름이 없는 카드(NIC·HBA·RAID·GPU 등): 보관함 이미지 이름에 이 부품의 '모델 토큰'이 전부 들어 있을 때 자동 연결.
+    토큰 단위 비교라 HBA465e ↔ HBA465i, L4 ↔ L40S 는 서로 다른 부품이다. 후보가 여럿(서로 다른 이름)이면 고르지 않는다."""
+    need = _model_tokens(comp)
+    if not need:
+        return None
     hits = []
     for it in library():
         if not it.get("file") or it.get("category") in ("psu", "drive", "server_front", "server_rear", "bezel", "blank"):
             continue
-        name = " ".join(norm(re.sub(r"_\d+$", "", it["name"])))
-        if any(f" {w} " in f" {name} " or f" {name} " in f" {w} " for w in wanted):
+        name = re.sub(r"_\d+$", "", it["name"])
+        have = set(_pairs(_tokens(name)))
+        if ("ocp" in have) != (comp.get("form") == "ocp"):  # PCIe 카드 그림을 OCP 자리에(또는 반대로) 쓰지 않는다
+            continue
+        if all(t in have for t in need):
             hits.append(it)
     return hits[-1] if len({h["name"].casefold() for h in hits}) == 1 else None
 

@@ -51,6 +51,8 @@ export interface RenderedImages {
   front: string | null;
   rear: string | null;
   config?: ServerConfig;
+  /** 보관함에 이미지가 없어 라벨로만 표시된 후면 부품 */
+  noImage?: string[];
 }
 
 export interface FocusRequest {
@@ -781,6 +783,9 @@ export default function ConfigSection({
       <figure className="stage" key={view} ref={view === "front" ? frontRef : rearRef}>
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span>
           {rendered && !big && <button type="button" className="zoombtn" aria-label={`${view === "front" ? "전면" : "후면"} 크게 보기`} data-tip="크게 보기" onClick={() => { setZoom(view); }}>⤢</button>}</figcaption>
+        {view === "rear" && !!renderedImages.noImage?.length && (
+          <p className="warn small noimg-note">이미지 없이 라벨로 표시: {renderedImages.noImage.join(", ")} — [이미지·주석 보관함]에서 이 부품 이미지를 연결하면 그림으로 바뀝니다</p>
+        )}
         {mode === "calib" && rendered && (
           <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
             {view === "front" ? <>
