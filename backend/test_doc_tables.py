@@ -41,13 +41,26 @@ class FormatVarietyTests(unittest.TestCase):
         r = D.analyze_document("d.xlsx", data, "")
         self.assertEqual([g["model_hint"] for g in r["groups"]], ["R760", "R660"])
 
-    def test_detail_quantities_given_as_totals_are_converted_per_unit(self):
-        data = xlsx([("WEB 서버", [["WEB 서버"], ["No", "품번", "품명", "수량", "금액"],
+    def _qty_doc(self, qty_header):
+        data = xlsx([("WEB 서버", [["WEB 서버"], ["No", "품번", "품명", qty_header, "금액"],
                                   [1, "X1", "ThinkSystem SR650 V3 Chassis", 2, 1],
                                   [2, "X2", "Intel Xeon Gold 5418Y 24C 2.0GHz", 4, 1],
                                   [3, "X3", "32GB TruDDR5 RDIMM", 16, 1]])])
-        g = D.analyze_document("e.xlsx", data, "")["groups"][0]
+        return D.analyze_document("e.xlsx", data, "")["groups"][0]
+
+    def test_scope_follows_header_and_never_guessed(self):
+        # 머리글이 '합계'라고 하면 대당으로 환산
+        g = self._qty_doc("합계 수량")
         self.assertEqual((g["quantity"], g["proposed"]["cpu"]["count"], g["proposed"]["memory"]["total_gb"]), (2, 2, 256))
+        self.assertEqual(g["quantity_scope"], "group_total")
+        # '대당'이면 그대로
+        g = self._qty_doc("대당 수량")
+        self.assertEqual((g["proposed"]["cpu"]["count"], g["quantity_scope"]), (4, "per_server"))
+        # 머리글이 말하지 않으면 임의로 나누지 않고 확인 필요 (합계라면 대당 값을 안내)
+        g = self._qty_doc("수량")
+        self.assertEqual((g["proposed"]["cpu"]["count"], g["quantity_scope"]), (4, "unknown"))
+        self.assertTrue(any("대당인지 합계인지" in n and "→" in n for n in g["notes"]))
+        self.assertEqual([i["component_qty"] for i in g["items"] if i["category"] == "cpu"], [4])
 
     def test_column_per_server_spec_table(self):
         data = xlsx([("사양", [["구분", "DB 서버", "WAS 서버"], ["수량", "2대", "4대"],

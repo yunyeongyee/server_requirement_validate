@@ -913,15 +913,10 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
         base = next((o for o in objs if o.interp["category"] == "base"), None)
         base_qty = base.qty if base and base.qty else None
         qty = g.get("quantity") or base_qty
-        per_unit, note, conf = 1.0, None, 0.85
-        if base_qty and base_qty > 1:
-            others = [o.qty for o in objs if o is not base and o.qty]
-            if others and all(abs(q / base_qty - round(q / base_qty)) < 1e-6 for q in others):
-                per_unit, note = base_qty, f"상세 수량이 본체 {base_qty:g}대분 합계로 보여 대당 수량으로 환산"
-            else:
-                note, conf = "상세 수량이 대당인지 합계인지 판단 불가 — 확인 필요", 0.6
+        per_unit, scope, note, cap = doc_tables.decide_scope(base_qty, [o.qty for o in objs if o is not base and o.qty], None)
+        conf = min(0.85, cap)
         group = doc_tables._make_group(gi, g.get("name") or None, "AI", qty, doc_tables.Block(None, "AI", objs, "붙여넣기", False),
-                                       per_unit, ["AI가 품목을 분류·정규화함"], conf, note)
+                                       per_unit, ["AI가 품목을 분류·정규화함"], conf, note, scope)
         group["doc_role"] = "quote"
         group["requirements"], group["spec"] = [], []
         for src_item, it in zip(items, group["items"]):

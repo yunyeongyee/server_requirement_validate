@@ -255,6 +255,7 @@ class Block:
     where: str
     has_price: bool
     is_summary: bool = False
+    scope_hint: str | None = None   # 수량 머리글이 말하는 범위: group_total(합계) / per_server(대당)
 
 
 def _row_text(cells):
@@ -367,7 +368,30 @@ def table_blocks(t: Table) -> list[Block]:
             base_like = sum(1 for i in b.items if i.interp["category"] == "base")
             if base_like >= max(1, len(b.items) * 0.5):
                 b.is_summary = True
+    qj = col.get("qty")
+    head = " ".join(rows[k][1][qj] for k in (hi - 1, hi) if hi >= 0 and k >= 0 and qj is not None and qj < len(rows[k][1]))
+    hint = ("group_total" if re.search(r"합계|총\s*수량|총수량|전체|total", head, re.I)
+            else "per_server" if re.search(r"대당|1\s*대|per\s*server|each", head, re.I) else None)
+    for b in blocks:
+        b.scope_hint = hint
     return blocks
+
+
+def decide_scope(base_qty, others: list[float], hint: str | None):
+    """서버 N대(N>1)일 때 부품 수량이 대당인지 합계인지: 머리글이 말하면 그대로, 아니면 'unknown' — 임의로 나누지 않는다.
+    → (per_unit, scope, 안내문, 신뢰도 상한)"""
+    if not base_qty or base_qty <= 1:
+        return 1.0, "per_server", None, 1.0
+    if hint == "group_total":
+        if all(abs(q / base_qty - round(q / base_qty)) < 1e-6 for q in others):
+            return base_qty, "group_total", f"수량 머리글이 합계라서 본체 {base_qty:g}대분을 대당 수량으로 환산", 1.0
+        return 1.0, "unknown", f"수량이 합계라고 되어 있지만 {base_qty:g}대로 나누어 떨어지지 않아 환산하지 않음 — 확인 필요", 0.6
+    if hint == "per_server":
+        return 1.0, "per_server", None, 1.0
+    cand = " / ".join(f"{q:g}→{q / base_qty:g}" for q in others[:3] if abs(q / base_qty - round(q / base_qty)) < 1e-6)
+    note = (f"서버 {base_qty:g}대 견적이라 부품 수량이 대당인지 합계인지 알 수 없습니다 — 확인 필요"
+            + (f" (합계라면 대당 {cand})" if cand else ""))
+    return 1.0, "unknown", note, 0.6
 
 
 # ------------------------------------------------------------------ 그룹 조립
@@ -439,16 +463,11 @@ def analyze(filename: str, data: bytes) -> dict:
         if qty is None and base_qty:
             qty = base_qty
             evidence.append(f"본체 수량 {base_qty:g}을 서버 대수로 사용")
-        per_unit = 1.0
-        if base_qty and base_qty > 1:
-            others = [i.qty for i in b.items if i is not base and i.qty]
-            if others and all(abs((q / base_qty) - round(q / base_qty)) < 1e-6 for q in others):
-                per_unit = base_qty
-                unit_note = f"상세 수량이 본체 {base_qty:g}대분 합계로 보여 대당 수량으로 환산"
-            else:
-                unit_note = "상세 수량이 대당인지 합계인지 판단 불가 — 확인 필요"
-                conf = min(conf, 0.6)
-        groups.append(_make_group(len(groups) + 1, name, how, qty, b, per_unit, evidence, conf, unit_note))
+        per_unit, scope, scope_note, cap = decide_scope(base_qty, [i.qty for i in b.items if i is not base and i.qty], b.scope_hint)
+        if scope_note:
+            unit_note = scope_note
+            conf = min(conf, cap)
+        groups.append(_make_group(len(groups) + 1, name, how, qty, b, per_unit, evidence, conf, unit_note, scope))
 
     # 목록표에만 있고 상세가 없는 서버
     for k, s in enumerate(summary):
@@ -477,7 +496,7 @@ def analyze(filename: str, data: bytes) -> dict:
     }
 
 
-def _make_group(idx, name, how, qty, b: Block, per_unit, evidence, conf, unit_note):
+def _make_group(idx, name, how, qty, b: Block, per_unit, evidence, conf, unit_note, scope="per_server"):
     items, cats = [], set()
     for i in b.items:
         q = (i.qty / per_unit) if (i.qty and per_unit > 1) else i.qty
@@ -486,13 +505,16 @@ def _make_group(idx, name, how, qty, b: Block, per_unit, evidence, conf, unit_no
         items.append({"code": i.code, "desc": i.desc, "qty": q, "category": cat,
                       "category_ko": parts.CATEGORY_KO.get(cat, cat), "attrs": i.interp["attrs"],
                       "confidence": i.interp["confidence"], "how": i.interp.get("how"), "where": i.where,
-                      "qty_source": i.interp.get("qty_source") if q is not None else None})
+                      "qty_source": i.interp.get("qty_source") if q is not None else None,
+                      "component_qty": i.qty, "quantity_scope": scope if i.qty and cat != "base" else None})
     base = next((x for x in items if x["category"] == "base"), None)
     return {
         "id": f"server-{idx}",
         "name": name or f"서버 {idx}",
         "name_how": how,
         "quantity": int(qty) if qty else None,
+        "server_quantity": int(qty) if qty else None,
+        "quantity_scope": scope,
         "model_hint": (base or {}).get("attrs", {}).get("model"),
         "base_desc": (base or {}).get("desc"),
         "items": items,
