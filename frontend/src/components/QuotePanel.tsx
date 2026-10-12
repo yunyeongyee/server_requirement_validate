@@ -91,30 +91,48 @@ export default function QuotePanel({ quote, busy, error, notes, applying, diffCo
       {needModel && <p className="warn small pad" role="status">서버 모델이 정해지지 않아 견적을 그림에 장착하지 않았습니다 — 위 [구성 편집]에서 모델을 선택하면 견적대로 장착합니다.</p>}
       <ConflictList conflicts={conflicts} onResolve={onResolve} what="품목" />
       {(() => {
-        const items = quote.items || [];
-        const scopeUnknown = items.filter((item) => item.quantity_scope === "unknown");
+        // 정제 결과: 정상 행은 아무 표시 없이, 문제가 있는 칸에만 ⚠ — 수량이 불확실하면 그 칸에서 바로 고친다
+        const all = quote.items || [];
         const serverQty = quote.server_quantity || 1;
-        const missing = items.map((item, index) => ({ item, index })).filter(({ item }) => item.qty == null && !["base", "accessory", "unknown", "license"].includes(item.category));
-        if (!scopeUnknown.length && !missing.length) return null;
+        const clean = (desc: string) => desc.replace(/^\s*[가-힣]\.\s*/, "").replace(/^[A-Za-z ]{2,10}[:：]\s*/, "");
+        const rows = all.map((item, index) => ({ item, index })).filter(({ item }) => !["accessory", "license"].includes(item.category));
+        const have = new Set(rows.map(({ item }) => item.category));
+        const absent = ["cpu", "memory", "drive", "psu"].filter((cat) => !have.has(cat));
+        const KO: Record<string, string> = { cpu: "CPU", memory: "Memory", drive: "Disk", psu: "PSU" };
+        const unknownScope = rows.some(({ item }) => item.quantity_scope === "unknown");
+        if (!rows.length) return null;
         return (
-          <div className="warnlist qtyfix" role="region" aria-label="수량 확인">
-            {scopeUnknown.length > 0 && (
-              <div className="cf">
-                <div className="cf-text">서버 {serverQty}대 견적 — 부품 수량이 대당입니까, 합계입니까?</div>
-                <div className="cf-why">{scopeUnknown.slice(0, 3).map((item) => `${item.desc.replace(/^[^:]{2,14}:\s*/, "").slice(0, 24)} ${item.component_qty}개`).join(" · ")}</div>
-                <button type="button" className="btn ghost small" onClick={() => onQuantity?.({ scope: "per_server" })}>대당 그대로</button>
-                <button type="button" className="btn ghost small" onClick={() => onQuantity?.({ scope: "group_total" })}>합계 → 대당 ÷{serverQty}</button>
-              </div>
-            )}
-            {missing.map(({ item, index }) => (
-              <div key={index} className="cf">
-                <div className="cf-text" title={item.desc}>{item.desc}</div>
-                <div className="cf-why">수량 표기 없음</div>
-                <input type="number" min={1} className="qtyin" aria-label={`${item.desc} 수량`} value={typed[index] ?? ""} onChange={(event) => setTyped({ ...typed, [index]: event.target.value })} />
-                <button type="button" className="btn ghost small" disabled={!(Number(typed[index]) >= 1)} onClick={() => onQuantity?.({ qty: { [index]: Number(typed[index]) } })}>수량 입력</button>
-              </div>
-            ))}
-          </div>
+          <table className="cmp qtable" aria-label="견적 정제 결과">
+            <thead><tr><th>항목</th><th>견적 구성</th><th>수량</th></tr></thead>
+            <tbody>
+              {rows.map(({ item, index }) => {
+                const isBase = item.category === "base";
+                const shown = clean(item.desc);
+                const flagged = !isBase && (item.qty == null || item.where.includes("⚠"));
+                const scopeOpen = !isBase && item.quantity_scope === "unknown" && item.qty != null;
+                let qty: React.ReactNode = isBase ? (item.qty != null ? `${item.qty}대` : `${serverQty}대`) : item.qty != null ? `${item.qty}${scopeOpen ? "개" : "/대"}` : null;
+                if (flagged && item.qty == null) qty = (
+                  <span className="qwarn">⚠ <input type="number" min={1} className="qtyin" aria-label={`${shown} 수량`} value={typed[index] ?? ""} onChange={(event) => setTyped({ ...typed, [index]: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter" && Number(typed[index]) >= 1) onQuantity?.({ qty: { [index]: Number(typed[index]) } }); }} />
+                    <button type="button" className="lnk small" disabled={!(Number(typed[index]) >= 1)} onClick={() => onQuantity?.({ qty: { [index]: Number(typed[index]) } })}>입력</button></span>);
+                else if (flagged) qty = <span className="qwarn" title={item.where}>⚠ {qty}</span>;
+                return (
+                  <tr key={index} title={`원문: ${item.where}`}>
+                    <th scope="row">{item.category_ko === "OCP NIC" ? "OCP" : item.category_ko}</th>
+                    <td>{isBase ? shown.replace(/^PY\s+/i, "PRIMERGY ") : shown}</td>
+                    <td className="q">{qty}</td>
+                  </tr>
+                );
+              })}
+              {absent.map((cat) => (
+                <tr key={`absent-${cat}`} className="absent"><th scope="row">{KO[cat]}</th><td className="empty">문서에 없음</td><td className="q">—</td></tr>
+              ))}
+              {unknownScope && (
+                <tr className="qscope"><td colSpan={3}>
+                  <span className="qwarn">⚠</span> 서버 {serverQty}대 견적 — 부품 수량이 <button type="button" className="lnk" onClick={() => onQuantity?.({ scope: "per_server" })}>대당 그대로</button> · <button type="button" className="lnk" onClick={() => onQuantity?.({ scope: "group_total" })}>합계(대당 ÷{serverQty})</button>
+                </td></tr>
+              )}
+            </tbody>
+          </table>
         );
       })()}
       {unresolved.length > 0 && (

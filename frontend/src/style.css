@@ -792,3 +792,7 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .sdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;flex:none;background:#c5ced8}.sdot.d-ok{background:var(--ok)}.sdot.d-fail,.sdot.d-incomp{background:var(--fail)}.sdot.d-review{background:var(--review)}.sdot.d-pending,.sdot.d-none{background:#c5ced8}
 
 .qtyin{width:64px;margin:0 6px;padding:2px 6px;border:1px solid #c5ced8;border-radius:5px;font:inherit}
+
+.qtable{margin:8px 0 4px}.qtable th{width:84px;white-space:nowrap}.qtable td.q{width:120px;white-space:nowrap}
+.qtable .qwarn{color:var(--review);font-weight:600}.qtable tr.absent td,.qtable tr.absent th{color:#8a97a6}
+.qtable tr.qscope td{background:#fffaf0;font-size:12.5px}
