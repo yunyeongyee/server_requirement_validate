@@ -207,7 +207,26 @@ def comp_item(comp: dict) -> tuple[dict | None, bool]:
     ov = _map()["components"].get(comp["id"])
     if ov and item(ov):
         return item(ov), False
-    return by_name(comp.get("stencil")), True
+    found = by_name(comp.get("stencil"))
+    if found:
+        return found, True
+    return _by_model(comp), True
+
+
+def _by_model(comp: dict) -> dict | None:
+    """스텐실 이름이 없는 카드(HBA 등): 보관함에 부품명/약칭과 '정확히 같은 모델 토큰'이 이름에 든 이미지가 하나뿐일 때만 자동 연결.
+    HBA465e ↔ HBA465i 처럼 한 글자만 달라도 다른 부품이므로 토큰 단위로 비교하고, 후보가 여럿이면 고르지 않는다."""
+    norm = lambda t: re.sub(r"[^0-9a-z]+", " ", (t or "").casefold()).split()
+    wanted = {" ".join(norm(v)) for v in (comp.get("short"), comp.get("name")) if v}
+    wanted = {w for w in wanted if len(w.replace(" ", "")) >= 4}
+    hits = []
+    for it in library():
+        if not it.get("file") or it.get("category") in ("psu", "drive", "server_front", "server_rear", "bezel", "blank"):
+            continue
+        name = " ".join(norm(re.sub(r"_\d+$", "", it["name"])))
+        if any(f" {w} " in f" {name} " or f" {name} " in f" {w} " for w in wanted):
+            hits.append(it)
+    return hits[-1] if len({h["name"].casefold() for h in hits}) == 1 else None
 
 
 def psu_item(watt) -> tuple[dict | None, bool, bool]:

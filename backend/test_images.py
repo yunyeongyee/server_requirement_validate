@@ -42,3 +42,13 @@ class CustomAnnotTests(unittest.TestCase):
         self.assertGreater(out.height, base.height)        # 그림 밖 라벨 자리만큼 여백
         self.assertIn(I._annot_sig(annot, "rear") is not None, [True])
         self.assertIsNone(I._annot_sig({"show": False, "labels": annot["labels"]}, "rear"))
+
+
+class CardByModelTests(unittest.TestCase):
+    def test_model_token_match_only_when_unique(self):
+        from unittest.mock import patch
+        lib = [{"id": "a", "file": "x", "name": "HBA465e External SAS LP_123", "category": "other"},
+               {"id": "b", "file": "x", "name": "HBA465i", "category": "other"}]
+        with patch.object(I, "library", lambda: lib):
+            self.assertEqual(I._by_model({"short": "HBA465e", "name": "HBA465e External SAS (LP)"})["id"], "a")
+            self.assertIsNone(I._by_model({"short": "HBA465f", "name": "HBA465f"}))
