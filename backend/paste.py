@@ -850,6 +850,24 @@ def _quantity_from_text(item: dict, line: str) -> dict:
     return out
 
 
+def _regroup_by_anchor(built: list) -> list:
+    """서버 그룹은 AI가 아니라 '서버 본체 행(anchor)'이 정한다: 본체가 나올 때마다 새 서버, 그 사이 부품은 앞선 본체에 귀속.
+    본체가 0~1개면 AI가 나눈 구간과 상관없이 한 서버로 합친다. 본체 앞에 나온 부품은 첫 본체에 붙인다."""
+    flat = sorted((it for _, items in built for it in items), key=lambda it: it.get("line") if it.get("line") is not None else 1e9)
+    if not flat:
+        return built
+    head = next((g for g, _ in built), {})
+    anchors = [i for i, it in enumerate(flat) if it.get("category") == "base"]
+    if len(anchors) <= 1:
+        return [(head, flat)]
+    cut = anchors[1:]
+    groups, start = [], 0
+    for end in cut + [len(flat)]:
+        # 다음 본체 앞에 붙은 '본체 소속 부품'은 그 본체 줄 바로 위까지만 앞 서버에 둔다
+        groups.append(flat[start:end]); start = end
+    return [({**head, "name": None, "quantity": None}, items) for items in groups]
+
+
 def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_lines: set[int]) -> dict:
     """→ {groups: [doc_tables 그룹], conflicts: [...], ignored: {line: reason}}"""
     rule_items = [i for g in rule_groups for i in g.get("items") or []]
@@ -882,6 +900,7 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
                     ai_item = {**match, "line": c["line"] - 1, "how": "rule"}
             items.append(ai_item)
         built.append((g, items))
+    built = _regroup_by_anchor(built)
 
     groups = []
     for gi, (g, items) in enumerate(built, 1):

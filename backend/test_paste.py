@@ -639,3 +639,24 @@ class QuantityNotationTests(unittest.TestCase):
         self.assertEqual((items[0]["qty"], items[0]["qty_source"]), (2.0, "notation"))
         self.assertIsNone(items[1]["qty"])
         self.assertIn("확인 필요", items[1]["where"])
+
+
+class AnchorGroupTests(unittest.TestCase):
+    def comps(self, rows):
+        return [{"line": i + 1, "category": c, "name": n, "quantity": 1} for i, (c, n) in enumerate(rows)]
+
+    def test_two_servers_split_by_base_rows_regardless_of_ai_groups(self):
+        lines = ["PowerEdge R760 Server * 1", "Xeon 5415+ * 2", "PowerEdge R660 Server * 1", "Xeon 6515P * 1", "64GB DDR5 * 8"]
+        comps = self.comps([("base", lines[0]), ("cpu", lines[1]), ("base", lines[2]), ("cpu", lines[3]), ("memory", lines[4])])
+        # AI 가 엉뚱하게 한 그룹으로 묶거나 다르게 쪼개도 본체 기준으로 나뉜다
+        for ai_groups in ([comps], [comps[:2], comps[2:3], comps[3:]]):
+            result = {"server_groups": [{"name": "x", "quantity": None, "components": c} for c in ai_groups], "ignored_lines": []}
+            groups = A.quote_from_ai(result, lines, [], set())["groups"]
+            self.assertEqual([len(g["items"]) for g in groups], [2, 3])
+            self.assertTrue(all(g["items"][0]["category"] == "base" for g in groups))
+
+    def test_no_base_row_is_one_server(self):
+        lines = ["Xeon 5415+ * 2", "64GB DDR5 * 8"]
+        comps = self.comps([("cpu", lines[0]), ("memory", lines[1])])
+        result = {"server_groups": [{"name": "a", "components": comps[:1]}, {"name": "b", "components": comps[1:]}], "ignored_lines": []}
+        self.assertEqual(len(A.quote_from_ai(result, lines, [], set())["groups"]), 1)
