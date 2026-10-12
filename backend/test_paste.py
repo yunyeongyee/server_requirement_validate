@@ -596,3 +596,14 @@ class QuoteSentenceListTests(unittest.TestCase):
     def test_error_is_specific(self):
         out = A.analyze("안녕하세요 견적 문의드립니다", lambda *a, **k: None, "quote", False)
         self.assertIn("1줄을 봤지만", out["error"])
+
+
+class AiBaseGuardTests(unittest.TestCase):
+    def test_bezel_with_server_name_is_not_base(self):
+        lines = ["가. CPU : Xeon 5415+ * 2EA", "나. 랙타입 : PowerEdge 2U LCD Bezel * 1EA"]
+        result = {"server_groups": [{"name": "서버", "quantity": 1, "components": [
+            {"line": 1, "category": "cpu", "description": "CPU : Xeon 5415+", "quantity": 2},
+            {"line": 2, "category": "base", "description": "랙타입 : PowerEdge 2U LCD Bezel", "quantity": 1}]}], "ignored_lines": []}
+        out = A.quote_from_ai(result, lines, [], set())
+        cats = [i["category"] for i in out["groups"][0]["items"]]
+        self.assertNotIn("base", cats)

@@ -843,6 +843,11 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
             if not (isinstance(c.get("line"), int) and 1 <= c["line"] <= len(lines)):
                 continue
             ai_item = _item_dict(c, lines)
+            if ai_item.get("category") == "base":
+                # 'PowerEdge 2U LCD Bezel'·레일처럼 서버 이름이 들어간 부속품을 본체로 읽지 않는다 (본체 판정은 규칙이 함께 확인)
+                rule_cat = parts.interpret(ai_item.get("code", ""), ai_item["desc"])["category"]
+                if rule_cat != "base":
+                    ai_item = {**ai_item, "category": rule_cat, "category_ko": parts.CATEGORY_KO.get(rule_cat, rule_cat)}
             bad = _verify_component(c, lines)
             match = next((r for r in rule_items if _n(r["desc"]) and _n(r["desc"]) in _n(lines[c["line"] - 1])), None)
             diff = bool(match) and _differs(ai_item, match)

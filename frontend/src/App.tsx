@@ -319,13 +319,20 @@ export default function App() {
       const response = await pasteText(text, "quote", aiOn, ruleLines);
       const quote: RequirementGroup = { ...response.server, split: response.split.length > 1 ? response.split : undefined, line_marks: {} };
       const existing = profiles[target.id];
-      const nextProfile = profileFor(quote, existing?.source === "manual" ? existing : existing && { ...existing, source: "default" });
+      // 견적에 서버 모델이 없으면(부품 목록만 있는 견적) 요구사항에 적힌 모델로 장착하고, 그 사실을 알린다
+      const fromRequirement = !quote.suggested_server && !!target.suggested_server && existing?.source !== "manual";
+      const nextProfile = profileFor(fromRequirement ? { ...quote, suggested_server: target.suggested_server } : quote,
+        existing?.source === "manual" ? existing : existing && { ...existing, source: "default" });
       setGroups((current) => current.map((item) => item.id === target.id
         ? { ...item, quote, quantity: item.quantity ?? quote.quantity ?? null } : item));
       if (nextProfile) setProfiles((current) => ({ ...current, [target.id]: nextProfile }));
       setRenderedImages({ front: null, rear: null });
       setImageVersion((version) => version + 1);
       if (nextProfile && nextProfile.source !== "default") await applyQuote(target.id, quote, nextProfile);   // 모델 미정이면 장착하지 않는다
+      if (fromRequirement && nextProfile && nextProfile.source !== "default") {
+        const label = servers.find((item) => item.id === nextProfile.serverId)?.model || target.model_hint;
+        setProposalNotes((current) => ({ ...current, [target.id]: [`견적에 서버 모델이 없어 요구사항의 ${label} 기준으로 장착했습니다 — 견적 모델과 같은지 확인하세요`, ...(current[target.id] || [])] }));
+      }
     } catch (reason) {
       setQuoteError(reason instanceof Error ? reason.message : String(reason));
     } finally {

@@ -53,8 +53,6 @@ interface Props {
   onKeepOne: () => void;
 }
 
-/** 결과 칸 대신 항목 이름 앞에 상태 점(색)을 둔다: 초록=충족, 빨강=미충족, 주황=확인 필요, 회색=대기 */
-const Dot = ({ tone, label }: { tone: string; label: string }) => <i className={`sdot d-${tone}`} title={label} aria-label={label} />;
 const STATUS_CLASS: Record<string, string> = {
   "대기": "pending", "충족": "ok", "미충족": "fail", "호환 불가": "incomp", "확인 필요": "review" };
 /** 미충족 요구사항을 고칠 곳 */
@@ -331,7 +329,7 @@ export default function RequirementSection({
     if (editingId === item.id) return <tr key={item.id} className="editing"><td colSpan={3}>{renderEdit(item)}</td></tr>;
     return (
       <tr key={item.id} className={`s-${tone}`} title={sources.length ? `원문: ${sources.join(" / ")}` : undefined}>
-        <th scope="row"><span className="cmp-item"><Dot tone={tone} label={status} /><ItemIcon k={item.key} />{reqGroup(item.key)}</span></th>
+        <th scope="row"><span className="cmp-item"><ItemIcon k={item.key} />{reqGroup(item.key)}</span></th>
         <td>{reqCondition(item)}</td>
         <td className="act">
           {fix && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: formatRequirement(item) })}>{fix.label}</button>}
@@ -354,7 +352,7 @@ export default function RequirementSection({
     const portNote = def.id === "nicp" ? sortedReqs.find((item) => item.key === "manual" && String(item.label).startsWith("NIC Port")) : undefined;
     if (!items.length && def.base) return (
       <tr key={def.id} className="unspecified">
-        <th scope="row"><span className="cmp-item"><span className="caret" aria-hidden="true" /><Dot tone={portNote ? "review" : "none"} label={portNote ? "확인 필요" : "미지정"} />{<ItemIcon k={def.ik} />}{def.label}</span></th>
+        <th scope="row"><span className="cmp-item"><span className="caret" aria-hidden="true" />{<ItemIcon k={def.ik} />}{def.label}</span></th>
         <td className="empty">{portNote ? "미지정 — 필요한 포트 수를 확인하세요" : "미지정"}</td>
         <td />
       </tr>
@@ -367,18 +365,17 @@ export default function RequirementSection({
     const fix = status !== "충족" && bad ? fixFor(bad.key) : null;
     return [
       <tr key={def.id} className={`s-${tone}`}>
-        <th scope="row"><span className="cmp-item"><button type="button" className="caret" aria-expanded={open} aria-label={`${def.label} 조건 ${open ? "접기" : "펼치기"}`} onClick={() => setOpenGroups(open ? openGroups.filter((x) => x !== def.id) : [...openGroups, def.id])}>{open ? "▾" : "▸"}</button><Dot tone={tone} label={status} /><ItemIcon k={def.ik} />{def.label}</span></th>
+        <th scope="row"><span className="cmp-item"><button type="button" className="caret" aria-expanded={open} aria-label={`${def.label} 조건 ${open ? "접기" : "펼치기"}`} onClick={() => setOpenGroups(open ? openGroups.filter((x) => x !== def.id) : [...openGroups, def.id])}>{open ? "▾" : "▸"}</button><ItemIcon k={def.ik} />{def.label}</span></th>
         <td>{groupCondition(def.id, items)}</td>
         <td className="act">{fix && bad && <button type="button" className="fix" onClick={() => onFocus({ ...fix.request, need: `${def.label} ${groupCondition(def.id, items)}` })}>{fix.label}</button>}</td>
       </tr>,
       ...(open ? items.map((item) => {
         const row = result?.requirements.find((entry) => entry.id === item.id);
         const st = statusOf(item);
-        const t = STATUS_CLASS[st] || "review";
         if (editingId === item.id) return <tr key={item.id} className="editing"><td colSpan={3}>{renderEdit(item)}</td></tr>;
         return (
           <tr key={item.id} className="subrow">
-            <th scope="row"><span className="cmp-item"><Dot tone={t} label={st} />{KEY_DEFS[item.key]?.[0] || item.label}</span></th>
+            <th scope="row"><span className="cmp-item">{KEY_DEFS[item.key]?.[0] || item.label}</span></th>
             <td>{reqCondition(item)}{row ? <small>{row.actual && row.actual !== "-" ? `실제 ${row.actual}` : ""}{row.actual && row.actual !== "-" && row.note ? " · " : ""}{row.note}</small> : item.note ? <small>{item.note}</small> : null}
               {item.source && <small className="src">원문: “{item.source}”</small>}
               {item.waiver && <small className="waive">대체 승인 기록 · 근거: {item.waiver.basis}</small>}</td>
@@ -470,7 +467,7 @@ export default function RequirementSection({
         <tbody>
           {(group.model_hint || group.suggested_server) && (
             <tr>
-              <th scope="row"><span className="cmp-item"><Dot tone={modelApprox ? "review" : "none"} label={modelApprox ? "확인 필요" : "미지정"} /><ItemIcon k="model" />서버 모델</span></th>
+              <th scope="row"><span className="cmp-item"><ItemIcon k="model" />서버 모델</span></th>
               <td>{group.model_hint || "미기재"}{group.suggested_server ? "" : " · 카탈로그에 없음"}{modelApprox && <small className="rownote">카탈로그에 {modelApprox.hint}가 없어 {modelApprox.used}로 대체 — 확인 필요</small>}</td>
               <td />
             </tr>
