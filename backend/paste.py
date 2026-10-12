@@ -837,17 +837,26 @@ def _differs(ai: dict, rule: dict) -> bool:
 
 
 def _quantity_from_text(item: dict, line: str) -> dict:
-    """수량은 원문 표기(수량 칸, '* 2EA', 'x2' …)에서만 정한다. AI 수량은 쓰지 않는다:
-    표기가 있으면 그 값(AI와 달라도), 표기가 없으면 None — 모델명·용량 숫자를 수량으로 추측하지 않고 '확인 필요'로 남긴다."""
+    """수량 결정: 원문 표기(수량 칸, '* 2EA', 'x2' …)가 있으면 그 값(AI와 달라도). 표기가 없으면 AI 수량을 쓰되 '원문 표기 없음' 으로
+    표시해 확인하게 한다 — 단 100 이상이거나 설명 속 모델·사양 숫자(P210P → 210, 6515P → 6515)와 같은 값은 수량으로 읽은 것이므로 버린다."""
     if "\t" in line:
         qty = doc_tables._guess_row([c for c in line.split("\t")])[2]
         source = "row_cell"
+        if qty is None:   # 수량이 '* 2EA' 처럼 글자가 섞인 칸이면 표기로 읽는다
+            qty, source = _line_item(" ".join(c.strip() for c in line.split("\t") if c.strip()))[1], "notation"
     else:
         qty, source = _line_item(line)[1], "notation"
-    out = {**item, "qty": qty, "qty_source": source if qty is not None else None}
-    if qty is None and item.get("qty") is not None:
-        out["where"] = f"{item.get('where', '')} · ⚠ AI가 수량 {item['qty']:g}을 제시했지만 원문에 수량 표기가 없어 사용하지 않음 (확인 필요)"
-    return out
+    if qty is not None:
+        return {**item, "qty": qty, "qty_source": source}
+    ai = item.get("qty")
+    if ai is None:
+        return {**item, "qty": None, "qty_source": None}
+    spec_numbers = {float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", item.get("desc", "") or line)}
+    if ai >= 100 or ai in spec_numbers - {1.0, 2.0, 4.0, 8.0} or float(ai) != int(ai):
+        return {**item, "qty": None, "qty_source": None,
+                "where": f"{item.get('where', '')} · ⚠ AI가 제시한 수량 {ai:g}은 모델·사양 숫자로 보여 사용하지 않음 (확인 필요)"}
+    return {**item, "qty": ai, "qty_source": "ai",
+            "where": f"{item.get('where', '')} · ⚠ 원문에 수량 표기가 없어 AI가 판단한 수량 {ai:g} (확인 필요)"}
 
 
 def _regroup_by_anchor(built: list) -> list:

@@ -643,15 +643,18 @@ class QuantityNotationTests(unittest.TestCase):
         self.assertEqual(out["groups"][0]["items"][0]["qty"], 2.0)
 
     def test_quantity_lock_and_source(self):
-        lines = ["PLAN EP P210P 2x10Gb SFP+ FH * 2", "Xeon 6515P 16C 2.3GHz"]
+        lines = ["PLAN EP P210P 2x10Gb SFP+ FH * 2", "Xeon 6515P 16C 2.3GHz", "64GB DDR5-6400 RDIMM", "960GB SATA SSD"]
         result = {"server_groups": [{"name": "s", "quantity": 1, "components": [
-            {"line": 1, "category": "nic", "name": "PLAN EP P210P 2x10Gb SFP+ FH", "quantity": 210},
-            {"line": 2, "category": "cpu", "name": "Xeon 6515P 16C 2.3GHz", "quantity": 6515}]}], "ignored_lines": []}
+            {"line": 1, "category": "nic", "name": lines[0], "quantity": 210},
+            {"line": 2, "category": "cpu", "name": lines[1], "quantity": 6515},
+            {"line": 3, "category": "memory", "name": lines[2], "quantity": 8},
+            {"line": 4, "category": "drive", "name": lines[3], "quantity": 960}]}], "ignored_lines": []}
         items = A.quote_from_ai(result, lines, [], set())["groups"][0]["items"]
-        self.assertEqual((items[0]["qty"], items[0]["qty_source"]), (2.0, "notation"))
-        self.assertIsNone(items[1]["qty"])
-        self.assertIn("확인 필요", items[1]["where"])
-
+        self.assertEqual((items[0]["qty"], items[0]["qty_source"]), (2.0, "notation"))     # 원문 표기가 AI 값을 이긴다
+        self.assertIsNone(items[1]["qty"])                                                   # 모델 번호를 수량으로 읽은 값은 버림
+        self.assertEqual((items[2]["qty"], items[2]["qty_source"]), (8, "ai"))                # 표기 없으면 AI 수량을 쓰되 ⚠
+        self.assertIn("⚠", items[2]["where"])
+        self.assertIsNone(items[3]["qty"])                                                   # 용량 숫자를 수량으로 읽은 값은 버림
 
 class AnchorGroupTests(unittest.TestCase):
     def comps(self, rows):
