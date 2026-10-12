@@ -540,6 +540,10 @@ TABLE_RULE = ("표 줄은 [C1][C2]… 칸 번호가 붙어 있고 빈 칸도 유
               "금액·단가 열은 수량이 아니다. 빈 칸·불확실한 칸은 추측하지 말고 확인 필요로 남겨라.")
 
 
+QTY_RULE = ("quantity must be copied only from an explicit quantity cell or notation (x2, * 2EA, 2개); never derive it from model numbers, "
+            "capacities, prices or sizes (e.g. P210P, 6515P, 960GB, 2.5in). If no explicit quantity exists, return null.")
+
+
 def normalize(document_type: str, lines: list[str]) -> dict:
     """원문 줄들 → AI 정규화 JSON. 같은 입력은 다시 부르지 않는다."""
     st = settings()
@@ -549,7 +553,7 @@ def normalize(document_type: str, lines: list[str]) -> dict:
     key = hashlib.sha256(json.dumps([document_type, st["model"], numbered], ensure_ascii=False).encode()).hexdigest()
     if key in _CACHE:
         return _CACHE[key]
-    result = _ask(st, PROMPTS[document_type] + ((" " + TABLE_RULE) if "[C1]" in numbered else ""), numbered, f"{document_type}_normalization", SCHEMAS[document_type])
+    result = _ask(st, PROMPTS[document_type] + " " + QTY_RULE + ((" " + TABLE_RULE) if "[C1]" in numbered else ""), numbered, f"{document_type}_normalization", SCHEMAS[document_type])
     if not isinstance(result, dict) or result.get("document_type") != document_type:
         raise AIError("bad shape", "AI 응답 형식이 올바르지 않습니다")
     if document_type == "requirement":
@@ -833,14 +837,17 @@ def _differs(ai: dict, rule: dict) -> bool:
 
 
 def _quantity_from_text(item: dict, line: str) -> dict:
-    """수량은 원문에 적힌 표기('* 2EA', 'x2', 수량 칸)가 정한다: AI 수량이 이와 다르면 원문 값을 쓴다 (모델명·용량 숫자를 수량으로 읽는 오류 차단)."""
+    """수량은 원문 표기(수량 칸, '* 2EA', 'x2' …)에서만 정한다. AI 수량은 쓰지 않는다:
+    표기가 있으면 그 값(AI와 달라도), 표기가 없으면 None — 모델명·용량 숫자를 수량으로 추측하지 않고 '확인 필요'로 남긴다."""
     if "\t" in line:
         qty = doc_tables._guess_row([c for c in line.split("\t")])[2]
+        source = "row_cell"
     else:
-        qty = _line_item(line)[1]
-    if qty is not None and qty != item.get("qty"):
-        return {**item, "qty": qty, "qty_from": "text"}
-    return item
+        qty, source = _line_item(line)[1], "notation"
+    out = {**item, "qty": qty, "qty_source": source if qty is not None else None}
+    if qty is None and item.get("qty") is not None:
+        out["where"] = f"{item.get('where', '')} · ⚠ AI가 수량 {item['qty']:g}을 제시했지만 원문에 수량 표기가 없어 사용하지 않음 (확인 필요)"
+    return out
 
 
 def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_lines: set[int]) -> dict:
@@ -879,7 +886,7 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
     groups = []
     for gi, (g, items) in enumerate(built, 1):
         objs = [doc_tables.Item(i.get("code", ""), i["desc"], i["qty"], "", i["where"],
-                                {"category": i["category"], "attrs": i["attrs"], "confidence": i["confidence"], "how": i.get("how")}) for i in items]
+                                {"category": i["category"], "attrs": i["attrs"], "confidence": i["confidence"], "how": i.get("how"), "qty_source": i.get("qty_source")}) for i in items]
         base = next((o for o in objs if o.interp["category"] == "base"), None)
         base_qty = base.qty if base and base.qty else None
         qty = g.get("quantity") or base_qty
@@ -1166,6 +1173,7 @@ def _quote_by_lines(text: str) -> list[dict]:
             if interp["category"] == "unknown" and _LABEL.match(desc):
                 interp = parts.interpret(code, _LABEL.sub("", desc))
             it = doc_tables.Item(code, desc or code, qty, "", f"붙여넣기 {n}행", interp)
+            it.interp["qty_source"] = None if qty is None else ("row_cell" if "\t" in piece else "notation")
             if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in items):
                 blocks.append(items); items = []
             items.append(it)

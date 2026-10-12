@@ -324,6 +324,7 @@ def table_blocks(t: Table) -> list[Block]:
             if not desc and not code:
                 continue
             it = Item(code, desc or code, qty, grp, f"{t.source} {n}행", parts.interpret(code, desc or code))
+            it.interp["qty_source"] = "row_cell" if qty is not None else None
             if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in cur.items):
                 blocks.append(cur)
                 cur = Block(None, "", [], t.source, has_price)
@@ -352,6 +353,7 @@ def table_blocks(t: Table) -> list[Block]:
             qty = None
             where += " · ⚠ 수량 열 값이 금액처럼 보여 수량을 확정하지 않음 (확인 필요)"
         it = Item(code, desc or code, qty, grp, where, parts.interpret(code, desc or code))
+        it.interp["qty_source"] = "table_cell" if qty is not None else None
         # 본체 행이 이미 있는 블록에 또 본체가 나오면 새 서버 구성 시작
         if it.interp["category"] == "base" and any(i.interp["category"] == "base" for i in cur.items) and not grp:
             blocks.append(cur)
@@ -483,7 +485,8 @@ def _make_group(idx, name, how, qty, b: Block, per_unit, evidence, conf, unit_no
         cats.add(cat)
         items.append({"code": i.code, "desc": i.desc, "qty": q, "category": cat,
                       "category_ko": parts.CATEGORY_KO.get(cat, cat), "attrs": i.interp["attrs"],
-                      "confidence": i.interp["confidence"], "how": i.interp.get("how"), "where": i.where})
+                      "confidence": i.interp["confidence"], "how": i.interp.get("how"), "where": i.where,
+                      "qty_source": i.interp.get("qty_source") if q is not None else None})
     base = next((x for x in items if x["category"] == "base"), None)
     return {
         "id": f"server-{idx}",

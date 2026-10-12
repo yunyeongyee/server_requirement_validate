@@ -602,8 +602,8 @@ class AiBaseGuardTests(unittest.TestCase):
     def test_bezel_with_server_name_is_not_base(self):
         lines = ["가. CPU : Xeon 5415+ * 2EA", "나. 랙타입 : PowerEdge 2U LCD Bezel * 1EA"]
         result = {"server_groups": [{"name": "서버", "quantity": 1, "components": [
-            {"line": 1, "category": "cpu", "description": "CPU : Xeon 5415+", "quantity": 2},
-            {"line": 2, "category": "base", "description": "랙타입 : PowerEdge 2U LCD Bezel", "quantity": 1}]}], "ignored_lines": []}
+            {"line": 1, "category": "cpu", "name": "CPU : Xeon 5415+", "quantity": 2},
+            {"line": 2, "category": "base", "name": "랙타입 : PowerEdge 2U LCD Bezel", "quantity": 1}]}], "ignored_lines": []}
         out = A.quote_from_ai(result, lines, [], set())
         cats = [i["category"] for i in out["groups"][0]["items"]]
         self.assertNotIn("base", cats)
@@ -626,6 +626,16 @@ class QuantityNotationTests(unittest.TestCase):
     def test_ai_quantity_is_overridden_by_text(self):
         lines = ["PLAN EP P210P 2x10Gb SFP+ FH * 2"]
         result = {"server_groups": [{"name": "s", "quantity": 1, "components": [
-            {"line": 1, "category": "nic", "description": "PLAN EP P210P 2x10Gb SFP+ FH", "quantity": 210}]}], "ignored_lines": []}
+            {"line": 1, "category": "nic", "name": "PLAN EP P210P 2x10Gb SFP+ FH", "quantity": 210}]}], "ignored_lines": []}
         out = A.quote_from_ai(result, lines, [], set())
         self.assertEqual(out["groups"][0]["items"][0]["qty"], 2.0)
+
+    def test_quantity_lock_and_source(self):
+        lines = ["PLAN EP P210P 2x10Gb SFP+ FH * 2", "Xeon 6515P 16C 2.3GHz"]
+        result = {"server_groups": [{"name": "s", "quantity": 1, "components": [
+            {"line": 1, "category": "nic", "name": "PLAN EP P210P 2x10Gb SFP+ FH", "quantity": 210},
+            {"line": 2, "category": "cpu", "name": "Xeon 6515P 16C 2.3GHz", "quantity": 6515}]}], "ignored_lines": []}
+        items = A.quote_from_ai(result, lines, [], set())["groups"][0]["items"]
+        self.assertEqual((items[0]["qty"], items[0]["qty_source"]), (2.0, "notation"))
+        self.assertIsNone(items[1]["qty"])
+        self.assertIn("확인 필요", items[1]["where"])
