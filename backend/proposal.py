@@ -40,8 +40,9 @@ def suggest_server(model_hint: str | None, servers: list[dict]) -> str | None:
 def _cpu_option(desc: str, options: list[str]) -> str | None:
     """견적 CPU 표기('인텔 제온 골드 5415+ 2.9G' 등) → 카탈로그 CPU. 모델 번호(5415+, 6430, 8462Y+)가 정확히 같은 것만."""
     low = desc.lower().replace("intel ", "")
+    edge = lambda a, b: re.search(rf"(?<![\w+]){re.escape(a)}(?![\w+])", b)   # 8462Y 는 8462Y+ 와 다른 부품
     for o in options:
-        if low in o.lower() or o.lower() in low:
+        if edge(low.strip(), o.lower()) or edge(o.lower(), low):
             return o
     nums = re.findall(r"(?<![\d.])(\d{4}[a-z]?\+?)(?![\d.])", low)
     for n in nums:
