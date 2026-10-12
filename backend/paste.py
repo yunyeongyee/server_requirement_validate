@@ -544,10 +544,10 @@ QTY_RULE = ("quantity must be copied only from an explicit quantity cell or nota
             "capacities, prices or sizes (e.g. P210P, 6515P, 960GB, 2.5in). If no explicit quantity exists, return null.")
 
 
-def normalize(document_type: str, lines: list[str]) -> dict:
+def normalize(document_type: str, lines: list[str], numbers: list[int] | None = None) -> dict:
     """원문 줄들 → AI 정규화 JSON. 같은 입력은 다시 부르지 않는다."""
     st = settings()
-    numbered = "\n".join(f"{i + 1}: {_cells(redact(line))}" for i, line in enumerate(lines) if line.strip())
+    numbered = "\n".join(f"{(numbers[i] if numbers else i) + 1}: {_cells(redact(line))}" for i, line in enumerate(lines) if line.strip())
     if len(numbered) > MAX_CHARS:
         raise AIError("too long", f"붙여넣은 내용이 너무 깁니다({len(numbered):,}자) — 서버별로 나눠 붙여넣어 주세요")
     key = hashlib.sha256(json.dumps([document_type, st["model"], numbered], ensure_ascii=False).encode()).hexdigest()
@@ -857,6 +857,10 @@ def _regroup_by_anchor(built: list) -> list:
     if not flat:
         return built
     head = next((g for g, _ in built), {})
+    segs = {it.get("seg") for it in flat}
+    if len(segs) > 1 and None not in segs:  # 서버 구간(제목 줄/본체 행)으로 나눠 보낸 경우: 구간이 곧 서버
+        order = sorted(segs)
+        return [({**head, "name": None, "quantity": None}, [it for it in flat if it.get("seg") == k]) for k in order]
     anchors = [i for i, it in enumerate(flat) if it.get("category") == "base"]
     if len(anchors) <= 1:
         return [(head, flat)]
@@ -898,7 +902,7 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
                 })
                 if use_rule:
                     ai_item = {**match, "line": c["line"] - 1, "how": "rule"}
-            items.append(ai_item)
+            items.append({**ai_item, "seg": g.get("_seg")})
         built.append((g, items))
     built = _regroup_by_anchor(built)
 
@@ -1040,9 +1044,49 @@ def _quote_rule(text: str) -> dict:
     return {"groups": groups}
 
 
+def _line_desc(line: str) -> str:
+    cells = [c for c in line.split("\t") if c.strip()]
+    if len(cells) > 1:
+        return doc_tables._guess_row(cells)[0] or line
+    return _line_item(line)[0]
+
+
+def _segments(lines: list[str]) -> list[tuple[int, int]]:
+    """서버 단위 구간 [(시작줄, 끝줄+1)]: 서버 제목 줄 또는 두 번째 이후의 서버 본체 행에서 새 구간을 시작한다.
+    구간이 하나뿐이면 문서 전체를 한 번에 본다."""
+    cuts, has_content, has_base = [], False, False
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        base = parts.interpret("", _line_desc(line))["category"] == "base"
+        title = extract._server_name(line) is not None and not base and not _QTY_TAIL.search(line.strip())
+        if title and has_content:
+            cuts.append(i); has_content, has_base = False, False
+        elif base and has_base:
+            cuts.append(i); has_base = False
+        has_content = True
+        has_base = has_base or base
+    bounds = [0] + cuts + [len(lines)]
+    return list(zip(bounds, bounds[1:]))
+
+
+def _normalize_by_segment(lines: list[str]) -> dict:
+    """서버 구간마다 따로 AI에 보낸다: 다른 서버의 행과 섞여 해석되지 않고, 줄 번호는 원문 기준을 유지한다."""
+    segs = _segments(lines)
+    if len(segs) <= 1:
+        return normalize("quotation", lines)
+    merged = {"document_type": "quotation", "server_groups": [], "ignored_lines": []}
+    for k, (a, b) in enumerate(segs):
+        part = normalize("quotation", lines[a:b], list(range(a, b)))
+        for g in part.get("server_groups") or []:
+            merged["server_groups"].append({**g, "_seg": k})
+        merged["ignored_lines"] += part.get("ignored_lines") or []
+    return merged
+
+
 def _with_ai(kind: str, text: str, lines: list[str], rule: dict, rule_lines: set[int]) -> dict:
     if kind == "quote":
-        result = normalize("quotation", lines)
+        result = _normalize_by_segment(lines)
         out = quote_from_ai(result, lines, rule["groups"], rule_lines)
         if not out["groups"]:
             raise AIError("empty", "AI가 견적 품목을 찾지 못했습니다")

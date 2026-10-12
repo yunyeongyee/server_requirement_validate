@@ -660,3 +660,26 @@ class AnchorGroupTests(unittest.TestCase):
         comps = self.comps([("cpu", lines[0]), ("memory", lines[1])])
         result = {"server_groups": [{"name": "a", "components": comps[:1]}, {"name": "b", "components": comps[1:]}], "ignored_lines": []}
         self.assertEqual(len(A.quote_from_ai(result, lines, [], set())["groups"]), 1)
+
+
+class SegmentTests(unittest.TestCase):
+    def test_segments_by_title_and_base(self):
+        lines = ["서버 A", "PowerEdge R760 Server * 1", "Xeon 5415+ * 2", "", "서버 B", "Xeon 6515P * 1"]
+        self.assertEqual(A._segments(lines), [(0, 4), (4, 6)])
+        lines = ["PowerEdge R760 Server * 1", "Xeon 5415+ * 2", "PowerEdge R660 Server * 1", "64GB DDR5 * 8"]
+        self.assertEqual(A._segments(lines), [(0, 2), (2, 4)])
+        self.assertEqual(A._segments(["Xeon 5415+ * 2", "64GB DDR5 * 8"]), [(0, 2)])
+
+    def test_per_segment_calls_keep_original_line_numbers(self):
+        lines = ["서버 A", "Xeon 5415+ * 2", "서버 B", "Xeon 6515P * 1"]
+        sent = []
+        def fake(doc, ls, numbers=None):
+            sent.append((list(ls), numbers))
+            n = numbers[1]
+            return {"document_type": "quotation", "ignored_lines": [], "server_groups": [
+                {"name": "x", "components": [{"line": n + 1, "category": "cpu", "name": ls[1], "quantity": 9}]}]}
+        with patch.object(A, "normalize", fake):
+            result = A._normalize_by_segment(lines)
+        self.assertEqual([n for _, n in sent], [[0, 1], [2, 3]])
+        out = A.quote_from_ai(result, lines, [], set())
+        self.assertEqual([[i["qty"] for i in g["items"]] for g in out["groups"]], [[2.0], [1.0]])
