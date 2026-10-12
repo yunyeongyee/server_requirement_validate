@@ -4,6 +4,7 @@
 결과 상태: PASS(충족) / FAIL(미충족) / INCOMPATIBLE(호환 불가) / REVIEW(확인 필요)
 """
 from __future__ import annotations
+import re
 
 PASS, FAIL, INCOMP, REVIEW = "충족", "미충족", "호환 불가", "확인 필요"
 SEVERITY = {INCOMP: 3, FAIL: 2, REVIEW: 1, PASS: 0}
@@ -164,23 +165,80 @@ def summarize(server: dict, cfg: dict, slot_results: list[dict], extra: dict) ->
     mem = sum(int(m.get("size_gb", 0)) * int(m.get("qty", 0)) for m in cfg.get("memory", []))
     dimms = sum(int(m.get("qty", 0)) for m in cfg.get("memory", []))
     nics = [c for c in eff if c["category"] in ("NIC", "OCP NIC")]
+    ob = cfg.get("onboard_nic")   # 온보드·PCIe·OCP 를 모두 네트워크 장치로 집계
+    if ob and ob.get("ports") and ob.get("speed_gb"):
+        nics = [{"category": "NIC", "form": "onboard", "name": ob.get("desc") or "온보드 NIC", "speed_gb": float(ob["speed_gb"]), "ports": int(ob["ports"])}, *nics]
     fcs = [c for c in eff if c["category"] == "FC HBA"]
     usable_free = sum(1 for r in slot_results
                       if r["component"] is None and r["usable"] and r["slot"] != "OCP")
     free = max(0, usable_free - extra["occupied_extra"])
     psu_cnt = int(cfg.get("psu_count", 0)); psu_w = float(cfg.get("psu_watt", 0))
-    raids = {d.get("raid", "") for d in cfg.get("drives", []) if d.get("role") == "boot" and d.get("qty", 0) >= RAID_MIN.get(d.get("raid", ""), 1)}
+    def _raids(role):
+        return sorted({d.get("raid", "") for d in cfg.get("drives", [])
+                       if d.get("role") == role and d.get("raid") and d.get("qty", 0) >= RAID_MIN.get(d.get("raid", ""), 1)})
     return {
         "memory_gb": mem, "dimms": dimms,
         "cpu_sockets": int(cfg.get("cpu_count", 0)),
         "nics": nics, "fcs": fcs,
         "ocp_installed": any(c["form"] == "ocp" for c in eff),
-        "raid_boot": sorted(r for r in raids if r),
+        "raid_boot": _raids("boot"), "raid_data": _raids("data"),
         "psu_count": psu_cnt, "psu_watt": psu_w,
         "free_pcie": free,
         "gpu_count": sum(1 for c in eff if c["category"] == "GPU"),
+        "form_factor": server.get("form_factor", ""),
+        "cpu_model": cfg.get("cpu_model", ""), "cpu_cores": cpu_cores(cfg.get("cpu_model", "")),
+        "disks": {role: [_drive_gb(d.get("model", "")) for d in cfg.get("drives", []) if d.get("role", "data") == role
+                         for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
+        "disk_meta": {role: [_drive_meta(server, d) for d in cfg.get("drives", []) if d.get("role", "data") == role
+                             for _ in range(int(d.get("qty", 0)))] for role in ("boot", "data")},
+        "cpu_ghz": cpu_ghz(cfg.get("cpu_model", "")),
+        "raid_cfg": {role: {"level": next((d.get("raid", "") for d in cfg.get("drives", []) if d.get("role", "data") == role and not d.get("boss") and d.get("raid")), ""),
+                            "count": sum(int(d.get("qty", 0)) for d in cfg.get("drives", []) if d.get("role", "data") == role and not d.get("boss"))}
+                     for role in ("boot", "data")},
         "power_est_w": estimate_power(cfg, eff),
     }
+
+
+# CPU 모델별 코어 수 (카탈로그 CPU). 모르는 모델은 이름의 '32C' 표기로, 그것도 없으면 None → 확인 필요
+CPU_CORES = {"xeon silver 4410y": 12, "xeon gold 5418y": 24, "xeon gold 6430": 32, "xeon gold 6442y": 24,
+             "xeon platinum 8462y+": 32, "xeon 6515p": 16}
+
+
+def cpu_cores(model: str) -> int | None:
+    key = re.sub(r"\s+", " ", model or "").strip().lower()
+    if key in CPU_CORES:
+        return CPU_CORES[key]
+    m = re.search(r"(\d{1,3})\s*c\b", key)
+    return int(m.group(1)) if m else None
+
+
+# CPU 모델별 기본 클럭(GHz). 모르는 모델은 이름의 'x.xGHz' 표기로, 그것도 없으면 None → 확인 필요
+CPU_GHZ = {"xeon silver 4410y": 2.0, "xeon gold 5418y": 2.0, "xeon gold 6430": 2.1, "xeon gold 6442y": 2.6,
+           "xeon platinum 8462y+": 2.8, "xeon 6515p": 2.3}
+
+
+def cpu_ghz(model: str) -> float | None:
+    key = re.sub(r"\s+", " ", model or "").strip().lower()
+    if key in CPU_GHZ:
+        return CPU_GHZ[key]
+    m = re.search(r"(\d+(?:\.\d+)?)\s*ghz", key)
+    return float(m.group(1)) if m else None
+
+
+def _drive_meta(server: dict, d: dict) -> dict:
+    """구성의 디스크 1종 → 종류(SSD/HDD)·인터페이스(SATA/SAS/NVMe)"""
+    opt = next((o for o in server.get("drive_options", []) if o.get("id") == d.get("drive_id")), {})
+    name = d.get("model", "")
+    iface = opt.get("iface") or ("NVMe" if re.search(r"nvme", name, re.I) else "SAS" if re.search(r"sas", name, re.I) else "SATA" if re.search(r"sata", name, re.I) else None)
+    media = "SSD" if re.search(r"ssd|nvme", name, re.I) else "HDD" if re.search(r"hdd|rpm|\d+k\b", name, re.I) else None
+    return {"iface": iface, "media": media, "boss": bool(d.get("boss"))}
+
+
+def _drive_gb(name: str) -> float:
+    if "BOSS" in (name or ""):
+        return 480.0  # BOSS-N1 M.2 기본 구성 480GB × 2
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(TB|GB)", name or "", re.I)
+    return float(m.group(1)) * (1000 if m.group(2).upper() == "TB" else 1) if m else 0
 
 
 def _ports_at(cards, speed):
@@ -208,8 +266,9 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
             best = max((c["speed_gb"] for c in s["nics"]), default=0)
             actual = f"최고 {best:g}GbE" if best else "NIC 없음"; status = PASS if best >= float(v) else FAIL
         elif k == "nic_ports":
-            n = _ports_at(s["nics"], nic_speed)
-            actual = f"{n}Port" + (f" (≥{nic_speed:g}GbE)" if nic_speed else ""); status = PASS if _cmp(n, op, v) else FAIL
+            at = float(r.get("at_speed") or nic_speed or 0)
+            n = _ports_at(s["nics"], at)
+            actual = f"{n}Port" + (f" (≥{at:g}GbE)" if at else ""); status = PASS if _cmp(n, op, v) else FAIL
         elif k == "fc_speed_gb":
             best = max((c["speed_gb"] for c in s["fcs"]), default=0)
             actual = f"최고 {best:g}Gb FC" if best else "FC HBA 없음"; status = PASS if best >= float(v) else FAIL
@@ -219,8 +278,29 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
         elif k == "ocp_required":
             actual = "OCP NIC 장착" if s["ocp_installed"] else "OCP 미장착"; status = PASS if s["ocp_installed"] else FAIL
         elif k == "raid_level":
-            actual = ", ".join(s["raid_boot"]) or "Boot RAID 없음"
-            status = PASS if str(v).upper() in [x.upper() for x in s["raid_boot"]] else FAIL
+            # 문서에 Boot/OS 가 명시된 경우만 부트 RAID 로 보고, 아니면 Boot·Data 어느 쪽이든 충족으로 본다
+            boot_only = "boot" in str(r.get("note", "")).lower()
+            have = s["raid_boot"] if boot_only else s["raid_boot"] + s["raid_data"]
+            actual = (", ".join(f"Boot {x}" for x in s["raid_boot"]) + ("" if boot_only or not s["raid_data"] else
+                      (", " if s["raid_boot"] else "") + ", ".join(f"Data {x}" for x in s["raid_data"]))) or "RAID 구성 없음"
+            want = str(v).upper()
+            if want in [x.upper() for x in have]:
+                status = PASS
+            elif any(_raid_covers(x, want) for x in have):
+                # 요구보다 상위 수준(예: RAID5 요구에 RAID6·RAID10)도 충족
+                status = PASS; note = f"{want} 요구 → 상위 수준으로 충족"
+            else:
+                status = FAIL
+                # Boot/Data 별 디스크 수와 RAID 설정을 따로 보여 준다 (총 디스크 수 조건과 RAID 에 필요한 디스크 수는 별개)
+                detail = []
+                for role, name in (("boot", "Boot"), ("data", "Data")):
+                    lvl, n = s["raid_cfg"][role]["level"], s["raid_cfg"][role]["count"]
+                    if lvl:
+                        detail.append(f"{name} {lvl} 설정 · 디스크 {n}개" + (f" (그 RAID는 {RAID_MIN.get(lvl, 1)}개 이상 필요)" if n < RAID_MIN.get(lvl, 1) else ""))
+                    elif n:
+                        detail.append(f"{name} 디스크 {n}개 · RAID 미설정")
+                if detail:
+                    actual = " / ".join(detail)
         elif k == "dual_psu":
             actual = f"PSU {s['psu_watt']:g}W × {s['psu_count']}"
             if s["psu_count"] < 2: status = FAIL
@@ -232,14 +312,86 @@ def check_requirements(reqs: list[dict], s: dict) -> list[dict]:
         elif k == "free_pcie":
             actual = f"{s['free_pcie']}개"; status = PASS if _cmp(s["free_pcie"], op, v) else FAIL
             note = "CPU/Riser 조건상 사용 가능한 빈 슬롯 기준 (OCP 제외, DW GPU 인접 슬롯 차감)"
+        elif k == "cpu_cores":
+            per_cpu = "CPU당" in str(r.get("note", ""))
+            cores = s["cpu_cores"]
+            if cores is None:
+                actual = s["cpu_model"]; status = REVIEW; note = "이 CPU의 코어 수를 모릅니다 — 직접 확인"
+            else:
+                have = cores if per_cpu else cores * s["cpu_sockets"]
+                actual = f"{have} Core" + (" (CPU당)" if per_cpu else f" ({cores}C × {s['cpu_sockets']})")
+                status = PASS if _cmp(have, op, v) else FAIL
+        elif k in ("disk_count", "disk_size_gb", "disk_total_gb"):
+            role = "boot" if "boot" in str(r.get("note", "")).lower() else "data"
+            disks = s["disks"][role] or (s["disks"]["boot"] if role == "data" else [])
+            name = "Boot" if role == "boot" else "Data"
+            if k == "disk_count":
+                other = "Boot" if role == "data" else "Data"
+                actual = f"{name} {len(disks)}개 ({other} {len(s['disks']['boot' if role == 'data' else 'data'])}개)"; status = PASS if _cmp(len(disks), op, v) else FAIL
+            elif k == "disk_size_gb":
+                smallest = min(disks, default=0)
+                actual = f"{name} {_gb_text(smallest)}" if disks else "디스크 없음"
+                status = PASS if disks and smallest >= float(v) else FAIL
+            else:
+                total = sum(disks)
+                actual = f"{name} 원시 {_gb_text(total)}"; status = PASS if total >= float(v) else FAIL
+        elif k == "cpu_ghz":
+            ghz = s.get("cpu_ghz")
+            if ghz is None:
+                actual = s["cpu_model"]; status = REVIEW; note = "이 CPU의 클럭을 모릅니다 — 직접 확인"
+            else:
+                actual = f"{ghz:g} GHz"; status = PASS if _cmp(ghz, op, v) else FAIL
+                note = "기본(베이스) 클럭 기준" if status == PASS else "기본(베이스) 클럭 기준 — 부스트 클럭이 아닌 값으로 비교"
+        elif k in ("disk_media", "disk_iface"):
+            role = "boot" if "boot" in str(r.get("note", "")).lower() else "data"
+            metas = [m for m in (s["disk_meta"][role] or (s["disk_meta"]["boot"] if role == "data" else [])) if not m.get("boss")]
+            field = "media" if k == "disk_media" else "iface"
+            have = sorted({m[field] for m in metas if m.get(field)})
+            name = "Boot" if role == "boot" else "Data"
+            if not metas:
+                actual = "디스크 없음"; status = FAIL
+            elif not have:
+                actual = "종류 불명"; status = REVIEW; note = "디스크 종류를 알 수 없습니다 — 직접 확인"
+            elif all(x.upper() == str(v).upper() for x in have):
+                actual = f"{name} {'/'.join(have)}"; status = PASS
+            else:
+                actual = f"{name} {'/'.join(have)}"
+                # 명시된 조건과 다르면 기본은 미충족. 원문에 '동급/대체 가능'이 있을 때만 확인 필요 (SAS 가 더 고급이라는 이유로 SATA 요구를 충족으로 보지 않는다)
+                if r.get("alt"):
+                    status = REVIEW; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 원문에 '동급/대체 가능' 문구가 있어 대체 허용 여부 확인"
+                else:
+                    status = FAIL; note = f"요구는 {v}, 구성은 {'/'.join(have)} — 대체 허용 근거가 없어 미충족"
+        elif k == "rack_mount":
+            ff = str(s.get("form_factor") or "")
+            actual = ff or "-"; status = PASS if re.search(r"\d\s*u\b|rack", ff, re.I) else REVIEW
+        elif k == "raid_controller":
+            have = bool(s["raid_boot"] or s["raid_data"])
+            actual = "RAID 구성됨" if have else "RAID 구성 없음"; status = PASS if have else FAIL
         elif k == "gpu_count":
             actual = f"{s['gpu_count']}EA"
-            status = REVIEW if _cmp(s["gpu_count"], op, v) else FAIL
-            note = "GPU는 전원/쿨링/Riser 추가 검토 필요" if status == REVIEW else ""
+            # 요구 수량 이상이면 충족. 전원·쿨링·Riser 확인은 슬롯 호환성(확인 필요)에서 따로 걸린다
+            status = PASS if _cmp(s["gpu_count"], op, v) else FAIL
+            note = "전원·쿨링·Riser는 호환성에서 확인" if status == PASS else ""
         else:
             note = "검증 규칙 없음"
+        if r.get("waiver") and status in (FAIL, REVIEW):
+            basis = (r["waiver"] or {}).get("basis", "") if isinstance(r["waiver"], dict) else str(r["waiver"])
+            note = f"대체 승인 — 근거: {basis} (승인 전 결과: {status}){' · ' + note if note else ''}"; status = PASS
         out.append(_row(r, actual, status, note))
     return out
+
+
+# 견딜 수 있는 디스크 장애 수. 요구 수준 이상이면 충족 (RAID0 요구는 어떤 RAID든 충족)
+RAID_TOLERANCE = {"RAID0": 0, "RAID1": 1, "RAID5": 1, "RAID10": 1, "RAID6": 2}
+
+
+def _raid_covers(have: str, want: str) -> bool:
+    h, w = RAID_TOLERANCE.get(have.upper()), RAID_TOLERANCE.get(want.upper())
+    return h is not None and w is not None and h >= w and not (w > 0 and h == 0)
+
+
+def _gb_text(gb: float) -> str:
+    return f"{gb / 1000:g}TB" if gb >= 1000 else f"{gb:g}GB"
 
 
 def _actual_text(k, s, ns, fs):

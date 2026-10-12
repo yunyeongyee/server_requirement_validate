@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+node_modules/
+frontend/tsconfig.tsbuildinfo
+static/renders/
+data/parts.json
+.env
+static/index.html
+static/assets/
+static/images/
+data/image_map.json.broken-*
+data/*.broken-*
+*.tsbuildinfo
