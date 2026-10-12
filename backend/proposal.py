@@ -7,15 +7,33 @@ from __future__ import annotations
 import math, re
 
 
+_DELL = re.compile(r"(?<![A-Za-z0-9])(?:power\s*edge\s*|dell\s*|pe\s*|per\s*(?=\d))?(xr|mx|[rtc])\s?-?(\d{3,4})([a-z][a-z0-9]{0,3})?(?![A-Za-z0-9])", re.I)
+
+
+def canonical_model(text: str | None) -> str | None:
+    """'PowerEdge R760' · 'Dell R760' · 'DELL PER760' · 'R760 Server' → 'R760' (뒤의 변형 표기는 대문자로 보존: R660xs → R660XS).
+    제조사가 다른 모델은 여기서 만들지 않는다 — 카탈로그에 없으면 후보 없음."""
+    m = _DELL.search(text or "")
+    if not m:
+        return None
+    fam, num, tail = m.group(1).upper(), m.group(2), (m.group(3) or "").upper()
+    if tail in {"S", "SERVER", "RACK", "BASE", "CHASSIS"}:   # 'R760 Server' 처럼 단어가 붙은 경우는 변형이 아니다
+        tail = ""
+    return f"{fam}{num}{tail}"
+
+
 def suggest_server(model_hint: str | None, servers: list[dict]) -> str | None:
     if not model_hint:
         return None
     k = re.sub(r"\s+", "", model_hint).upper()
+    canon = canonical_model(model_hint)
+    keys = [k] + ([canon] if canon and canon != k else [])
     for s in servers:
-        if re.sub(r"\s+", "", s["model"]).upper() == k:
+        names = {re.sub(r"\s+", "", n).upper() for n in [s["model"], *(s.get("aliases") or [])]}
+        if names & set(keys):
             return s["id"]
     # R660xs · R760XA 처럼 뒤에 변형 표기가 붙은 모델은 같은 계열(R660·R760)로 본다 — 가장 긴 접두 일치
-    near = [s for s in servers if k.startswith(re.sub(r"\s+", "", s["model"]).upper())]
+    near = [s for s in servers if any(key.startswith(re.sub(r"\s+", "", s["model"]).upper()) for key in keys)]
     return max(near, key=lambda s: len(s["model"]))["id"] if near else None
 
 

@@ -80,6 +80,7 @@ def _suggest(group: dict, text: str):
                    + [r.get("source", "") for r in group.get("requirements", [])])
     hint = group.get("model_hint") or parts.model_of(own) or parts.model_of(text)
     if hint:
+        hint = proposal.canonical_model(hint) or hint     # PowerEdge R760 · DELL PER760 → R760 (같은 모델은 한 이름으로)
         group["model_hint"] = hint
         group["suggested_server"] = proposal.suggest_server(hint, load_servers()["servers"])
 

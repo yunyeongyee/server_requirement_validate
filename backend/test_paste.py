@@ -358,6 +358,18 @@ class SuggestServerTests(unittest.TestCase):
         self.assertEqual(proposal.suggest_server("PowerEdge R760 XA", servers) or proposal.suggest_server("R760XA", servers), "dell_r760")
         self.assertIsNone(proposal.suggest_server("RX2540 M8", servers))
 
+    def test_aliases_map_to_one_model_id(self):
+        from . import proposal
+        servers = [{"id": "dell_r760", "model": "R760"}, {"id": "dell_r660", "model": "R660"}]
+        for text in ["R760", "PowerEdge R760", "Dell R760", "DELL PER760", "PER760", "PE R760", "R760 Server", "poweredge r760 rack server", "Dell R 760"]:
+            self.assertEqual(proposal.suggest_server(text, servers), "dell_r760", text)
+            self.assertEqual(proposal.canonical_model(text), "R760", text)
+        # 변형 표기는 보존한다 (카탈로그 모델과 다르면 화면에서 '대체'로 표시하도록)
+        self.assertEqual(proposal.canonical_model("PowerEdge R660xs"), "R660XS")
+        self.assertIsNone(proposal.canonical_model("PY RX2540 M8"))
+        self.assertIsNone(proposal.suggest_server("PY RX2540 M8", servers))
+        self.assertEqual(proposal.suggest_server("Intel X710 R2D2", servers), None)
+
 
 class ModelOnlyLineTests(unittest.TestCase):
     def test_model_only_line_is_heading_not_unread(self):
