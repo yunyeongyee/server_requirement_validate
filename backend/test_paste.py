@@ -607,3 +607,25 @@ class AiBaseGuardTests(unittest.TestCase):
         out = A.quote_from_ai(result, lines, [], set())
         cats = [i["category"] for i in out["groups"][0]["items"]]
         self.assertNotIn("base", cats)
+
+
+class QuantityNotationTests(unittest.TestCase):
+    CASES = ["SSD 960GB * 2EA", "SSD 960GB *2", "SSD 960GB x2", "SSD 960GB X 2", "SSD 960GB × 2", "SSD 960GB ＊ 2", "SSD 960GB 2 EA",
+             "SSD 960GB 2ea", "SSD 960GB 2개", "SSD 960GB 수량 2", "SSD 960GB Qty: 2", "SSD 960GB (2EA)", "SSD 960GB (x2)",
+             "2 x SSD 960GB", "2EA SSD 960GB", "SSD 960GB *2EA/server", "가. SSD : 960GB * 2EA"]
+
+    def test_every_notation_gives_two(self):
+        for text in self.CASES:
+            self.assertEqual(A._line_item(text)[1], 2.0, text)
+            self.assertIn("960GB", A._line_item(text)[0])
+
+    def test_spec_numbers_are_not_quantity(self):
+        for text in ["SSD 960GB 2.5in", "NIC 2x10Gb SFP+ FH", "PY RX2540 M8 8x 2.5'", "Xeon 6515P 16C 2.3GHz", "PLAN EP P210P 2x10Gb SFP+ FH"]:
+            self.assertIsNone(A._line_item(text)[1], text)
+
+    def test_ai_quantity_is_overridden_by_text(self):
+        lines = ["PLAN EP P210P 2x10Gb SFP+ FH * 2"]
+        result = {"server_groups": [{"name": "s", "quantity": 1, "components": [
+            {"line": 1, "category": "nic", "description": "PLAN EP P210P 2x10Gb SFP+ FH", "quantity": 210}]}], "ignored_lines": []}
+        out = A.quote_from_ai(result, lines, [], set())
+        self.assertEqual(out["groups"][0]["items"][0]["qty"], 2.0)

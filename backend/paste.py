@@ -832,6 +832,17 @@ def _differs(ai: dict, rule: dict) -> bool:
                for k in ("size_gb", "speed_gb", "ports", "cores", "watt"))
 
 
+def _quantity_from_text(item: dict, line: str) -> dict:
+    """수량은 원문에 적힌 표기('* 2EA', 'x2', 수량 칸)가 정한다: AI 수량이 이와 다르면 원문 값을 쓴다 (모델명·용량 숫자를 수량으로 읽는 오류 차단)."""
+    if "\t" in line:
+        qty = doc_tables._guess_row([c for c in line.split("\t")])[2]
+    else:
+        qty = _line_item(line)[1]
+    if qty is not None and qty != item.get("qty"):
+        return {**item, "qty": qty, "qty_from": "text"}
+    return item
+
+
 def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_lines: set[int]) -> dict:
     """→ {groups: [doc_tables 그룹], conflicts: [...], ignored: {line: reason}}"""
     rule_items = [i for g in rule_groups for i in g.get("items") or []]
@@ -848,6 +859,7 @@ def quote_from_ai(result: dict, lines: list[str], rule_groups: list[dict], rule_
                 rule_cat = parts.interpret(ai_item.get("code", ""), ai_item["desc"])["category"]
                 if rule_cat != "base":
                     ai_item = {**ai_item, "category": rule_cat, "category_ko": parts.CATEGORY_KO.get(rule_cat, rule_cat)}
+            ai_item = _quantity_from_text(ai_item, lines[c["line"] - 1])
             bad = _verify_component(c, lines)
             match = next((r for r in rule_items if _n(r["desc"]) and _n(r["desc"]) in _n(lines[c["line"] - 1])), None)
             diff = bool(match) and _differs(ai_item, match)
@@ -1098,7 +1110,14 @@ def _quote_response(groups, text, suggest, ignored, common_note) -> dict:
 
 _ENUM = re.compile(r"(?:(?<=\s)|^)(?:[가-힣]\.|\(?\d{1,2}[.)]|[①-⑳]|[-•▪■□◦●○]|\(?[a-zA-Z][.)])\s+")
 _LABEL = re.compile(r"^\s*[A-Za-z가-힣/ ]{2,14}\s*[:：]\s*")
-_QTY_TAIL = re.compile(r"(?:[*xX×]\s*|수량\s*[:：]?\s*)?(\d{1,3})\s*(?:EA|ea|Ea|개|대|set|SET|pcs)\s*$|[*xX×]\s*(\d{1,3})\s*$")
+_UNIT = r"(?:EA|ea|Ea|개|대|set|SET|Set|pcs|PCS|unit|units|UNIT|매|ㄱ)"
+_QTY_TAIL = re.compile(
+    rf"(?:수량|qty|q'ty|quantity)\s*[:：=]?\s*(\d{{1,3}})\s*{_UNIT}?\s*$"          # 수량 2 / Qty: 2
+    rf"|[(\[（]\s*(?:[*xX×]\s*)?(\d{{1,3}})\s*{_UNIT}?\s*[)\]）]\s*$"                 # (2EA) / (x2)
+    rf"|(?:[*xX×]\s*)?(?<![\d.])(\d{{1,3}})\s*{_UNIT}\s*$"                            # * 2EA / 2 EA / 2개
+    r"|[*xX×]\s*(?<![\d.])(\d{1,3})\s*$", re.I)                                   # * 2 / x2
+_QTY_HEAD = re.compile(rf"^(\d{{1,3}})\s*(?:{_UNIT}\s+|[x×*]\s+(?=[A-Za-z가-힣]))")        # 2EA SSD… / 2 x SSD…
+_PER = re.compile(r"\s*(?:/|per\s+)\s*(?:server|서버|대|unit|node)\s*$", re.I)
 
 
 def _split_enumerated(line: str) -> list[str]:
@@ -1113,13 +1132,19 @@ def _split_enumerated(line: str) -> list[str]:
 
 
 def _line_item(raw: str):
-    """한 항목 문장 → (품명, 수량). 기호('가.')·'CPU :' 머리말·끝의 '* 2EA' 를 걷어 낸다. 수량이 불확실하면 None (임의로 1로 두지 않는다)."""
-    text = _ENUM.sub("", raw.strip(), count=1).strip()
+    """한 항목 문장 → (품명, 수량). 기호('가.')·끝의 '* 2EA / x2 / 2개 / 수량 2 / (2EA)'·앞의 '2 x ' 를 걷어 낸다.
+    수량이 불확실하면 None (임의로 1로 두지 않는다). '2.5in'·'960GB'·'2x10Gb' 같은 사양 숫자는 수량이 아니다."""
+    text = _ENUM.sub("", raw.strip(), count=1).strip().replace("＊", "*").replace("×", "×")
+    text = _PER.sub("", text)
     qty = None
     m = _QTY_TAIL.search(text)
     if m:
-        qty = float(m.group(1) or m.group(2))
-        text = text[:m.start()].rstrip(" *xX×,;")
+        qty = float(next(g for g in m.groups() if g))
+        text = text[:m.start()].rstrip(" *xX×,;-")
+    else:
+        h = _QTY_HEAD.match(text)
+        if h:
+            qty, text = float(h.group(1)), text[h.end():].strip()
     return text, qty
 
 
