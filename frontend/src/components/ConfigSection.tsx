@@ -22,7 +22,8 @@ interface Props {
   modelLine: ReactNode;
   /** 요구사항 행의 '추가/수정' 버튼이 보낸 요청. n 이 바뀔 때마다 처리 */
   focus: FocusRequest | null;
-  onOpenImages: () => void;
+  /** 보관함 열기 — 부품 id 를 주면 그 부품에 연결할 이미지를 고르는 상태로 연다 */
+  onOpenImages: (componentId?: string) => void;
   /** 직접 고른 전면 이미지를 해제해 자동(스텐실 이름 매칭)으로 */
   onUseAutoFront: () => Promise<void>;
   /** 카드 맨 위에 넣을 견적 붙여넣기·요약 */
@@ -786,7 +787,10 @@ export default function ConfigSection({
         <figcaption><b>{view === "front" ? "Front" : "Rear"}</b><span className="muted">{info?.item?.name || "실제 이미지 미지정"}</span>
           {rendered && !big && <button type="button" className="zoombtn" aria-label={`${view === "front" ? "전면" : "후면"} 크게 보기`} data-tip="크게 보기" onClick={() => { setZoom(view); }}>⤢</button>}</figcaption>
         {view === "rear" && !!renderedImages.noImage?.length && (
-          <p className="warn small noimg-note">이미지 없이 라벨로 표시: {renderedImages.noImage.join(", ")} — [이미지·주석 보관함]에서 이 부품 이미지를 연결하면 그림으로 바뀝니다</p>
+          <p className="warn small noimg-note">이미지가 없어 라벨로 표시: {renderedImages.noImage.map((label, i) => {
+            const comp = components.find((item) => item.short === label || item.name === label);
+            return <span key={label}>{i ? ", " : ""}{label}{comp && <> <button type="button" className="lnk small" onClick={() => onOpenImages(comp.id)}>이미지 연결</button></>}</span>;
+          })}</p>
         )}
         {mode === "calib" && rendered && (
           <div className="ptools" role="toolbar" aria-label={view === "front" ? "전면 보정 도구" : "후면 보정 도구"}>
@@ -952,7 +956,7 @@ export default function ConfigSection({
             </> : <>
             <p><strong>등록된 {view === "front" ? "전면" : "후면"} 이미지가 없습니다. ({server.vendor} {server.model})</strong></p>
             <p>Dell PowerEdge 스텐실(VSSX/VSDX)이나 이미지를 올려 주세요. 올리면 이 모델에 자동으로 연결됩니다.</p>
-            <p><button type="button" className="btn small" onClick={onOpenImages}>실제 이미지 올리기</button></p>
+            <p><button type="button" className="btn small" onClick={() => onOpenImages()}>실제 이미지 올리기</button></p>
             <p className="muted">{view === "front" ? "그림이 없어도 오른쪽 위 ⋯ → 디스크 일괄 작업에서 디스크를 꽂고 검증할 수 있습니다." : "그림이 없어도 오른쪽 위 ⋯ → 슬롯 목록에서 부품을 꽂고 검증할 수 있습니다."}</p>
             </>}
           </div>
@@ -1163,7 +1167,7 @@ export default function ConfigSection({
             <button type="button" className="lnk dots" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="고급 도구" onClick={() => setMenuOpen(!menuOpen)}>⋯</button>
             {menuOpen && (
               <div className="menu" role="menu" onClick={() => setMenuOpen(false)}>
-                <button role="menuitem" onClick={onOpenImages}>서버 이미지 변경</button>
+                <button role="menuitem" onClick={() => onOpenImages()}>서버 이미지 변경</button>
                 <button role="menuitem" onClick={() => setShowSlotList(!showSlotList)}>{showSlotList ? "슬롯 목록 숨기기" : "슬롯 목록으로 보기"}</button>
                 <button role="menuitem" disabled={!backplane.bays} onClick={() => { setSelectedSlot(null); setSelectedBays(Array.from({ length: backplane.bays }, (_, i) => i).filter((i) => !config.bays[String(i)])); }}>빈 베이 모두 선택</button>
                 <button role="menuitem" disabled={!backplane.bays} onClick={() => { setSelectedSlot(null); setSelectedBays(Array.from({ length: backplane.bays }, (_, i) => i)); }}>베이 전체 선택</button>
@@ -1184,7 +1188,7 @@ export default function ConfigSection({
             이 전면 이미지에는 베이가 {candidates.length}개뿐이라 {backplane.name} 구성을 모두 표시할 수 없습니다.
             {" "}{images?.front.auto === false
               ? <button className="btn small" onClick={() => void onUseAutoFront()}>자동 이미지로 되돌리기</button>
-              : <button className="btn ghost small" onClick={onOpenImages}>다른 이미지 고르기</button>}
+              : <button className="btn ghost small" onClick={() => onOpenImages()}>다른 이미지 고르기</button>}
           </div>
         )}
         {imageBayMismatch && mode !== "calib" && candidates.length > backplane.bays && (

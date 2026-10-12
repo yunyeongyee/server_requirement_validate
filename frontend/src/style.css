@@ -801,3 +801,5 @@ figure.stage figcaption{display:flex;align-items:center;gap:8px}
 .quote-issues{margin:8px 0 2px;font-size:13px}.quote-issues>summary{cursor:pointer;font-weight:600;color:var(--review)}
 .quote-issues .cf{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 0;border-top:1px solid #f0e2c4}
 .quote-issues .cf-text{flex:1 1 220px;min-width:0}.quote-issues .cf-why{flex-basis:100%;font-size:12px;color:var(--review)}
+
+.vault-focus{background:#eef5ff;border:1px solid #c9dcf7;border-radius:6px;padding:8px 10px;font-size:13px;margin:6px 0}

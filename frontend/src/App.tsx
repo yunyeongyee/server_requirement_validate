@@ -124,6 +124,8 @@ export default function App() {
   const [view, setView] = useState<"server" | "all">("server");
   const [focus, setFocus] = useState<FocusRequest | null>(null);
   const [imagesSignal, setImagesSignal] = useState(0);
+  /** 보관함을 열 때 바로 연결할 부품 (이미지가 없어 라벨로 표시된 카드) */
+  const [imagesFor, setImagesFor] = useState<string | null>(null);
   /** AI 분석: 서버에 키가 있고 사용자가 켜 둔 경우만 (저장된 선택이 없으면 키가 있을 때 기본 켬) */
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [aiPref, setAiPref] = useState<boolean | null>(() => { try { const v = localStorage.getItem("srv.ai"); return v === null ? null : v === "1"; } catch { return null; } });
@@ -592,9 +594,10 @@ export default function App() {
             onBackplaneChange={handleBackplaneChange}
             onImagesChange={reloadImages}
             openImagesSignal={imagesSignal}
+            openImagesFor={imagesFor}
           />}
             focus={focus}
-            onOpenImages={() => setImagesSignal((n) => n + 1)}
+            onOpenImages={(componentId?: string) => { setImagesFor(componentId || null); setImagesSignal((n) => n + 1); }}
             onUseAutoFront={async () => {
               if (!server || !config) return;
               await setImageMap(server.id, "front", config.backplane, null);

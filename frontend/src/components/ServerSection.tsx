@@ -18,6 +18,8 @@ interface Props {
   onImagesChange: () => void;
   /** 바뀔 때마다 이미지 선택 창을 연다 (도구 메뉴에서 호출) */
   openImagesSignal?: number;
+  /** 이 부품에 연결할 이미지를 고르는 상태로 연다 */
+  openImagesFor?: string | null;
 }
 
 export default function ServerSection({
@@ -34,6 +36,7 @@ export default function ServerSection({
   onBackplaneChange,
   onImagesChange,
   openImagesSignal = 0,
+  openImagesFor = null,
 }: Props) {
   const [library, setLibrary] = useState<LibraryImage[]>([]);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -53,8 +56,17 @@ export default function ServerSection({
   const [forceLink, setForceLink] = useState(false);
   const [dropping, setDropping] = useState(false);
 
+  const [focusComp, setFocusComp] = useState<string | null>(null);
   useEffect(() => {
-    if (openImagesSignal) setManagerOpen(true);
+    if (!openImagesSignal) return;
+    setManagerOpen(true);
+    const comp = openImagesFor ? components.find((item) => item.id === openImagesFor) : undefined;
+    setFocusComp(comp?.id || null);
+    if (comp) {
+      setTab(comp.category === "FC HBA" ? "fc" : comp.category === "GPU" ? "gpu" : comp.category === "NIC" || comp.category === "OCP NIC" ? "nic" : "all");
+      setLinkTarget(`component:${comp.id}`);
+      setSelectedId(null); setQuery(""); setSide("all"); setModelFilter("");
+    }
   }, [openImagesSignal]);
 
   useEffect(() => {
@@ -164,7 +176,7 @@ export default function ServerSection({
       setSaving(false);
     }
   };
-  const closeManager = () => { setManagerOpen(false); setSaved(""); };
+  const closeManager = () => { setManagerOpen(false); setSaved(""); setFocusComp(null); };
 
   const serverSpec: Array<[string, string | number]> = [
     ["Form Factor", server.form_factor],
@@ -253,6 +265,10 @@ export default function ServerSection({
               <h3>이미지 보관함 <span className="muted small">· {server.vendor} {server.model}</span></h3>
               <button className="ico" aria-label="닫기" onClick={closeManager}>✕</button>
             </div>
+            {focusComp && (() => {
+              const comp = components.find((item) => item.id === focusComp);
+              return comp ? <p className="vault-focus"><b>{comp.name}</b>에 쓸 이미지를 고른 뒤 [저장하기]를 누르세요. 보관함에 이 카드 그림이 없으면(Dell 스텐실에는 PCIe 카드 그림이 없습니다) 카드 PNG·JPG를 아래에 올린 뒤 고르면 됩니다.</p> : null;
+            })()}
             <p className="small vault-now">현재 연결 — 전면: <b>{images?.front.item?.name || "없음"}</b> / 후면: <b>{images?.rear.item?.name || "없음"}</b></p>
             <div className={`vault-drop ${dropping ? "over" : ""}`}
               onDragOver={(event) => { event.preventDefault(); setDropping(true); }} onDragLeave={() => setDropping(false)}
